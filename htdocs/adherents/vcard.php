@@ -1,9 +1,10 @@
 <?php
-/* Copyright (C) 2004      Rodolphe Quiedeville <rodolphe@quiedeville.org>
- * Copyright (C) 2004-2010 Laurent Destailleur  <eldy@users.sourceforge.net>
- * Copyright (C) 2005-2012 Regis Houssin        <regis.houssin@inodbox.com>
- * Copyright (C) 2020		Tobias Sekan		<tobias.sekan@startmail.com>
- * Copyright (C) 2020-2021	Frédéric France		<frederic.france@netlogic.fr>
+/* Copyright (C) 2004		Rodolphe Quiedeville		<rodolphe@quiedeville.org>
+ * Copyright (C) 2004-2010	Laurent Destailleur			<eldy@users.sourceforge.net>
+ * Copyright (C) 2005-2012	Regis Houssin				<regis.houssin@inodbox.com>
+ * Copyright (C) 2020		Tobias Sekan				<tobias.sekan@startmail.com>
+ * Copyright (C) 2020-2026  Frédéric France				<frederic.france@free.fr>
+ * Copyright (C) 2024-2025	MDW							<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,15 +26,24 @@
  *		\brief      Vcard tab of a member
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
 require_once DOL_DOCUMENT_ROOT.'/adherents/class/adherent.class.php';
 require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/vcard.class.php';
 
-$id = GETPOST('id', 'int');
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
+
+$id = GETPOSTINT('id');
 $ref = GETPOST('ref', 'alphanohtml');
 
-$object = new adherent($db);
+$object = new Adherent($db);
 
 // Fetch object
 if ($id > 0 || !empty($ref)) {
@@ -41,22 +51,22 @@ if ($id > 0 || !empty($ref)) {
 	$result = $object->fetch($id, $ref);
 
 	// Define variables to know what current user can do on users
-	$canadduser = ($user->admin || $user->rights->user->user->creer);
-	// Define variables to know what current user can do on properties of user linked to edited member
+	$canadduser = ($user->admin || $user->hasRight('user', 'user', 'creer'));
+	// Define variables to know what the current user can do on properties of user linked to edited member
 	if ($object->user_id) {
 		// $User is the user who edits, $object->user_id is the id of the related user in the edited member
-		$caneditfielduser = ((($user->id == $object->user_id) && $user->rights->user->self->creer)
-			|| (($user->id != $object->user_id) && $user->rights->user->user->creer));
-		$caneditpassworduser = ((($user->id == $object->user_id) && $user->rights->user->self->password)
-			|| (($user->id != $object->user_id) && $user->rights->user->user->password));
+		$caneditfielduser = ((($user->id == $object->user_id) && $user->hasRight('user', 'self', 'creer'))
+			|| (($user->id != $object->user_id) && $user->hasRight('user', 'user', 'creer')));
+		$caneditpassworduser = ((($user->id == $object->user_id) && $user->hasRight('user', 'self', 'password'))
+			|| (($user->id != $object->user_id) && $user->hasRight('user', 'user', 'password')));
 	}
 }
 
 // Define variables to determine what the current user can do on the members
-$canaddmember = $user->rights->adherent->creer;
+$canaddmember = $user->hasRight('adherent', 'creer');
 // Define variables to determine what the current user can do on the properties of a member
 if ($id) {
-	$caneditfieldmember = $user->rights->adherent->creer;
+	$caneditfieldmember = $user->hasRight('adherent', 'creer');
 }
 
 // Security check
@@ -86,7 +96,7 @@ $v = new vCard();
 $v->setProdId('Dolibarr '.DOL_VERSION);
 
 $v->setUid('DOLIBARR-ADHERENTID-'.$object->id);
-$v->setName($object->lastname, $object->firstname, "", $object->civility, "");
+$v->setName($object->lastname, $object->firstname, "", (string) $object->civility, "");
 $v->setFormattedName($object->getFullName($langs, 1));
 
 $v->setPhoneNumber($object->phone_pro, "TYPE=WORK;VOICE");
@@ -97,6 +107,7 @@ $v->setPhoneNumber($object->fax, "TYPE=WORK;FAX");
 $country = $object->country_code ? $object->country : '';
 
 $v->setAddress("", "", $object->address, $object->town, $object->state, $object->zip, $country, "TYPE=WORK;POSTAL");
+// @phan-suppress-next-line PhanDeprecatedFunction  (setLabel is the old method, new is setAddress)
 $v->setLabel("", "", $object->address, $object->town, $object->state, $object->zip, $country, "TYPE=WORK");
 
 $v->setEmail($object->email);
@@ -121,27 +132,32 @@ if ($company->id) {
 	} elseif (empty(trim($object->email))) {
 		// when adherent e-mail is empty, use only company e-mail
 		$v->setEmail($company->email);
-	} elseif (strtolower(end(explode("@", $object->email))) == strtolower(end(explode("@", $company->email)))) {
-		// when e-mail domain of adherent and company are the same, use adherent e-mail at first (and company e-mail at second)
-		$v->setEmail($object->email);
-
-		// support by Microsoft Outlook (2019 and possible earlier)
-		$v->setEmail($company->email, 'INTERNET');
 	} else {
-		// when e-mail of adherent and company complete different use company e-mail at first (and adherent e-mail at second)
-		$v->setEmail($company->email);
+		$tmpobject = explode("@", trim($object->email));
+		$tmpcompany = explode("@", trim($company->email));
 
-		// support by Microsoft Outlook (2019 and possible earlier)
-		$v->setEmail($object->email, 'INTERNET');
+		if (strtolower(end($tmpobject)) == strtolower(end($tmpcompany))) {
+			// when e-mail domain of adherent and company are the same, use adherent e-mail at first (and company e-mail at second)
+			$v->setEmail($object->email);
+
+			// support by Microsoft Outlook (2019 and possible earlier)
+			$v->setEmail($company->email, 'INTERNET');
+		} else {
+			// when e-mail of adherent and company complete different use company e-mail at first (and adherent e-mail at second)
+			$v->setEmail($company->email);
+
+			// support by Microsoft Outlook (2019 and possible earlier)
+			$v->setEmail($object->email, 'INTERNET');
+		}
 	}
 
-	// Si adherent lie a un tiers non de type "particulier"
+	// If the member is linked to a third party not of type "individual"
 	if ($company->typent_code != 'TE_PRIVATE') {
 		$v->setOrg($company->name);
 	}
 }
 
-// Personal informations
+// Personal information
 $v->setPhoneNumber($object->phone_perso, "TYPE=HOME;VOICE");
 if ($object->birth) {
 	$v->setBirthday($object->birth);
@@ -154,9 +170,7 @@ $db->close();
 
 $output = $v->getVCard();
 
-$filename = trim(urldecode($v->getFileName())); // "Nom prenom.vcf"
-$filenameurlencoded = dol_sanitizeFileName(urlencode($filename));
-//$filename = dol_sanitizeFileName($filename);
+$filename = $v->getFileName(); // "Nom prenom.vcf", already sanitized
 
 
 header("Content-Disposition: attachment; filename=\"".$filename."\"");

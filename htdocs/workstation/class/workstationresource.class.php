@@ -1,6 +1,8 @@
 <?php
 /* Copyright (C) 2017  Laurent Destailleur <eldy@users.sourceforge.net>
  * Copyright (C) 2020 Gauthier VERDOL <gauthier.verdol@atm-consulting.fr>
+ * Copyright (C) 2024-2026	MDW							<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France             <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,7 +19,7 @@
  */
 
 /**
- * \file        class/workstationresource.class.php
+ * \file        htdocs/workstation/class/workstationresource.class.php
  * \ingroup     workstation
  * \brief       This file is a CRUD class file for WorkstationResource (Create/Read/Update/Delete)
  */
@@ -28,18 +30,18 @@
  */
 class WorkstationResource extends CommonObject
 {
-	/** @var string $table_element Table name in SQL */
+	/** @var string Table name in SQL */
 	public $table_element = 'workstation_workstation_resource';
 
-	/** @var string $element Name of the element (tip for better integration in Dolibarr: this value should be the reflection of the class name with ucfirst() function) */
+	/** @var string Name of the element (tip for better integration in Dolibarr: this value should be the reflection of the class name with ucfirst() function) */
 	public $element = 'workstationresource';
 
 	/**
-	 * @var array  Array with all fields and their property. Do not use it as a static var. It may be modified by constructor.
+	 * @var array<string,array{type:string,label:string,enabled:int<0,2>|string,position:int,visible:int<-6,6>|string,langfile?:string,notnull?:int<-1,1>,noteditable?:int<0,1>,alwayseditable?:int<0,1>|string,default?:string|int,index?:int<0,1>,foreignkey?:string,searchall?:int<0,1>,isameasure?:int<0,1>,css?:string,cssview?:string,csslist?:string,help?:string,helplist?:string,showoncombobox?:int<0,4>|string,disabled?:int<0,1>|string,arrayofkeyval?:array<int|string,string>,autofocusoncreate?:int<0,1>,comment?:string,copytoclipboard?:int<1,2>,validate?:int<0,1>|string,showonheader?:int<0,1>,searchmulti?:int<0,1>,picto?:string,required?:int<0,1>,placeholder?:string}>  Array with all fields and their property. Do not use it as a static var. It may be modified by constructor.
 	 */
 	public $fields = array(
-		'fk_workstation' => array('type' => 'integer'),
-		'fk_resource' => array('type' => 'integer')
+		'fk_workstation' => array('type' => 'integer', 'label' => 'Workstation', 'enabled' => 1, 'position' => 10, 'visible' => 1),
+		'fk_resource' => array('type' => 'integer', 'label' => 'UserGroup', 'enabled' => 1, 'position' => 20, 'visible' => 1),
 	);
 
 	/**
@@ -87,20 +89,25 @@ class WorkstationResource extends CommonObject
 	 * Function used to get an array with all resources linked to a workstation
 	 *
 	 * @param	int		$fk_workstation		Id of workstation we need to get linked resources
-	 * @return 	array						Array of record
+	 * @return 	int[]						Array of record
 	 */
 	public static function getAllResourcesOfWorkstation($fk_workstation)
 	{
 		global $db;
 		$obj = new self($db);
-		return parent::getAllItemsLinkedByObjectID($fk_workstation, 'fk_resource', 'fk_workstation', $obj->table_element);
+		$all_items = parent::getAllItemsLinkedByObjectID($fk_workstation, 'fk_resource', 'fk_workstation', $obj->table_element);
+		if (!is_array($all_items)) {
+			return [];
+		}
+
+		return array_map('intval', $all_items);
 	}
 
 	/**
 	 * Function used to remove all resources linked to a workstation
 	 *
 	 * @param	int		$fk_workstation		Id of workstation we need to remove linked resources
-	 * @return 	int							<0 if KO, 0 if nothing done, >0 if OK and something done
+	 * @return 	int							Return integer <0 if KO, 0 if nothing done, >0 if OK and something done
 	 */
 	public static function deleteAllResourcesOfWorkstation($fk_workstation)
 	{

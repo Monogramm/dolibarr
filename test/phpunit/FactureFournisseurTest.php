@@ -1,6 +1,9 @@
 <?php
 /* Copyright (C) 2010 Laurent Destailleur  <eldy@users.sourceforge.net>
  * Copyright (C) 2017 Juanjo Menent        <jmenent@2byte.es>
+ * Copyright (C) 2023 Alexandre Janniaux   <alexandre.janniaux@gmail.com>
+ * Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2026       Joachim Kueter          <git-jk@bloxera.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,18 +27,21 @@
  *		\remarks	To run this script as CLI:  phpunit filename.php
  */
 
-global $conf,$user,$langs,$db;
+global $conf,$user,$langs,$db,$mysoc;
 //define('TEST_DB_FORCE_TYPE','mysql');	// This is to force using mysql driver
 //require_once 'PHPUnit/Autoload.php';
-require_once dirname(__FILE__).'/../../htdocs/master.inc.php';
+require_once dirname(__FILE__).'/CommonClassTest.class.php';
 require_once dirname(__FILE__).'/../../htdocs/fourn/class/fournisseur.facture.class.php';
+require_once dirname(__FILE__).'/../../htdocs/fourn/class/fournisseur.facture-rec.class.php';
+require_once dirname(__FILE__).'/../../htdocs/societe/class/societe.class.php';
+require_once dirname(__FILE__).'/../../htdocs/comm/action/class/actioncomm.class.php';
 
 if (empty($user->id)) {
 	print "Load permissions for admin user nb 1\n";
 	$user->fetch(1);
-	$user->getrights();
+	$user->loadRights();
 }
-$conf->global->MAIN_DISABLE_ALL_MAILS=1;
+$conf->global->MAIN_DISABLE_ALL_MAILS = 1;
 
 
 /**
@@ -45,86 +51,8 @@ $conf->global->MAIN_DISABLE_ALL_MAILS=1;
  * @backupStaticAttributes enabled
  * @remarks	backupGlobals must be disabled to have db,conf,user and lang not erased.
  */
-class FactureFournisseurTest extends PHPUnit\Framework\TestCase
+class FactureFournisseurTest extends CommonClassTest
 {
-	protected $savconf;
-	protected $savuser;
-	protected $savlangs;
-	protected $savdb;
-
-	/**
-	 * Constructor
-	 * We save global variables into local variables
-	 *
-	 * @return FactureFournisseurTest
-	 */
-	public function __construct()
-	{
-		parent::__construct();
-
-		//$this->sharedFixture
-		global $conf,$user,$langs,$db;
-		$this->savconf=$conf;
-		$this->savuser=$user;
-		$this->savlangs=$langs;
-		$this->savdb=$db;
-
-		print __METHOD__." db->type=".$db->type." user->id=".$user->id;
-		//print " - db ".$db->db;
-		print "\n";
-	}
-
-	/**
-	 * setUpBeforeClass
-	 *
-	 * @return void
-	 */
-	public static function setUpBeforeClass()
-	{
-		global $conf,$user,$langs,$db;
-		$db->begin();	// This is to have all actions inside a transaction even if test launched without suite.
-
-		print __METHOD__."\n";
-	}
-
-	/**
-	 * tearDownAfterClass
-	 *
-	 * @return	void
-	 */
-	public static function tearDownAfterClass()
-	{
-		global $conf,$user,$langs,$db;
-		$db->rollback();
-
-		print __METHOD__."\n";
-	}
-
-	/**
-	 * Init phpunit tests
-	 *
-	 * @return	void
-	 */
-	protected function setUp()
-	{
-		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
-
-		print __METHOD__."\n";
-	}
-	/**
-	 * End phpunit tests
-	 *
-	 * @return	void
-	 */
-	protected function tearDown()
-	{
-		print __METHOD__."\n";
-	}
-
 	/**
 	 * testFactureFournisseurCreate
 	 *
@@ -133,14 +61,14 @@ class FactureFournisseurTest extends PHPUnit\Framework\TestCase
 	public function testFactureFournisseurCreate()
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$localobject=new FactureFournisseur($this->savdb);
+		$localobject = new FactureFournisseur($db);
 		$localobject->initAsSpecimen();
-		$result=$localobject->create($user);
+		$result = $localobject->create($user);
 
 		$this->assertLessThan($result, 0, $localobject->errorsToString());
 		print __METHOD__." result=".$result."\n";
@@ -159,13 +87,13 @@ class FactureFournisseurTest extends PHPUnit\Framework\TestCase
 	public function testFactureFournisseurFetch($id)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$localobject=new FactureFournisseur($this->savdb);
-		$result=$localobject->fetch($id);
+		$localobject = new FactureFournisseur($db);
+		$result = $localobject->fetch($id);
 
 		$this->assertLessThan($result, 0, $localobject->errorsToString());
 		print __METHOD__." id=".$id." result=".$result."\n";
@@ -184,13 +112,13 @@ class FactureFournisseurTest extends PHPUnit\Framework\TestCase
 	public function testFactureFournisseurUpdate($localobject)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$localobject->note='New note after update';
-		$result=$localobject->update($user);
+		$localobject->note = 'New note after update';
+		$result = $localobject->update($user);
 
 		print __METHOD__." id=".$localobject->id." result=".$result."\n";
 		$this->assertLessThan($result, 0, $localobject->errorsToString());
@@ -209,12 +137,12 @@ class FactureFournisseurTest extends PHPUnit\Framework\TestCase
 	public function testFactureFournisseurValid($localobject)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$result=$localobject->validate($user);
+		$result = $localobject->validate($user);
 		print __METHOD__." id=".$localobject->id." result=".$result."\n";
 
 		$this->assertLessThan($result, 0, $localobject->errorsToString());
@@ -233,10 +161,10 @@ class FactureFournisseurTest extends PHPUnit\Framework\TestCase
 	public function testFactureFournisseurOther($localobject)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
 		/*$result=$localobject->setstatus(0);
 		print __METHOD__." id=".$localobject->id." result=".$result."\n";
@@ -262,17 +190,207 @@ class FactureFournisseurTest extends PHPUnit\Framework\TestCase
 	public function testFactureFournisseurDelete($id)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$localobject=new FactureFournisseur($this->savdb);
-		$result=$localobject->fetch($id);
-		$result=$localobject->delete($user);
+		$localobject = new FactureFournisseur($db);
+		$result = $localobject->fetch($id);
+		$result = $localobject->delete($user);
 
 		print __METHOD__." id=".$id." result=".$result."\n";
 		$this->assertLessThan($result, 0, $localobject->errorsToString());
 		return $result;
+	}
+
+	/**
+	 * testFactureFournisseurPointOfTaxLockedAfterValidation
+	 *
+	 * The point of tax date of a validated supplier invoice can't be changed by update(), other updates still work,
+	 * and it can be changed again once the invoice is back to draft.
+	 *
+	 * @return void
+	 */
+	public function testFactureFournisseurPointOfTaxLockedAfterValidation()
+	{
+		global $conf,$user,$langs,$db;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
+
+		$langs->loadLangs(array("main", "bills"));
+
+		// Own supplier and free text line, so the test doesn't depend on demo data
+		$soc = new Societe($db);
+		$soc->name = 'Test supplier point of tax lock '.dol_print_date(dol_now(), 'dayhourlog');
+		$soc->fournisseur = 1;
+		$soc->code_fournisseur = -1;
+		$this->assertGreaterThan(0, $soc->create($user), $soc->errorsToString());
+
+		$localobject = new FactureFournisseur($db);
+		$localobject->socid = $soc->id;
+		$localobject->ref_supplier = 'SUPPLIER-POINTOFTAX-'.dol_print_date(dol_now(), 'dayhourlog');
+		$localobject->type = FactureFournisseur::TYPE_STANDARD;
+		$localobject->date = dol_mktime(0, 0, 0, 10, 15, 2026);
+		$localobject->date_pointoftax = dol_mktime(0, 0, 0, 9, 30, 2026);
+		$this->assertGreaterThan(0, $localobject->create($user), $localobject->errorsToString());
+		$this->assertGreaterThan(0, $localobject->addline('Service', 100, 19, 0, 0, 1), $localobject->errorsToString());
+		$this->assertGreaterThan(0, $localobject->validate($user), $localobject->errorsToString());
+
+		// Validated: the date can't be changed, other fields can
+		$localobject->fetch($localobject->id);
+		$localobject->date_pointoftax = dol_mktime(0, 0, 0, 10, 31, 2026);
+		$result = $localobject->update($user);
+		print __METHOD__." result=".$result." error=".$localobject->error."\n";
+		$this->assertLessThan(0, $result);
+		$this->assertEquals($langs->trans("ErrorPointOfTaxOfValidatedInvoiceCantBeChanged", $localobject->ref), $localobject->error);
+
+		// Status set to draft only on the object (as a PUT on the API can do): still refused
+		$localobject->fetch($localobject->id);
+		$localobject->status = FactureFournisseur::STATUS_DRAFT;
+		$localobject->date_pointoftax = dol_mktime(0, 0, 0, 10, 31, 2026);
+		$this->assertLessThan(0, $localobject->update($user));
+
+		$localobject->fetch($localobject->id);
+		$this->assertEquals('2026-09-30', dol_print_date($localobject->date_pointoftax, '%Y-%m-%d'));
+		$localobject->label = 'Point of tax lock';
+		$this->assertGreaterThan(0, $localobject->update($user), $localobject->errorsToString());
+
+		// Back to draft: the date can be changed again
+		$this->assertGreaterThan(0, $localobject->setDraft($user), $localobject->errorsToString());
+		$localobject->date_pointoftax = dol_mktime(0, 0, 0, 10, 31, 2026);
+		$this->assertGreaterThan(0, $localobject->update($user), $localobject->errorsToString());
+	}
+
+	/**
+	 * testSendEmailsRemindersOncePerDay
+	 *
+	 * The reminder of a supplier invoice already sent today is not sent again, even if the label of its event is longer than 128 characters
+	 * (it is truncated when saved). A job that differs only by the recipient has its own memory.
+	 *
+	 * @return void
+	 */
+	public function testSendEmailsRemindersOncePerDay()
+	{
+		global $conf,$user,$langs,$db;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
+
+		$savmailfrom = getDolGlobalString('MAIN_MAIL_EMAIL_FROM');
+		$conf->global->MAIN_MAIL_EMAIL_FROM = 'noreply@example.com';
+
+		$soc = new Societe($db);
+		$soc->name = 'Test supplier reminder '.dol_print_date(dol_now(), 'dayhourlog');
+		$soc->fournisseur = 1;
+		$soc->code_fournisseur = -1;
+		$this->assertGreaterThan(0, $soc->create($user), $soc->errorsToString());
+
+		// Validated and unpaid invoice, due 7 days ago
+		$invoice = new FactureFournisseur($db);
+		$invoice->socid = $soc->id;
+		$invoice->ref_supplier = 'SUPPLIER-REMINDER-'.dol_print_date(dol_now(), 'dayhourlog');
+		$invoice->type = FactureFournisseur::TYPE_STANDARD;
+		$invoice->date = dol_now();
+		$this->assertGreaterThan(0, $invoice->create($user), $invoice->errorsToString());
+		$this->assertGreaterThan(0, $invoice->addline('Service', 100, 19, 0, 0, 1), $invoice->errorsToString());
+		$this->assertGreaterThan(0, $invoice->validate($user), $invoice->errorsToString());
+		$duedate = dol_get_first_hour(dol_time_plus_duree(dol_now(), -7, 'd'), 'gmt');
+		$db->query("UPDATE ".MAIN_DB_PREFIX."facture_fourn SET paye = 0, date_lim_reglement = '".$db->idate($duedate, 'gmt')."' WHERE rowid = ".((int) $invoice->id));
+
+		// The reminder was already sent today: its event has a label longer than 128 characters, so it is truncated when saved, and with a quote, so it is sanitized
+		$template = '"Reminder" template with a very long name to check that the event of a reminder already sent is still found';
+		$db->query("INSERT INTO ".MAIN_DB_PREFIX."c_email_templates (entity, type_template, private, datec, label, position, enabled, active, topic, joinfiles, content) VALUES (1, 'invoice_supplier_send', 0, '".$db->idate(dol_now())."', '".$db->escape($template)."', 990, '1', 1, 'Topic', 0, 'Content')");
+		$event = new ActionComm($db);
+		$event->type_code = 'AC_OTH_AUTO';
+		$event->code = 'AC_EMAIL';
+		$event->label = 'sendEmailsRemindersOnInvoiceDueDateOK (nbdays=-7 paymentmode=all datetouse=duedate forcerecipient=a@b.co template='.$template.')';
+		$event->socid = $soc->id;
+		$event->elementtype = 'invoice_supplier';
+		$event->elementid = $invoice->id;
+		$event->datep = dol_now();
+		$event->datef = $event->datep;
+		$event->percentage = -1;
+		$event->authorid = $user->id;
+		$event->userownerid = $user->id;
+		$this->assertGreaterThan(128, dol_strlen($event->label));
+		$this->assertGreaterThan(0, $event->create($user), (string) $event->error);
+
+		// Mails are disabled here: a reminder sent again fails to be sent and the job returns the error
+		$localobject = new FactureFournisseur($db);
+		$localobject->sendEmailsRemindersOnSupplierInvoiceDueDate(-7, 'all', $template, 'duedate', 'a@b.co');
+		$this->assertEquals('', $localobject->error, 'The reminder was sent again');
+
+		// Another job that differs only by the recipient has its own memory, even if the label is truncated: its reminder is sent
+		$localobject->sendEmailsRemindersOnSupplierInvoiceDueDate(-7, 'all', $template, 'duedate', 'c@b.co');
+		$this->assertNotEquals('', $localobject->error, 'The reminder of a job with another recipient was not sent');
+
+		$db->query("DELETE FROM ".MAIN_DB_PREFIX."c_email_templates WHERE label = '".$db->escape($template)."'");
+		$conf->global->MAIN_MAIL_EMAIL_FROM = $savmailfrom;
+	}
+
+	/**
+	 * testFactureFournisseurPaymentReference
+	 *
+	 * The payment reference given by the supplier is checked (QR reference or RF), then stored and read back.
+	 *
+	 * @return void
+	 */
+	public function testFactureFournisseurPaymentReference()
+	{
+		global $conf,$user,$langs,$db;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
+
+		$this->assertSame('', FactureFournisseur::checkPaymentReference(''));
+		$this->assertSame('', FactureFournisseur::checkPaymentReference('210000000003139471430009017'));
+		$this->assertSame('', FactureFournisseur::checkPaymentReference('RF18539007547034'));
+		$this->assertSame('ErrorQRReferenceNotValid', FactureFournisseur::checkPaymentReference('210000000003139471430009018'));
+		$this->assertSame('ErrorPaymentReferenceOfAccountNotValid', FactureFournisseur::checkPaymentReference('RF19539007547034'));
+
+		$localobject = new FactureFournisseur($db);
+		$localobject->initAsSpecimen();
+		$this->assertGreaterThan(0, $localobject->create($user), $localobject->errorsToString());
+		$localobject->fetch($localobject->id);
+
+		$localobject->payment_reference = '210000000003139471430009017';
+		$this->assertGreaterThan(0, $localobject->update($user), $localobject->errorsToString());
+
+		$localobject->fetch($localobject->id);
+		$this->assertSame('210000000003139471430009017', $localobject->payment_reference);
+	}
+
+	/**
+	 * testFactureFournisseurRecGetNextDate
+	 *
+	 * @return	void
+	 */
+	public function testFactureFournisseurRecGetNextDate()
+	{
+		global $db;
+
+		$savtz = date_default_timezone_get();
+		date_default_timezone_set('Europe/Paris');
+
+		try {
+			$localobject = new FactureFournisseurRec($db);
+			$localobject->frequency = 1;
+			$localobject->unit_frequency = 'm';
+
+			// Midnight of the 1st after a month of 30 days is the last day of the previous month in UTC
+			foreach (array('2026-10-01' => '2026-11-01', '2026-12-01' => '2027-01-01', '2026-03-01' => '2026-04-01') as $day => $expected) {
+				$localobject->date_when = dol_stringtotime($day.' 00:00:00', 0);
+				$result = dol_print_date($localobject->getNextDate(), '%Y-%m-%d %H:%M:%S', 'tzserver');
+				print __METHOD__." day=".$day." result=".$result."\n";
+				$this->assertEquals($expected.' 00:00:00', $result);
+			}
+		} finally {
+			date_default_timezone_set($savtz);
+		}
 	}
 }

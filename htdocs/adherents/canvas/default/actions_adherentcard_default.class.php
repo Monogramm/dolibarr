@@ -2,6 +2,8 @@
 /* Copyright (C) 2010-2012	Regis Houssin		<regis.houssin@inodbox.com>
  * Copyright (C) 2011		Laurent Destailleur	<eldy@users.sourceforge.net>
  * Copyright (C) 2012-2018  Philippe Grand      <philippe.grand@atoo-net.com>
+ * Copyright (C) 2025       Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2025		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,7 +35,7 @@ class ActionsAdherentCardDefault extends ActionsAdherentCardCommon
 	/**
 	 *	Constructor
 	 *
-	 *	@param	DoliDB	$db				Handler acces data base
+	 *	@param	DoliDB	$db				Handler access data base
 	 *	@param	string	$dirmodule		Name of directory of module
 	 *	@param	string	$targetmodule	Name of directory of module where canvas is stored
 	 *	@param	string	$canvas			Name of canvas
@@ -61,13 +63,13 @@ class ActionsAdherentCardDefault extends ActionsAdherentCardCommon
 		$out = '';
 
 		if ($action == 'view') {
-			$out .= (!empty($conf->global->ADHERENT_ADDRESSES_MANAGEMENT) ? $langs->trans("Adherent") : $langs->trans("ContactAddress"));
+			$out .= (getDolGlobalString('ADHERENT_ADDRESSES_MANAGEMENT') ? $langs->trans("Adherent") : $langs->trans("ContactAddress"));
 		}
 		if ($action == 'edit') {
-			$out .= (!empty($conf->global->ADHERENT_ADDRESSES_MANAGEMENT) ? $langs->trans("EditAdherent") : $langs->trans("EditAdherentAddress"));
+			$out .= (getDolGlobalString('ADHERENT_ADDRESSES_MANAGEMENT') ? $langs->trans("EditAdherent") : $langs->trans("EditAdherentAddress"));
 		}
 		if ($action == 'create') {
-			$out .= (!empty($conf->global->ADHERENT_ADDRESSES_MANAGEMENT) ? $langs->trans("NewAdherent") : $langs->trans("NewAdherentAddress"));
+			$out .= (getDolGlobalString('ADHERENT_ADDRESSES_MANAGEMENT') ? $langs->trans("NewAdherent") : $langs->trans("NewAdherentAddress"));
 		}
 
 		return $out;
@@ -77,20 +79,20 @@ class ActionsAdherentCardDefault extends ActionsAdherentCardCommon
 	/**
 	 *  Assign custom values for canvas
 	 *
-	 *  @param	string		$action    	Type of action
-	 *  @param	int			$id				Id
+	 *  @param	string		$action		Type of action
+	 *  @param	int			$id			Id
+	 * 	@param	string		$ref		Object ref (if id not provided) / Unused here
 	 *  @return	void
 	 */
-	public function assign_values(&$action, $id)
+	public function assign_values(&$action, $id, $ref = '')
 	{
 		// phpcs:enable
-		global $limit, $offset, $sortfield, $sortorder;
 		global $conf, $db, $langs, $user;
 		global $form;
 
 		$ret = $this->getObject($id);
 
-		parent::assign_values($action, $id);
+		parent::assign_values($action, $id, $ref);
 
 		$this->tpl['title'] = $this->getTitle($action);
 		$this->tpl['error'] = $this->error;
@@ -112,34 +114,9 @@ class ActionsAdherentCardDefault extends ActionsAdherentCardCommon
 			$this->tpl['actionsdone'] = show_actions_done($conf, $langs, $db, $objsoc, $this->object, 1);
 		} else {
 			// Confirm delete contact
-			if ($action == 'delete' && $user->rights->adherent->supprimer) {
-				$this->tpl['action_delete'] = $form->formconfirm($_SERVER["PHP_SELF"]."?id=".$this->object->id, $langs->trans("DeleteAdherent"), $langs->trans("ConfirmDeleteAdherent"), "confirm_delete", '', 0, 1);
+			if ($action == 'delete' && $user->hasRight('adherent', 'supprimer')) {
+				$this->tpl['action_delete'] = $form->formconfirm($_SERVER["PHP_SELF"]."?id=".$this->object->id, $langs->trans("DeleteAdherent"), $langs->trans("ConfirmDeleteMember"), "confirm_delete", '', 0, 1);
 			}
 		}
-
-		if ($action == 'list') {
-			$this->LoadListDatas($limit, $offset, $sortfield, $sortorder);
-		}
-	}
-
-
-	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
-	/**
-	 * 	Fetch datas list and save into ->list_datas
-	 *
-	 *  @param	int		$limit		Limit number of responses
-	 *  @param	int		$offset		Offset for first response
-	 *  @param	string	$sortfield	Sort field
-	 *  @param	string	$sortorder	Sort order ('ASC' or 'DESC')
-	 *  @return	void
-	 */
-	public function LoadListDatas($limit, $offset, $sortfield, $sortorder)
-	{
-		// phpcs:enable
-		global $conf, $langs;
-
-		//$this->getFieldList();
-
-		$this->list_datas = array();
 	}
 }

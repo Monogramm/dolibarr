@@ -1,5 +1,7 @@
 <?php
 /* Copyright (C) 2015 Alexandre Spangaro <aspangaro@open-dsi.fr>
+ * Copyright (C) 2024		MDW					<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2025       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,7 +27,7 @@
  * Return head table for establishment tabs screen
  *
  * @param   Establishment	$object		Object related to tabs
- * @return  array						Array of tabs to show
+ * @return	array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function establishment_prepare_head($object)
 {
@@ -36,7 +38,7 @@ function establishment_prepare_head($object)
 	$h = 0;
 	$head = array();
 
-	$head[$h][0] = DOL_URL_ROOT.'/hrm/establishment/card.php?id='.$object->id;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/hrm/establishment/card.php', ['id' => $object->id]);
 	$head[$h][1] = $langs->trans("Establishment");
 	$head[$h][2] = 'card';
 	$h++;
@@ -47,52 +49,38 @@ function establishment_prepare_head($object)
 	// $this->tabs = array('entity:-tabname);   												to remove a tab
 	complete_head_from_modules($conf, $langs, $object, $head, $h, 'establishment');
 
-	$head[$h][0] = DOL_URL_ROOT.'/hrm/establishment/info.php?id='.$object->id;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/hrm/establishment/info.php', ['id' => $object->id]);
 	$head[$h][1] = $langs->trans("Info");
 	$head[$h][2] = 'info';
 	$h++;
 
+	complete_head_from_modules($conf, $langs, null, $head, $h, 'hrm');
+
 	complete_head_from_modules($conf, $langs, $object, $head, $h, 'establishment', 'remove');
-
-
-
-	$head[$h][0] = dol_buildpath("/hrm/admin/setup.php", 1);
-	$head[$h][1] = $langs->trans("Settings");
-	$head[$h][2] = 'settings';
-	$h++;
-
-	complete_head_from_modules($conf, $langs, null, $head, $h, 'hrm');
-
-	$head[$h][0] = dol_buildpath("/hrm/admin/about.php", 1);
-	$head[$h][1] = $langs->trans("About");
-	$head[$h][2] = 'about';
-	$h++;
-
-	complete_head_from_modules($conf, $langs, null, $head, $h, 'hrm');
 
 	return $head;
 }
 
 /**
- *  Return array head with list of tabs to view object informations
+ *  Return array head with list of tabs to view object information
  *
- *  @return	array		head
+ * @return	array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function hrm_admin_prepare_head()
 {
-	global $langs, $conf, $user;
+	global $langs, $conf;
 
 	$langs->load('hrm');
 
 	$h = 0;
 	$head = array();
 
-	$head[$h][0] = DOL_URL_ROOT.'/hrm/admin/admin_hrm.php';
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/hrm/admin/admin_hrm.php');
 	$head[$h][1] = $langs->trans("Parameters");
 	$head[$h][2] = 'parameters';
 	$h++;
 
-	$head[$h][0] = DOL_URL_ROOT.'/hrm/admin/admin_establishment.php';
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/hrm/admin/admin_establishment.php');
 	$head[$h][1] = $langs->trans("Establishments");
 	$head[$h][2] = 'establishments';
 	$h++;

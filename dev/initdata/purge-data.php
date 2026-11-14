@@ -2,6 +2,7 @@
 <?php
 /* Copyright (C) 2016 Laurent Destailleur  <eldy@users.sourceforge.net>
  * Copyright (C) 2016 Juanjo Menent        <jmenent@2byte.es>
+ * Copyright (C) 2024		Frédéric France			<frederic.france@free.fr>
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 3 of the License, or
@@ -31,7 +32,7 @@ $path=__DIR__.'/';
 // Test si mode batch
 if (substr($sapi_type, 0, 3) == 'cgi') {
 	echo "Error: You are using PHP for CGI. To execute ".$script_file." from command line, you must use PHP for CLI mode.\n";
-	exit(-1);
+	exit(1);
 }
 
 // Recupere root dolibarr
@@ -44,7 +45,7 @@ include_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 include_once DOL_DOCUMENT_ROOT.'/compta/paiement/class/paiement.class.php';
 include_once DOL_DOCUMENT_ROOT.'/contrat/class/contrat.class.php';
 
-$langs->loadLangs(array("main", "errors"));
+$langs->loadLangs(array("main"));
 
 // Global variables
 $version=DOL_VERSION;
@@ -148,8 +149,8 @@ $sqls=array(
 		"DELETE FROM ".MAIN_DB_PREFIX."product where datec < '__DATE__'",
 	),
 	'project'=>array(
-		// TODO set fk_project to null on object that refer to project
-		"DELETE FROM ".MAIN_DB_PREFIX."projet_task_time WHERE fk_task IN (select rowid FROM ".MAIN_DB_PREFIX."projet_task WHERE fk_projet IN (select rowid FROM ".MAIN_DB_PREFIX."projet where datec < '__DATE__'))",
+		// TODO set fk_project to null on all objects/tables that refer to project
+		"DELETE FROM ".MAIN_DB_PREFIX."element_time WHERE elementtype = 'task' AND fk_element IN (select rowid FROM ".MAIN_DB_PREFIX."projet_task WHERE fk_projet IN (select rowid FROM ".MAIN_DB_PREFIX."projet where datec < '__DATE__'))",
 		"DELETE FROM ".MAIN_DB_PREFIX."projet_task WHERE fk_projet IN (select rowid FROM ".MAIN_DB_PREFIX."projet where datec < '__DATE__')",
 		"DELETE FROM ".MAIN_DB_PREFIX."projet where datec < '__DATE__'",
 	),
@@ -186,13 +187,13 @@ if (empty($mode) || ! in_array($mode, array('test','confirm'))) {
 	print "Usage:  $script_file (test|confirm) (all|option) (all|YYYY-MM-DD) [dbtype dbhost dbuser dbpassword dbname dbport]\n";
 	print "\n";
 	print "option can be ".implode(',', array_keys($sqls))."\n";
-	exit(-1);
+	exit(1);
 }
 if (empty($option)) {
 	print "Usage:  $script_file (test|confirm) (all|option) (all|YYYY-MM-DD) [dbtype dbhost dbuser dbpassword dbname dbport]\n";
 	print "\n";
 	print "option must be defined with a value in list ".implode(',', array_keys($sqls))."\n";
-	exit(-1);
+	exit(1);
 }
 if ($option != 'all') {
 	$listofoptions=explode(',', $option);
@@ -201,7 +202,7 @@ if ($option != 'all') {
 			print "Usage:  $script_file (test|confirm) (all|option) (all|YYYY-MM-DD) [dbtype dbhost dbuser dbpassword dbname dbport]\n";
 			print "\n";
 			print "option '".$cursoroption."' must be in list ".implode(',', array_keys($sqls))."\n";
-			exit(-1);
+			exit(1);
 		}
 	}
 }
@@ -210,7 +211,7 @@ if (empty($date) || (! preg_match('/\d\d\d\d\-\d\d\-\d\d$/', $date) && $date != 
 	print "Usage:  $script_file (test|confirm) (all|option) (all|YYYY-MM-DD) [dbtype dbhost dbuser dbpassword dbname dbport]\n";
 	print "\n";
 	print "date can be 'all' or 'YYYY-MM-DD' to delete record before YYYY-MM-DD\n";
-	exit(-1);
+	exit(1);
 }
 
 if ($date == 'all') {
@@ -218,20 +219,19 @@ if ($date == 'all') {
 }
 
 // Replace database handler
-if (! empty($argv[4])) {
+if (!empty($argv[4])) {
 	$db->close();
 	unset($db);
 	$db=getDoliDBInstance($argv[4], $argv[5], $argv[6], $argv[7], $argv[8], $argv[9]);
 	$user=new User($db);
 }
 
-//var_dump($user->db->database_name);
 $ret=$user->fetch('', 'admin');
 if (! $ret > 0) {
 	print 'An admin user with login "admin" must exists to use this script.'."\n";
 	exit;
 }
-//$user->getrights();
+//$user->loadRights();
 
 
 print "Purge all data for this database:\n";

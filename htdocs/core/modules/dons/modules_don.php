@@ -3,6 +3,9 @@
  * Copyright (C) 2004-2008 Laurent Destailleur  <eldy@users.sourceforge.net>
  * Copyright (C) 2004      Eric Seigne          <eric.seigne@ryxeo.com>
  * Copyright (C) 2005      Regis Houssin        <regis.houssin@inodbox.com>
+ * Copyright (C) 2024-2025	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2026		Philippe Grand			<philippe.grand@atoo-net.com>
+ * Copyright (C) 2026       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +28,7 @@
  *		\brief      File of class to manage donation document generation
  */
 require_once DOL_DOCUMENT_ROOT.'/core/class/commondocgenerator.class.php';
+require_once DOL_DOCUMENT_ROOT.'/core/class/commonnumrefgenerator.class.php';
 require_once DOL_DOCUMENT_ROOT.'/don/class/don.class.php';
 
 
@@ -34,24 +38,17 @@ require_once DOL_DOCUMENT_ROOT.'/don/class/don.class.php';
  */
 abstract class ModeleDon extends CommonDocGenerator
 {
-	/**
-	 * @var string Error code (or message)
-	 */
-	public $error = '';
-
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
 	/**
 	 *  Return list of active generation modules
 	 *
-	 *  @param	DoliDB  $db     			Database handler
-	 *  @param  integer $maxfilenamelength  Max length of value to show
-	 *  @return	array						List of templates
+	 *  @param  DoliDB  	$db                 Database handler
+	 *  @param  int<0,max>	$maxfilenamelength  Max length of value to show
+	 *  @return string[]|int<-1,0>				List of templates
 	 */
 	public static function liste_modeles($db, $maxfilenamelength = 0)
 	{
 		// phpcs:enable
-		global $conf;
-
 		$type = 'donation';
 		$list = array();
 
@@ -60,97 +57,93 @@ abstract class ModeleDon extends CommonDocGenerator
 
 		return $list;
 	}
+
+	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
+	/**
+	 *  Write the object to document file to disk
+	 *
+	 *  @param	Don			$don				Donation object
+	 *  @param	Translate	$outputlangs		Lang object for output language
+	 *  @param	string		$srctemplatepath	Full path of source filename for generator using a template file
+	 *  @param	int<0,1>	$hidedetails		Do not show line details
+	 *  @param	int<0,1>	$hidedesc			Do not show desc
+	 *  @param	int<0,1>	$hideref			Do not show ref
+	 *  @return	int<-1,1>						>0 if OK, <0 if KO
+	 */
+	abstract public function write_file($don, $outputlangs, $srctemplatepath = '', $hidedetails = 0, $hidedesc = 0, $hideref = 0);
+
+	/**
+	 *  Return if a module can be used or not
+	 *
+	 *  @return boolean     true if module can be used
+	 */
+	abstract public function isEnabled();
+
+	/**
+	 *  Return the identity of the donor of a donation.
+	 *  When option DONATION_USE_THIRDPARTIES is on, the donation only holds fk_soc and the donor fields
+	 *  stay empty, so each empty field is completed from the linked third party.
+	 *
+	 *  @param	Don			$don			Donation object
+	 *  @param	Translate	$outputlangs	Lang object for output language
+	 *  @return	array{company:string,lastname:string,firstname:string,name:string,address:string,zip:string,town:string,country_code:string,country:string,idprof1:string,thirdparty:?Societe}	Identity of the donor
+	 */
+	public function getDonorInfos($don, $outputlangs)
+	{
+		$donor = array(
+			'company' => (string) $don->societe,
+			'lastname' => (string) $don->lastname,
+			'firstname' => (string) $don->firstname,
+			'name' => '',
+			'address' => (string) $don->address,
+			'zip' => (string) $don->zip,
+			'town' => (string) $don->town,
+			'country_code' => (string) $don->country_code,
+			'country' => '',
+			'idprof1' => '',
+			'thirdparty' => null,
+		);
+
+		if (!empty($don->socid) && $don->socid > 0) {
+			require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+			$thirdparty = new Societe($this->db);
+			if ($thirdparty->fetch($don->socid) > 0) {
+				$donor['thirdparty'] = $thirdparty;
+				if (dol_strlen(trim($donor['company'].$donor['lastname'].$donor['firstname'])) == 0) {
+					// A third party holds a single name field, even for a private individual
+					$donor['company'] = (string) $thirdparty->name;
+				}
+				foreach (array('address', 'zip', 'town', 'country_code') as $field) {
+					if (dol_strlen(trim($donor[$field])) == 0) {
+						$donor[$field] = (string) $thirdparty->$field;
+					}
+				}
+				$donor['idprof1'] = (string) $thirdparty->idprof1;
+			} else {
+				dol_syslog(get_class($this)."::getDonorInfos Failed to load thirdparty ".$don->socid." linked to donation ".$don->id, LOG_ERR);
+			}
+		}
+
+		$donor['name'] = trim(dolGetFirstLastname($donor['firstname'], $donor['lastname']));
+		if ($donor['company'] !== '') {
+			$donor['name'] = $donor['company'].($donor['name'] !== '' ? ' - '.$donor['name'] : '');
+		}
+		if ($donor['country_code'] !== '') {
+			$donor['country'] = $outputlangs->transnoentitiesnoconv("Country".$donor['country_code']);
+		}
+		if ($donor['name'] === '') {
+			dol_syslog(get_class($this)."::getDonorInfos No name found for the donor of donation ".$don->id, LOG_WARNING);
+		}
+
+		return $donor;
+	}
 }
 
 
 /**
  *	Parent class of donation numbering templates
  */
-abstract class ModeleNumRefDons
+abstract class ModeleNumRefDons extends CommonNumRefGenerator
 {
-	/**
-	 * @var string Error code (or message)
-	 */
-	public $error = '';
-
-	/**
-	 * 	Return if a module can be used or not
-	 *
-	 *  @return		boolean     true if module can be used
-	 */
-	public function isEnabled()
-	{
-		return true;
-	}
-
-	/**
-	 * 	Renvoi la description par defaut du modele de numerotation
-	 *
-	 *  @return     string      Texte descripif
-	 */
-	public function info()
-	{
-		global $langs;
-		$langs->load("bills");
-		return $langs->trans("NoDescription");
-	}
-
-	/**
-	 *  Return an example of numbering
-	 *
-	 *  @return     string      Example
-	 */
-	public function getExample()
-	{
-		global $langs;
-		$langs->load("bills");
-		return $langs->trans("NoExample");
-	}
-
-	/**
-	 *  Checks if the numbers already in the database do not
-	 *  cause conflicts that would prevent this numbering working.
-	 *
-	 *  @return     boolean     false if conflict, true if ok
-	 */
-	public function canBeActivated()
-	{
-		return true;
-	}
-
-	/**
-	 *  Renvoi prochaine valeur attribuee
-	 *
-	 *  @return     string      Valeur
-	 */
-	public function getNextValue()
-	{
-		global $langs;
-		return $langs->trans("NotAvailable");
-	}
-
-	/**
-	 *  Renvoi version du module numerotation
-	 *
-	 *  @return     string      Valeur
-	 */
-	public function getVersion()
-	{
-		global $langs;
-		$langs->load("admin");
-
-		if ($this->version == 'development') {
-			return $langs->trans("VersionDevelopment");
-		}
-		if ($this->version == 'experimental') {
-			return $langs->trans("VersionExperimental");
-		}
-		if ($this->version == 'dolibarr') {
-			return DOL_VERSION;
-		}
-		if ($this->version) {
-			return $this->version;
-		}
-		return $langs->trans("NotAvailable");
-	}
+	// No overload code
 }

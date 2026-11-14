@@ -1,6 +1,8 @@
 <?php
-/* Copyright (C) 2013      Laurent Destailleur <eldy@users.sourceforge.net>
- * Copyright (C) 2014 Marcos García				<marcosgdf@gmail.com>
+/* Copyright (C) 2013      Laurent Destailleur        <eldy@users.sourceforge.net>
+ * Copyright (C) 2014      Marcos García              <marcosgdf@gmail.com>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2025		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,16 +19,27 @@
  */
 
 /**
- *	\file       htdocs/opensurvey/exportcsv.php
- *	\ingroup    opensurvey
- *	\brief      Page to list surveys
+ *    \file       htdocs/opensurvey/exportcsv.php
+ *    \ingroup    opensurvey
+ *    \brief      Page to list surveys
  */
 
 
+// Load Dolibarr environment
 require '../main.inc.php';
 require_once DOL_DOCUMENT_ROOT."/core/lib/admin.lib.php";
 require_once DOL_DOCUMENT_ROOT."/core/lib/files.lib.php";
+require_once DOL_DOCUMENT_ROOT."/core/lib/functions2.lib.php";
 require_once DOL_DOCUMENT_ROOT."/opensurvey/class/opensurveysondage.class.php";
+require_once DOL_DOCUMENT_ROOT."/opensurvey/class/opensurveyquestion.class.php";
+
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 
 $action = GETPOST('action', 'aZ09');
 $numsondage = '';
@@ -34,14 +47,15 @@ if (GETPOST('id')) {
 	$numsondage = GETPOST("id", 'alpha');
 }
 
+// Initialize Objects
 $object = new Opensurveysondage($db);
-$result = $object->fetch(0, $numsondage);
+$result = $object->fetch('', $numsondage);
 if ($result <= 0) {
-	dol_print_error('', 'Failed to get survey id '.$numsondage);
+	dol_print_error(null, 'Failed to get survey id '.$numsondage);
 }
 
 // Security check
-if (empty($user->rights->opensurvey->read)) {
+if (!$user->hasRight('opensurvey', 'read')) {
 	accessforbidden();
 }
 
@@ -58,16 +72,51 @@ if (empty($user->rights->opensurvey->read)) {
 
 $now = dol_now();
 
+// Survey of format 'F' (form): one column for each question, one line for each respondent
+if ($object->format == 'F') {
+	$questionstatic = new Opensurveyquestion($db);
+	$formquestions = $questionstatic->fetchAllBySurvey($object->id_sondage);
+	$respondents = $questionstatic->fetchRespondents($object->id_sondage);
+	if (!is_array($formquestions) || !is_array($respondents)) {
+		dol_print_error($db, $questionstatic->error);
+		exit;
+	}
+
+	$separator = ';';
+	$cells = array(csvClean($langs->transnoentities("Name"), 'UTF-8', $separator), csvClean($langs->transnoentities("Date"), 'UTF-8', $separator));
+	foreach ($formquestions as $question) {
+		$cells[] = csvClean($question->question, 'UTF-8', $separator);
+	}
+	$input = implode($separator, $cells)."\r\n";
+
+	foreach ($respondents as $respondent) {
+		$cells = array(csvClean($respondent['name'], 'UTF-8', $separator), csvClean(dol_print_date($respondent['date'], 'dayhour'), 'UTF-8', $separator));
+		foreach ($formquestions as $question) {
+			$value = isset($respondent['answers'][$question->id]) ? $respondent['answers'][$question->id] : '';
+			$cells[] = csvClean(str_replace("\n", ', ', $value), 'UTF-8', $separator);	// The answers of a question with several answers are separated by a comma
+		}
+		$input .= implode($separator, $cells)."\r\n";
+	}
+
+	header('Content-Type: text/csv; charset=utf-8');
+	header('Content-Length: '.strlen($input));
+	header('Content-Disposition: attachment; filename="'.$numsondage."_".dol_print_date($now, '%Y%m%d%H%M').'.csv"');
+	header('Cache-Control: max-age=10');
+	echo $input;
+
+	exit;
+}
+
 $nbcolonnes = substr_count($object->sujet, ',') + 1;
 $toutsujet = explode(",", $object->sujet);
-
-// affichage des sujets du sondage
-$input .= $langs->trans("Name").";";
+$somme = array();
+// display subjects of survey
+$input = $langs->trans("Name").";";
 for ($i = 0; $toutsujet[$i]; $i++) {
 	if ($object->format == "D") {
-		$input .= ''.dol_print_date($toutsujet[$i], 'dayhour').';';
+		$input .= dol_print_date($toutsujet[$i], 'dayhour').';';
 	} else {
-		$input .= ''.$toutsujet[$i].';';
+		$input .= $toutsujet[$i].';';
 	}
 }
 
@@ -77,7 +126,7 @@ if (strpos($object->sujet, '@') !== false) {
 	$input .= ";";
 	for ($i = 0; $toutsujet[$i]; $i++) {
 		$heures = explode("@", $toutsujet[$i]);
-		$input .= ''.$heures[1].';';
+		$input .= $heures[1].';';
 	}
 
 	$input .= "\r\n";
@@ -95,22 +144,25 @@ if ($resql) {
 	while ($i < $num) {
 		$obj = $db->fetch_object($resql);
 
-		// Le name de l'utilisateur
+		// The name of the user
 		$nombase = str_replace("°", "'", $obj->name);
 		$input .= $nombase.';';
 
-		//affichage des resultats
+		// Display results
 		$ensemblereponses = $obj->reponses;
 		for ($k = 0; $k < $nbcolonnes; $k++) {
+			if (empty($somme[$k])) {
+				$somme[$k] = 0;
+			}
 			$car = substr($ensemblereponses, $k, 1);
 			if ($car == "1") {
 				$input .= 'OK;';
 				$somme[$k]++;
 			} elseif ($car == "2") {
-				$input .= 'KO;';
+				$input .= ';';
 				$somme[$k]++;
 			} else {
-				$input .= ';';
+				$input .= 'KO;';
 			}
 		}
 

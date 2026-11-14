@@ -1,6 +1,36 @@
 <?php
+/* Copyright (C) 2024-2025	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2025       Frédéric France         <frederic.france@free.fr>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @var int $colspan
+ * @var string $action
+ * @var string $filenamelinked
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var CommonObject $object
+ * @var Translate $langs
+ */
+'
+@phan-var-force int $colspan
+';
+
 // Add line to select existing file
-if (empty($conf->global->EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES)) {
+if (!getDolGlobalString('EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES')) {
 	print '<!-- expensereport_linktofile.tpl.php -->'."\n";
 
 	require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
@@ -12,7 +42,7 @@ if (empty($conf->global->EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES)) {
 	$nbLinks = Link::count($db, $object->element, $object->id);
 
 	if ($nbFiles > 0) {
-		print '<tr class="trattachnewfilenow'.(empty($tredited) ? ' oddeven nohover' : ' '.$tredited).'"'.(!GETPOSTISSET('sendit') && empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER) ? ' style="display: none"' : '').'>';
+		print '<tr class="trattachnewfilenow'.(empty($tredited) ? ' oddeven nohover' : ' '.$tredited).'"'.(!GETPOSTISSET('sendit') && !getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER') ? ' style="display: none"' : '').'>';
 
 		// Num line
 		if ($action == 'editline') {
@@ -22,9 +52,11 @@ if (empty($conf->global->EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES)) {
 		// Select image section
 		print '<td colspan="'.($action == 'editline' ? $colspan - 1 : $colspan).'">';
 		//print '<span class="opacitymedium">'.$langs->trans("AttachTheNewLineToTheDocument").'</span><br>';
-		$modulepart = 'expensereport'; $maxheightmini = 48;
-		$relativepath = (!empty($object->ref) ?dol_sanitizeFileName($object->ref) : '').'/';
+		$modulepart = 'expensereport';
+		$maxheightmini = 48;
+		$relativepath = (!empty($object->ref) ? dol_sanitizeFileName($object->ref) : '').'/';
 		$filei = 0;
+		$minifile = null;
 		// Loop on each attached file
 		foreach ($arrayoffiles as $file) {
 			$urlforhref = array();
@@ -35,15 +67,15 @@ if (empty($conf->global->EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES)) {
 			if (image_format_supported($file['name']) > 0) {
 				$minifile = getImageFileNameForSize($file['name'], '_mini'); // For new thumbs using same ext (in lower case however) than original
 				//print $file['path'].'/'.$minifile.'<br>';
-				$urlforhref = getAdvancedPreviewUrl($modulepart, $relativepath.$fileinfo['filename'].'.'.strtolower($fileinfo['extension']), 1, '&entity='.(!empty($object->entity) ? $object->entity : $conf->entity));
+				$urlforhref = getAdvancedPreviewUrl($modulepart, $relativepath.$fileinfo['filename'].'.'.strtolower($fileinfo['extension']), 1, '&entity='.(empty($object->entity) ? $conf->entity : $object->entity));
 				if (empty($urlforhref)) {
-					$urlforhref = DOL_URL_ROOT.'/viewimage.php?modulepart='.$modulepart.'&entity='.(!empty($object->entity) ? $object->entity : $conf->entity).'&file='.urlencode($fileinfo['relativename'].'.'.strtolower($fileinfo['extension']));
+					$urlforhref = DOL_URL_ROOT.'/viewimage.php?modulepart='.$modulepart.'&entity='.(empty($object->entity) ? $conf->entity : $object->entity).'&file='.urlencode($file['relativename'].'.'.strtolower($fileinfo['extension']));
 					print '<a href="'.$urlforhref.'" class="aphoto" target="_blank" rel="noopener noreferrer">';
 				} else {
 					print '<a href="'.$urlforhref['url'].'" class="'.$urlforhref['css'].'" target="'.$urlforhref['target'].'" mime="'.$urlforhref['mime'].'">';
 				}
 				print '<div class="photoref backgroundblank">';
-				print '<img class="photoexpensereport photorefcenter" height="'.$maxheightmini.'" src="'.DOL_URL_ROOT.'/viewimage.php?modulepart='.$modulepart.'&entity='.(!empty($object->entity) ? $object->entity : $conf->entity).'&file='.urlencode($relativepath.$minifile).'" title="">';
+				print '<img class="photoexpensereport photorefcenter" height="'.$maxheightmini.'" src="'.DOL_URL_ROOT.'/viewimage.php?modulepart='.$modulepart.'&entity='.(empty($object->entity) ? $conf->entity : $object->entity).'&file='.urlencode($relativepath.$minifile).'" title="">';
 				print '</div>';
 				print '</a>';
 			} else {
@@ -51,7 +83,7 @@ if (empty($conf->global->EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES)) {
 				$thumbshown = '';
 
 				if (preg_match('/\.pdf$/i', $file['name'])) {
-					$urlforhref = getAdvancedPreviewUrl($modulepart, $relativepath.$fileinfo['filename'].'.'.strtolower($fileinfo['extension']), 1, '&entity='.(!empty($object->entity) ? $object->entity : $conf->entity));
+					$urlforhref = getAdvancedPreviewUrl($modulepart, $relativepath.$fileinfo['filename'].'.'.strtolower($fileinfo['extension']), 1, '&entity='.(empty($object->entity) ? $conf->entity : $object->entity));
 
 					$filepdf = $conf->expensereport->dir_output.'/'.$relativepath.$file['name'];
 					$fileimage = $conf->expensereport->dir_output.'/'.$relativepath.$file['name'].'_preview.png';
@@ -60,9 +92,9 @@ if (empty($conf->global->EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES)) {
 					$pdfexists = file_exists($filepdf);
 
 					if ($pdfexists) {
-						// Conversion du PDF en image png si fichier png non existant
+						// Conversion du PDF en image png si fichier png non existent
 						if (!file_exists($fileimage) || (filemtime($fileimage) < filemtime($filepdf))) {
-							if (empty($conf->global->MAIN_DISABLE_PDF_THUMBS)) {		// If you experience trouble with pdf thumb generation and imagick, you can disable here.
+							if (!getDolGlobalString('MAIN_DISABLE_PDF_THUMBS')) {		// If you experience trouble with pdf thumb generation and imagick, you can disable here.
 								include_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 								$ret = dol_convert_file($filepdf, 'png', $fileimage, '0'); // Convert first page of PDF into a file _preview.png
 								if ($ret < 0) {
@@ -91,7 +123,8 @@ if (empty($conf->global->EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES)) {
 				}
 				print '<div class="photoref backgroundblank">';
 
-				print $thumbshown ? $thumbshown : img_mime($minifile);
+				// TODO: Check that $minifile has a proper value here (set in true part of if, not else part).
+				print $thumbshown ? $thumbshown : (empty($minifile) ? '' : img_mime($minifile));
 
 				print '</div>';
 				if (empty($urlforhref) || empty($thumbshown)) {
@@ -106,7 +139,7 @@ if (empty($conf->global->EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES)) {
 			//var_dump($file['relativename']);
 			//var_dump($_FILES['userfile']['name']);
 			// If a file was just uploaded, we check to preselect it
-			if (is_array($_FILES['userfile']['name'])) {
+			if (isset($_FILES['userfile']) && is_array($_FILES['userfile']['name'])) {
 				foreach ($_FILES['userfile']['name'] as $tmpfile) {
 					if ($file['relativename'] == (GETPOST('savingdocmask', 'alpha') ? dol_sanitizeFileName($object->ref.'-') : '').$tmpfile) {
 						$checked = ' checked';
@@ -136,9 +169,19 @@ if (empty($conf->global->EXPENSEREPORT_DISABLE_ATTACHMENT_ON_LINES)) {
 
 		print '</td></tr>';
 	} else {
-		print '<tr class="oddeven nohover trattachnewfilenow"'.(!GETPOSTISSET('sendit') && empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER) ? ' style="display: none"' : '').'>';
-		print '<td colspan="'.$colspan.'">';
-		print '<span class="opacitymedium">'.$langs->trans("NoFilesUploadedYet").'</span>';
+		if (empty($tredited)) {
+			$css = 'oddeven nohover trattachnewfilenow';
+			$newcolspan = $colspan;
+		} else {
+			$css = 'trattachnewfilenow tredited';
+			$newcolspan = $colspan - 1;
+		}
+		print '<tr class="'.$css.'"'.(!GETPOSTISSET('sendit') && !getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER') ? ' style="display: none"' : '').'>';
+		if (!empty($tredited)) {
+			print '<td></td>';
+		}
+		print '<td colspan="'.($newcolspan).'">';
+		print '<span class="opacitymedium">'.$langs->trans("NoFilesUploadedYet").'...</span>';
 		print '</td></tr>';
 	}
 }

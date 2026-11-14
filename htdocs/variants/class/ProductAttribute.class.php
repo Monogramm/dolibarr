@@ -1,7 +1,8 @@
 <?php
-
-/* Copyright (C) 2016	Marcos García	<marcosgdf@gmail.com>
- * Copyright (C) 2022   Open-Dsi		<support@open-dsi.fr>
+/* Copyright (C) 2016	    Marcos García		<marcosgdf@gmail.com>
+ * Copyright (C) 2022       Open-Dsi			<support@open-dsi.fr>
+ * Copyright (C) 2023-2025  Frédéric France     <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW					<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,10 +18,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ *	\file       htdocs/variants/class/ProductAttribute.class.php
+ *	\ingroup    variants
+ *	\brief      File of the ProductAttribute class
+ */
+
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
+
 /**
  * Class ProductAttribute
- * Used to represent a product attribute
+ * Used to represent a Product attribute
+ * Examples:
+ * - Attribute 'color' (of type ProductAttribute) with values 'white', 'blue' or 'red' (each of type ProductAttributeValue).
+ * - Attribute 'size' (of type ProductAttribute) with values 'S', 'L' or 'XL' (each of type ProductAttributeValue).
  */
 class ProductAttribute extends CommonObject
 {
@@ -29,6 +40,7 @@ class ProductAttribute extends CommonObject
 	 * @var DoliDB
 	 */
 	public $db;
+
 	/**
 	 * @var string ID of module.
 	 */
@@ -55,34 +67,23 @@ class ProductAttribute extends CommonObject
 	public $fk_element = 'fk_product_attribute';
 
 	/**
-	 * @var int  Does this object support multicompany module ?
-	 * 0=No test on entity, 1=Test with field entity, 'field@table'=Test with link by field@table
-	 */
-	public $ismultientitymanaged = 1;
-
-	/**
-	 * @var int  Does object support extrafields ? 0=No, 1=Yes
-	 */
-	public $isextrafieldmanaged = 0;
-
-	/**
 	 * @var string String with name of icon for conferenceorbooth. Must be the part after the 'object_' into object_conferenceorbooth.png
 	 */
 	public $picto = 'product';
 
 	/**
 	 *  'type' field format ('integer', 'integer:ObjectClass:PathToClass[:AddCreateButtonOrNot[:Filter]]', 'sellist:TableName:LabelFieldName[:KeyFieldName[:KeyFieldParent[:Filter]]]', 'varchar(x)', 'double(24,8)', 'real', 'price', 'text', 'text:none', 'html', 'date', 'datetime', 'timestamp', 'duration', 'mail', 'phone', 'url', 'password')
-	 *         Note: Filter can be a string like "(t.ref:like:'SO-%') or (t.date_creation:<:'20160101') or (t.nature:is:NULL)"
+	 *         Note: Filter can be a string like "(t.ref:like:'SO-%') or (t.date_creation:>:'20160101') or (t.nature:is:NULL)"
 	 *  'label' the translation key.
 	 *  'picto' is code of a picto to show before value in forms
-	 *  'enabled' is a condition when the field must be managed (Example: 1 or '$conf->global->MY_SETUP_PARAM)
+	 *  'enabled' is a condition when the field must be managed (Example: 1 or 'getDolGlobalString("MY_SETUP_PARAM")'
 	 *  'position' is the sort order of field.
 	 *  'notnull' is set to 1 if not null in database. Set to -1 if we must set data to null if empty ('' or 0).
 	 *  'visible' says if field is visible in list (Examples: 0=Not visible, 1=Visible on list and create/update/view forms, 2=Visible on list only, 3=Visible on create/update/view form only (not list), 4=Visible on list and update/view form only (not create). 5=Visible on list and view only (not create/not update). Using a negative value means field is not shown by default on list but can be selected for viewing)
 	 *  'noteditable' says if field is not editable (1 or 0)
-	 *  'default' is a default value for creation (can still be overwrote by the Setup of Default Values if field is editable in creation form). Note: If default is set to '(PROV)' and field is 'ref', the default value will be set to '(PROVid)' where id is rowid when a new record is created.
+	 *  'default' is a default value for creation (can still be overwritten by the Setup of Default Values if the field is editable in creation form). Note: If default is set to '(PROV)' and field is 'ref', the default value will be set to '(PROVid)' where id is rowid when a new record is created.
 	 *  'index' if we want an index in database.
-	 *  'foreignkey'=>'tablename.field' if the field is a foreign key (it is recommanded to name the field fk_...).
+	 *  'foreignkey'=>'tablename.field' if the field is a foreign key (it is recommended to name the field fk_...).
 	 *  'searchall' is 1 if we want to search in this field when making a search from the quick search button.
 	 *  'isameasure' must be set to 1 if you want to have a total on list for this field. Field type must be summable like integer or double(24,8).
 	 *  'css' and 'cssview' and 'csslist' is the CSS style to use on field. 'css' is used in creation and update. 'cssview' is used in view mode. 'csslist' is used for columns in lists. For example: 'maxwidth200', 'wordbreak', 'tdoverflowmax200'
@@ -96,47 +97,88 @@ class ProductAttribute extends CommonObject
 	 *  Note: To have value dynamic, you can set value to 0 in definition and edit the value on the fly into the constructor.
 	 */
 	/**
-	 * @var array  Array with all fields and their property. Do not use it as a static var. It may be modified by constructor.
+	 * @var array<string,array{type:string,label:string,enabled:int<0,2>|string,position:int,visible:int<-6,6>|string,langfile?:string,notnull?:int<-1,1>,noteditable?:int<0,1>,alwayseditable?:int<0,1>|string,default?:string|int,index?:int<0,1>,foreignkey?:string,searchall?:int<0,1>,isameasure?:int<0,1>,css?:string,cssview?:string,csslist?:string,help?:string,helplist?:string,showoncombobox?:int<0,4>|string,disabled?:int<0,1>|string,arrayofkeyval?:array<int|string,string>,autofocusoncreate?:int<0,1>,comment?:string,copytoclipboard?:int<1,2>,validate?:int<0,1>|string,showonheader?:int<0,1>,searchmulti?:int<0,1>,picto?:string,required?:int<0,1>,placeholder?:string}>  Array with all fields and their property. Do not use it as a static var. It may be modified by constructor.
 	 */
-	public $fields=array(
-		'rowid' => array('type'=>'integer', 'label'=>'TechnicalID', 'enabled'=>'1', 'position'=>1, 'notnull'=>1, 'visible'=>0, 'noteditable'=>'1', 'index'=>1, 'css'=>'left', 'comment'=>"Id"),
-		'ref' => array('type'=>'varchar(255)', 'label'=>'Ref', 'visible'=>1, 'enabled'=>1, 'position'=>10, 'notnull'=>1, 'index'=>1, 'searchall'=>1, 'comment'=>"Reference of object", 'css'=>''),
-		'ref_ext' => array('type' => 'varchar(255)', 'label' => 'ExternalRef', 'enabled' => 1, 'visible' => 0, 'position' => 20, 'searchall'=>1),
-		'label' => array('type'=>'varchar(255)', 'label'=>'Label', 'enabled'=>'1', 'position'=>30, 'notnull'=>1, 'visible'=>1, 'searchall'=>1, 'css'=>'minwidth300', 'help'=>"", 'showoncombobox'=>'1',),
-		'position' => array('type'=>'integer', 'label'=>'Rank', 'enabled'=>1, 'visible'=>0, 'default'=>0, 'position'=>40, 'notnull'=>1,),
+	public $fields = array(
+		'rowid' => array('type' => 'integer', 'label' => 'TechnicalID', 'enabled' => 1, 'position' => 1, 'notnull' => 1, 'visible' => 0, 'noteditable' => 1, 'index' => 1, 'css' => 'left', 'comment' => "Id"),
+		'ref' => array('type' => 'varchar(255)', 'label' => 'Ref', 'visible' => 1, 'enabled' => 1, 'position' => 10, 'notnull' => 1, 'index' => 1, 'searchall' => 1, 'comment' => "Reference of object", 'css' => 'width200'),
+		'ref_ext' => array('type' => 'varchar(255)', 'label' => 'RefExt', 'enabled' => 1, 'visible' => 0, 'position' => 20, 'searchall' => 1),
+		'label' => array('type' => 'varchar(255)', 'label' => 'Label', 'enabled' => 1, 'position' => 30, 'notnull' => 1, 'visible' => 1, 'searchall' => 1, 'css' => 'minwidth300', 'help' => "", 'showoncombobox' => 1,),
+		'position' => array('type' => 'integer', 'label' => 'Rank', 'enabled' => 1, 'visible' => 0, 'default' => '0', 'position' => 40, 'notnull' => 1,),
 	);
+
+	/**
+	 * @var int rowid
+	 */
 	public $id;
+
+	/**
+	 * @var int		Alias of id, written by the import engine on the object it hands to the triggers
+	 */
+	public $rowid;
+
+	/**
+	 * @var string ref
+	 */
 	public $ref;
+
+	/**
+	 * @var string external ref
+	 */
 	public $ref_ext;
+
+	/**
+	 * @var string label
+	 */
 	public $label;
+
+	/**
+	 * @var int position
+	 * @deprecated Use $position
+	 * @see $position
+	 */
+	public $rang;
+
+	/**
+	 * @var int position
+	 */
 	public $position;
 
 	/**
 	 * @var ProductAttributeValue[]
 	 */
 	public $lines = array();
+
 	/**
 	 * @var ProductAttributeValue
 	 */
 	public $line;
 
+	/**
+	 * @var int		Number of product that use this attribute
+	 */
+	public $is_used_by_products;
+
 
 	/**
 	 * Constructor
 	 *
-	 * @param DoliDb $db Database handler
+	 * @param DoliDB $db Database handler
 	 */
 	public function __construct(DoliDB $db)
 	{
 		global $conf, $langs;
 
 		$this->db = $db;
+
+		$this->ismultientitymanaged = 1;
+		$this->isextrafieldmanaged = 1;
 		$this->entity = $conf->entity;
 
-		if (empty($conf->global->MAIN_SHOW_TECHNICAL_ID) && isset($this->fields['rowid'])) {
+		if (!getDolGlobalString('MAIN_SHOW_TECHNICAL_ID') && isset($this->fields['rowid'])) {
 			$this->fields['rowid']['visible'] = 0;
 		}
-		if (empty($conf->multicompany->enabled) && isset($this->fields['entity'])) {
+		if (!isModEnabled('multicompany') && isset($this->fields['entity'])) {
 			$this->fields['entity']['enabled'] = 0;
 		}
 
@@ -164,7 +206,7 @@ class ProductAttribute extends CommonObject
 	 *
 	 * @param   User    $user      Object user
 	 * @param   int     $notrigger Do not execute trigger
-	 * @return 					int <0 KO, Id of new variant if OK
+	 * @return 					int Return integer <0 KO, Id of new variant if OK
 	 */
 	public function create(User $user, $notrigger = 0)
 	{
@@ -212,12 +254,21 @@ class ProductAttribute extends CommonObject
 		dol_syslog(__METHOD__, LOG_DEBUG);
 		$resql = $this->db->query($sql);
 		if (!$resql) {
-			$this->errors[] = "Error " . $this->db->lasterror();
+			if ($this->db->lasterrno() == "DB_ERROR_RECORD_ALREADY_EXISTS") {
+				$langs->load("errors");
+				$this->errors[] = $langs->trans("ErrorRefAlreadyExists", $this->ref);
+			} else {
+				$this->errors[] = "Error " . $this->db->lasterror();
+			}
 			$error++;
 		}
 
 		if (!$error) {
 			$this->id = $this->db->last_insert_id(MAIN_DB_PREFIX . $this->table_element);
+			$result = $this->insertExtraFields();
+			if ($result < 0) {
+				$error++;
+			}
 		}
 
 		if (!$error && !$notrigger) {
@@ -239,21 +290,26 @@ class ProductAttribute extends CommonObject
 	}
 
 	/**
-	 * Fetches the properties of a product attribute
+	 * Fetches the properties of a product attribute, from its id or from its ref
 	 *
-	 * @param int $id Attribute id
-	 * @return int <1 KO, >1 OK
+	 * Note: $id must not be typed as int. The import engine resolves a foreign key by
+	 * calling fetch('', $ref) and an empty string is not a numeric string in PHP 8.
+	 *
+	 * @param	int|string	$id		Attribute id
+	 * @param	string		$ref	Attribute ref, used when $id is empty
+	 * @return	int					Return integer <0 KO, 0 not found, >0 OK
 	 */
-	public function fetch($id)
+	public function fetch($id, $ref = '')
 	{
 		global $langs;
 		$error = 0;
 
 		// Clean parameters
-		$id = $id > 0 ? $id : 0;
+		$id = $id > 0 ? (int) $id : 0;
+		$ref = trim((string) $ref);
 
 		// Check parameters
-		if (empty($id)) {
+		if (empty($id) && $ref === '') {
 			$this->errors[] = $langs->trans("ErrorFieldRequired", $langs->transnoentitiesnoconv("TechnicalID"));
 			$error++;
 		}
@@ -264,7 +320,11 @@ class ProductAttribute extends CommonObject
 
 		$sql = "SELECT rowid, ref, ref_ext, label, position";
 		$sql .= " FROM " . MAIN_DB_PREFIX . $this->table_element;
-		$sql .= " WHERE rowid = " . ((int) $id);
+		if (!empty($id)) {
+			$sql .= " WHERE rowid = " . ((int) $id);
+		} else {
+			$sql .= " WHERE ref = '" . $this->db->escape($ref) . "'";
+		}
 		$sql .= " AND entity IN (" . getEntity('product') . ")";
 
 		dol_syslog(__METHOD__, LOG_DEBUG);
@@ -285,6 +345,7 @@ class ProductAttribute extends CommonObject
 			$this->label = $obj->label;
 			$this->rang = $obj->position; // deprecated
 			$this->position = $obj->position;
+			$this->fetch_optionals();
 		}
 		$this->db->free($resql);
 
@@ -292,7 +353,7 @@ class ProductAttribute extends CommonObject
 	}
 
 	/**
-	 * Returns an array of all product variants
+	 * Returns an array with all the ProductAttribute objects of a given entity
 	 *
 	 * @return ProductAttribute[]
 	 */
@@ -332,9 +393,9 @@ class ProductAttribute extends CommonObject
 	/**
 	 * Updates a product attribute
 	 *
-	 * @param   User    $user      Object user
-	 * @param   int     $notrigger Do not execute trigger
-	 * @return 	int 				<0 KO, >0 OK
+	 * @param   User		$user		User who updates the attribute
+	 * @param   int<0,1>	$notrigger	1 = Do not execute trigger (0 by default)
+	 * @return 	int<-1,1>				<0 if KO, 1 if OK
 	 */
 	public function update(User $user, $notrigger = 0)
 	{
@@ -378,10 +439,20 @@ class ProductAttribute extends CommonObject
 		dol_syslog(__METHOD__, LOG_DEBUG);
 		$resql = $this->db->query($sql);
 		if (!$resql) {
-			$this->errors[] = "Error " . $this->db->lasterror();
+			if ($this->db->lasterrno() == "DB_ERROR_RECORD_ALREADY_EXISTS") {
+				$langs->load("errors");
+				$this->errors[] = $langs->trans("ErrorRefAlreadyExists", $this->ref);
+			} else {
+				$this->errors[] = "Error " . $this->db->lasterror();
+			}
 			$error++;
 		}
-
+		if (!$error) {
+			$result = $this->insertExtraFields();
+			if ($result < 0) {
+				$error++;
+			}
+		}
 		if (!$error && !$notrigger) {
 			// Call trigger
 			$result = $this->call_trigger('PRODUCT_ATTRIBUTE_MODIFY', $user);
@@ -405,7 +476,7 @@ class ProductAttribute extends CommonObject
 	 *
 	 * @param   User    $user      Object user
 	 * @param   int     $notrigger Do not execute trigger
-	 * @return 	int <0 KO, >0 OK
+	 * @return 	int Return integer <0 KO, >0 OK
 	 */
 	public function delete(User $user, $notrigger = 0)
 	{
@@ -445,9 +516,31 @@ class ProductAttribute extends CommonObject
 		}
 
 		if (!$error) {
+			// Delete extrafields of values
+			$sql = "DELETE FROM " . MAIN_DB_PREFIX . $this->table_element_line . "_extrafields";
+			$sql .= " WHERE fk_object IN (SELECT rowid FROM " . MAIN_DB_PREFIX . $this->table_element_line . " WHERE " . $this->fk_element . " = " . ((int) $this->id) . ")";
+
+			dol_syslog(__METHOD__ . ' - Delete extrafields of values', LOG_DEBUG);
+			$resql = $this->db->query($sql);
+			if (!$resql) {
+				$this->errors[] = "Error " . $this->db->lasterror();
+				$error++;
+			}
+		}
+
+		if (!$error) {
+			// Delete extrafields of the attribute
+			$result = $this->deleteExtraFields();
+			if ($result < 0) {
+				$this->errors[] = "Error " . $this->error;
+				$error++;
+			}
+		}
+
+		if (!$error) {
 			// Delete values
-			$sql = "DELETE FROM " . MAIN_DB_PREFIX . $this->table_element_line;
-			$sql .= " WHERE " . $this->fk_element . " = " . ((int) $this->id);
+			$sql = "DELETE FROM " . MAIN_DB_PREFIX . $this->db->sanitize($this->table_element_line);
+			$sql .= " WHERE " . $this->db->sanitize($this->fk_element) . " = " . ((int) $this->id);
 
 			dol_syslog(__METHOD__ . ' - Delete values', LOG_DEBUG);
 			$resql = $this->db->query($sql);
@@ -470,6 +563,14 @@ class ProductAttribute extends CommonObject
 		}
 
 		if (!$error) {
+			$result = $this->deleteExtraFields();
+			if ($result < 0) {
+				$this->errors[] = "Error " . $this->error;
+				$error++;
+			}
+		}
+
+		if (!$error) {
 			$this->db->commit();
 			return 1;
 		} else {
@@ -482,10 +583,10 @@ class ProductAttribute extends CommonObject
 	/**
 	 * Load array lines
 	 *
-	 * @param	string		$filters	Filter on other fields
-	 * @return	int						<0 if KO, >0 if OK
+	 * @param	string		$sql_filters	Filter on other fields
+	 * @return	int						    Return integer <0 if KO, >0 if OK
 	 */
-	public function fetch_lines($filters = '')
+	public function fetch_lines($sql_filters = '')
 	{
 		// phpcs:enable
 		global $langs;
@@ -508,12 +609,12 @@ class ProductAttribute extends CommonObject
 		}
 
 		$sql = "SELECT td.rowid, td.fk_product_attribute, td.ref, td.value, td.position";
-		$sql .= " FROM " . MAIN_DB_PREFIX . $this->table_element_line . " AS td";
-		$sql .= " LEFT JOIN " . MAIN_DB_PREFIX . $this->table_element . " AS t ON t.rowid = td." . $this->fk_element;
+		$sql .= " FROM " . MAIN_DB_PREFIX . $this->db->sanitize($this->table_element_line) . " AS td";
+		$sql .= " LEFT JOIN " . MAIN_DB_PREFIX . $this->db->sanitize($this->table_element) . " AS t ON t.rowid = td." . $this->db->sanitize($this->fk_element);
 		$sql .= " WHERE t.rowid = " . ((int) $this->id);
 		$sql .= " AND t.entity IN (" . getEntity('product') . ")";
-		if ($filters) {
-			$sql .= $filters;
+		if ($sql_filters) {
+			$sql .= $sql_filters;
 		}
 		$sql .= $this->db->order("td.position", "asc");
 
@@ -538,6 +639,7 @@ class ProductAttribute extends CommonObject
 				$line->ref = $obj->ref;
 				$line->value = $obj->value;
 				$line->position = $obj->position;
+				$line->fetch_optionals();
 
 				$this->lines[$i] = $line;
 				$i++;
@@ -575,7 +677,7 @@ class ProductAttribute extends CommonObject
 	public function addLine($ref, $value, $position = -1, $notrigger = 0)
 	{
 		global $langs, $user;
-		dol_syslog(__METHOD__ . " id={$this->id}, ref=$ref, value=$value, notrigger=$notrigger");
+		dol_syslog(__METHOD__ . " id=".$this->id.", ref=".$ref.", value=".$value.", notrigger=".$notrigger);
 		$error = 0;
 
 		// Clean parameters
@@ -593,7 +695,7 @@ class ProductAttribute extends CommonObject
 
 		$this->db->begin();
 
-		//Fetch current line from the database and then clone the object and set it in $oldcopy property
+		// Fetch current line from the database and then clone the object and set it in $oldcopy property
 		$this->line = new ProductAttributeValue($this->db);
 
 		// Position to use
@@ -636,6 +738,11 @@ class ProductAttribute extends CommonObject
 	{
 		global $user;
 
+		if (!$this->isLineOfObject($lineid)) {
+			$this->error = 'ErrorLineIDDoesNotMatchWithObjectID';
+			return -1;
+		}
+
 		dol_syslog(__METHOD__ . " lineid=$lineid, ref=$ref, value=$value, notrigger=$notrigger");
 
 		// Clean parameters
@@ -643,7 +750,7 @@ class ProductAttribute extends CommonObject
 
 		$this->db->begin();
 
-		//Fetch current line from the database and then clone the object and set it in $oldcopy property
+		// Fetch current line from the database and then clone the object and set it in $oldcopy property
 		$this->line = new ProductAttributeValue($this->db);
 		$result = $this->line->fetch($lineid);
 		if ($result > 0) {
@@ -684,9 +791,13 @@ class ProductAttribute extends CommonObject
 
 		$this->db->begin();
 
-		//Fetch current line from the database
+		// Fetch current line from the database
 		$this->line = new ProductAttributeValue($this->db);
 		$result = $this->line->fetch($lineid);
+		if ($result > 0 && $this->id > 0 && (int) $this->line->fk_product_attribute !== (int) $this->id) {
+			$this->line->error = 'ErrorLineIDDoesNotMatchWithObjectID';
+			$result = -1;
+		}
 		if ($result > 0) {
 			$this->line->context = $this->context;
 
@@ -729,8 +840,8 @@ class ProductAttribute extends CommonObject
 		}
 
 		$sql = "SELECT COUNT(*) AS count";
-		$sql .= " FROM " . MAIN_DB_PREFIX . $this->table_element_line;
-		$sql .= " WHERE " . $this->fk_element . " = " . ((int) $this->id);
+		$sql .= " FROM " . MAIN_DB_PREFIX . $this->db->sanitize($this->table_element_line);
+		$sql .= " WHERE " . $this->db->sanitize($this->fk_element) . " = " . ((int) $this->id);
 
 		dol_syslog(__METHOD__, LOG_DEBUG);
 		$resql = $this->db->query($sql);
@@ -748,9 +859,9 @@ class ProductAttribute extends CommonObject
 	}
 
 	/**
-	 * Returns the number of products that are using this attribute
+	 * Return the number of product variants using this attribute
 	 *
-	 * @return int
+	 * @return int<-1,max>		-1 if K0, nb of variants using this attribute
 	 */
 	public function countChildProducts()
 	{
@@ -759,7 +870,7 @@ class ProductAttribute extends CommonObject
 		$count = 0;
 
 		// Clean parameters
-		$this->id = $this->id > 0 ? $this->id : 0;
+		$this->id = ($this->id > 0) ? $this->id : 0;
 
 		// Check parameters
 		if (empty($this->id)) {
@@ -793,9 +904,9 @@ class ProductAttribute extends CommonObject
 	}
 
 	/**
-	 * Test if used by a product
+	 * Test if this attribute is used by a Product
 	 *
-	 * @return int <0 KO, =0 if No, =1 if Yes
+	 * @return 	int			Return -1 if KO, 0 if not used, 1 if used
 	 */
 	public function isUsed()
 	{
@@ -838,7 +949,7 @@ class ProductAttribute extends CommonObject
 	 *
 	 * @param	boolean		$renum			   True to renum all already ordered lines, false to renum only not already ordered lines.
 	 * @param	string		$rowidorder		   ASC or DESC
-	 * @return	int                            <0 if KO, >0 if OK
+	 * @return	int                            Return integer <0 if KO, >0 if OK
 	 */
 	public function attributeOrder($renum = false, $rowidorder = 'ASC')
 	{
@@ -867,7 +978,7 @@ class ProductAttribute extends CommonObject
 			// We first search all attributes
 			$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . $this->table_element;
 			$sql .= " WHERE entity IN (" . getEntity('product') . ")";
-			$sql .= " ORDER BY position ASC, rowid " . $rowidorder;
+			$sql .= " ORDER BY position ASC, rowid " . preg_replace('/[^a-zA-Z]/', '', $rowidorder); // We want to keep the order of lines that have same position, so we use rowid as second sort criteria
 
 			dol_syslog(__METHOD__ . " search all attributes", LOG_DEBUG);
 			$resql = $this->db->query($sql);
@@ -898,7 +1009,7 @@ class ProductAttribute extends CommonObject
 	 *
 	 * @param	int		$rowid		Id of line
 	 * @param	int		$position	Position
-	 * @return	int					<0 if KO, >0 if OK
+	 * @return	int					Return integer <0 if KO, >0 if OK
 	 */
 	public function updatePositionOfAttribute($rowid, $position)
 	{
@@ -915,7 +1026,7 @@ class ProductAttribute extends CommonObject
 			$parameters = array('rowid' => $rowid, 'position' => $position);
 			$action = '';
 			$reshook = $hookmanager->executeHooks('afterPositionOfAttributeUpdate', $parameters, $this, $action);
-			return 1;
+			return ($reshook >= 0 ? 1 : -1);
 		}
 	}
 
@@ -928,7 +1039,7 @@ class ProductAttribute extends CommonObject
 	public function getPositionOfAttribute($rowid)
 	{
 		$sql = "SELECT position FROM " . MAIN_DB_PREFIX . $this->table_element;
-		$sql .= " WHERE entity IN (" . getEntity('product') . ")";
+		$sql .= " WHERE rowid=".(int) $rowid." AND entity IN (" . getEntity('product') . ")";
 
 		dol_syslog(__METHOD__, LOG_DEBUG);
 		$resql = $this->db->query($sql);
@@ -944,7 +1055,7 @@ class ProductAttribute extends CommonObject
 	 * 	Update a attribute to have a higher position
 	 *
 	 * @param	int		$rowid		Id of line
-	 * @return	int					<0 KO >0 OK
+	 * @return	int					Return integer <0 KO, >0 OK
 	 */
 	public function attributeMoveUp($rowid)
 	{
@@ -955,13 +1066,15 @@ class ProductAttribute extends CommonObject
 
 		// Update position of attribute
 		$this->updateAttributePositionUp($rowid, $position);
+
+		return 1;
 	}
 
 	/**
 	 * 	Update a attribute to have a lower position
 	 *
 	 * @param	int		$rowid		Id of line
-	 * @return	int					<0 KO >0 OK
+	 * @return	int					Return integer <0 KO, >0 OK
 	 */
 	public function attributeMoveDown($rowid)
 	{
@@ -975,6 +1088,8 @@ class ProductAttribute extends CommonObject
 
 		// Update position of attribute
 		$this->updateAttributePositionDown($rowid, $position, $max);
+
+		return 1;
 	}
 
 	/**
@@ -1052,7 +1167,7 @@ class ProductAttribute extends CommonObject
 	/**
 	 * 	Update position of attributes with ajax
 	 *
-	 * 	@param	array	$rows	Array of rows
+	 * 	@param	int[]	$rows	Array of rows
 	 * 	@return	void
 	 */
 	public function attributesAjaxOrder($rows)
@@ -1064,7 +1179,7 @@ class ProductAttribute extends CommonObject
 	}
 
 	/**
-	 *  Return a link to the object card (with optionaly the picto)
+	 *  Return a link to the object card (with optionally the picto)
 	 *
 	 *  @param  int     $withpicto                  Include picto in link (0=No picto, 1=Include picto into link, 2=Only picto)
 	 *  @param  string  $option                     On what the link point to ('nolink', ...)
@@ -1098,7 +1213,7 @@ class ProductAttribute extends CommonObject
 		if ($option != 'nolink') {
 			// Add param to save lastsearch_values or not
 			$add_save_lastsearch_values = ($save_lastsearch_value == 1 ? 1 : 0);
-			if ($save_lastsearch_value == -1 && preg_match('/list\.php/', $_SERVER["PHP_SELF"])) {
+			if ($save_lastsearch_value == -1 && isset($_SERVER["PHP_SELF"]) && preg_match('/list\.php/', $_SERVER["PHP_SELF"])) {
 				$add_save_lastsearch_values = 1;
 			}
 			if ($url && $add_save_lastsearch_values) {
@@ -1108,7 +1223,7 @@ class ProductAttribute extends CommonObject
 
 		$linkclose = '';
 		if (empty($notooltip)) {
-			if (!empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER)) {
+			if (getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER')) {
 				$label = $langs->trans("ShowProductAttribute");
 				$linkclose .= ' alt="' . dol_escape_htmltag($label, 1) . '"';
 			}
@@ -1147,8 +1262,8 @@ class ProductAttribute extends CommonObject
 				if (!empty($filename)) {
 					$pospoint = strpos($filearray[0]['name'], '.');
 
-					$pathtophoto = $class . '/' . $this->ref . '/thumbs/' . substr($filename, 0, $pospoint) . '_mini' . substr($filename, $pospoint);
-					if (empty($conf->global->{strtoupper($module . '_' . $class) . '_FORMATLISTPHOTOSASUSERS'})) {
+					$pathtophoto = $class . '/' . $this->ref . '/thumbs/' . dol_substr($filename, 0, $pospoint) . '_mini' . dol_substr($filename, $pospoint);
+					if (!getDolGlobalString(strtoupper($module . '_' . $class) . '_FORMATLISTPHOTOSASUSERS')) {
 						$result .= '<div class="floatleft inline-block valignmiddle divphotoref"><div class="photoref"><img class="photo' . $module . '" alt="No photo" border="0" src="' . DOL_URL_ROOT . '/viewimage.php?modulepart=' . $module . '&entity=' . $conf->entity . '&file=' . urlencode($pathtophoto) . '"></div></div>';
 					} else {
 						$result .= '<div class="floatleft inline-block valignmiddle divphotoref"><img class="photouserphoto userphoto" alt="No photo" border="0" src="' . DOL_URL_ROOT . '/viewimage.php?modulepart=' . $module . '&entity=' . $conf->entity . '&file=' . urlencode($pathtophoto) . '"></div>';
@@ -1179,6 +1294,43 @@ class ProductAttribute extends CommonObject
 		}
 
 		return $result;
+	}
+
+	/**
+	 *	Return a thumb for kanban views
+	 *
+	 *	@param	string	    			$option		Where point the link (0=> main card, 1,2 => shipment, 'nolink'=>No link)
+	 *  @param	?array<string,mixed>	$arraydata	Array of data
+	 *  @return	string								HTML Code for Kanban thumb.
+	 */
+	public function getKanbanView($option = '', $arraydata = null)
+	{
+		$selected = (empty($arraydata['selected']) ? 0 : $arraydata['selected']);
+
+		$return = '<div class="box-flex-item box-flex-grow-zero">';
+		$return .= '<div class="info-box info-box-sm">';
+		$return .= '<span class="info-box-icon bg-infobox-action">';
+		$return .= img_picto('', $this->picto);
+		$return .= '</span>';
+		$return .= '<div class="info-box-content">';
+		$return .= '<span class="info-box-ref inline-block tdoverflowmax150 valignmiddle">'.(method_exists($this, 'getNomUrl') ? $this->getNomUrl() : $this->ref).'</span>';
+		if ($selected >= 0) {
+			$return .= '<input id="cb'.$this->id.'" class="flat checkforselect fright" type="checkbox" name="toselect[]" value="'.$this->id.'"'.($selected ? ' checked="checked"' : '').'>';
+		}
+		if (property_exists($this, 'label')) {
+			$return .= ' <div class="inline-block opacitymedium valignmiddle tdoverflowmax100">'.$this->label.'</div>';
+		}
+		if (property_exists($this, 'thirdparty') && is_object($this->thirdparty)) {
+			$return .= '<br><div class="info-box-ref tdoverflowmax150">'.$this->thirdparty->getNomUrl(1).'</div>';
+		}
+		if (method_exists($this, 'getLibStatut')) {
+			$return .= '<br><div class="info-box-status">'.$this->getLibStatut(3).'</div>';
+		}
+		$return .= '</div>';
+		$return .= '</div>';
+		$return .= '</div>';
+
+		return $return;
 	}
 
 	/**
@@ -1228,7 +1380,7 @@ class ProductAttribute extends CommonObject
 	 *
 	 *  @param	int		        $dateSelector       1=Show also date range input fields
 	 *  @param	Societe			$seller				Object thirdparty who sell
-	 *  @param	Societe			$buyer				Object thirdparty who buy
+	 *  @param	?Societe		$buyer				Object thirdparty who buy
 	 *  @param	string			$defaulttpldir		Directory where to find the template
 	 *	@return	void
 	 */
@@ -1268,16 +1420,18 @@ class ProductAttribute extends CommonObject
 	 *	But for the moment we don't know if it's possible as we keep a method available on overloaded objects.
 	 *
 	 *	@param	string		$action				Action code
-	 *	@param  string		$seller            	Object of seller third party
-	 *	@param  string  	$buyer             	Object of buyer third party
-	 *	@param	int			$selected		   	Object line selected
+	 *	@param  Societe		$seller            	Object of seller third party
+	 *	@param  ?Societe  	$buyer             	Object of buyer third party
+	 *	@param	int<0,max>	$selected		   	Object line selected
 	 *	@param  int	    	$dateSelector      	1=Show also date range input fields
 	 *  @param	string		$defaulttpldir		Directory where to find the template
+	 *  @param	int			$addcreateline		1=Add create line
 	 *	@return	void
 	 */
-	public function printObjectLines($action, $seller, $buyer, $selected = 0, $dateSelector = 0, $defaulttpldir = '/variants/tpl')
+	public function printObjectLines($action, $seller, $buyer, $selected = 0, $dateSelector = 0, $defaulttpldir = '/variants/tpl', $addcreateline = 0)
 	{
 		global $conf, $hookmanager, $langs, $user, $form, $object;
+		global $mysoc;
 		// TODO We should not use global var for this
 		global $disableedit, $disablemove, $disableremove;
 
@@ -1307,9 +1461,30 @@ class ProductAttribute extends CommonObject
 			}
 		}
 
+
+		if ($addcreateline) {
+			// Form to add new line
+			if ($action != 'selectlines') {
+				if ($action != 'editline') {
+					// Add products/services form
+
+					$parameters = array();
+					$reshook = $hookmanager->executeHooks('formAddObjectLine', $parameters, $object, $action); // Note that $action and $object may have been modified by hook
+					if ($reshook < 0) {
+						setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
+					}
+					if (empty($reshook)) {
+						/** @var CommonObject $object */
+						'@phan-var-force CommonObject $object';
+						$object->formAddObjectLine(1, $mysoc, $buyer);
+					}
+				}
+			}
+		}
+
 		$i = 0;
 
-		print "<!-- begin printObjectLines() --><tbody>\n";
+		print "<!-- begin printObjectLines() -->\n";
 		foreach ($this->lines as $line) {
 			if (is_object($hookmanager)) {   // Old code is commented on preceding line.
 				$parameters = array('line' => $line, 'num' => $num, 'i' => $i, 'selected' => $selected, 'table_element_line' => $line->table_element);
@@ -1321,7 +1496,7 @@ class ProductAttribute extends CommonObject
 
 			$i++;
 		}
-		print "</tbody><!-- end printObjectLines() -->\n";
+		print "<!-- end printObjectLines() -->\n";
 	}
 
 	/**
@@ -1330,14 +1505,14 @@ class ProductAttribute extends CommonObject
 	 *
 	 *	@param	string      		$action				GET/POST action
 	 *	@param  CommonObjectLine 	$line			    Selected object line to output
-	 *	@param  string	    		$var               	Is it a an odd line (true)
+	 *	@param  ''		    		$var               	Is it a an odd line (not used)
 	 *	@param  int		    		$num               	Number of line (0)
 	 *	@param  int		    		$i					I
 	 *	@param  int		    		$dateSelector      	1=Show also date range input fields
-	 *	@param  string	    		$seller            	Object of seller third party
-	 *	@param  string	    		$buyer             	Object of buyer third party
-	 *	@param	int					$selected		   	Object line selected
-	 *  @param  Extrafields			$extrafields		Object of extrafields
+	 *	@param  Societe	    		$seller            	Object of seller third party
+	 *	@param  ?Societe	   		$buyer             	Object of buyer third party
+	 *	@param	int<0,max>			$selected		   	ID line selected
+	 *  @param  ?Extrafields		$extrafields		Object of extrafields
 	 *  @param	string				$defaulttpldir		Directory where to find the template (deprecated)
 	 *	@return	void
 	 */
@@ -1345,9 +1520,7 @@ class ProductAttribute extends CommonObject
 	{
 		global $conf, $langs, $user, $object, $hookmanager;
 		global $form;
-		global $object_rights, $disableedit, $disablemove, $disableremove; // TODO We should not use global var for this !
-
-		$object_rights = $user->rights->variants;
+		global $disableedit, $disablemove, $disableremove; // TODO We should not use global var for this !
 
 		// Line in view mode
 		if ($action != 'editline' || $selected != $line->id) {

@@ -18,13 +18,13 @@
 -- ===================================================================
 
 
-CREATE TABLE llx_cronjob 
+CREATE TABLE llx_cronjob
 (
 	rowid 			integer AUTO_INCREMENT PRIMARY KEY,
 	tms 			timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 	datec 			datetime,
 	jobtype			varchar(10) NOT NULL,		-- 'method', 'function' or 'command'
-  	label 			text NOT NULL,
+  	label 			varchar(255) NOT NULL,
 	command			varchar(255),
   	classesname 	varchar(255),				-- when jobtype is 'method', name of the class file containing the method.
   	objectname		varchar(255),
@@ -44,9 +44,10 @@ CREATE TABLE llx_cronjob
   	frequency 		integer NOT NULL DEFAULT 0,
     maxrun          integer NOT NULL DEFAULT 0,		-- set this to 1 for a job queued for on run only
 	nbrun			integer,						-- nb of run complete (failed or not)
-    autodelete      integer DEFAULT 0,				-- 0=Job is kept unchanged once nbrun > maxrun or date > dateend, 2=Job must be archived (archive = status 2) once nbrun > maxrun or date > dateend 
+    autodelete      integer DEFAULT 0,				-- 0=Job is kept unchanged once nbrun > maxrun or date > dateend, 2=Job must be archived (archive = status 2) once nbrun > maxrun or date > dateend
   	status 			integer NOT NULL DEFAULT 1,		-- 0=disabled, 1=enabled, 2=archived
   	processing 		integer NOT NULL DEFAULT 0,		-- 1=process currently running
+  	pid             integer,                        -- The cronjob PID, NULL if not in processing
   	test		    varchar(255) DEFAULT '1',
   	fk_user_author 	integer DEFAULT NULL,
   	fk_user_mod 	integer DEFAULT NULL,
@@ -56,5 +57,3 @@ CREATE TABLE llx_cronjob
 	email_alert		varchar(128),				-- email for alert
 	entity			integer DEFAULT 0
 )ENGINE=innodb;
-
-

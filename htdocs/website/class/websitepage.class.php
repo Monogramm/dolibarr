@@ -4,6 +4,8 @@
  * Copyright (C) 2015       Florian Henry       <florian.henry@open-concept.pro>
  * Copyright (C) 2015       Raphaël Doursenaud  <rdoursenaud@gpcsolutions.fr>
  * Copyright (C) 2020 	   Nicolas ZABOURI		<info@inovea-conseil.com>
+ * Copyright (C) 2024-2025  Frédéric France             <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW							<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,102 +38,177 @@ require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
 class WebsitePage extends CommonObject
 {
 	/**
-	 * @var string Id to identify managed objects
+	 * @var string 		Id to identify managed objects
 	 */
 	public $element = 'websitepage';
 
 	/**
-	 * @var string Name of table without prefix where object is stored
+	 * @var string 		Name of table without prefix where object is stored
 	 */
 	public $table_element = 'website_page';
 
 	/**
-	 * @var string String with name of icon for websitepage. Must be the part after the 'object_' into object_myobject.png
+	 * @var string 		String with name of icon for websitepage. Must be the part after the 'object_' into object_myobject.png
 	 */
 	public $picto = 'file-code';
 
+	/**
+	 * @var string 		Field with ID of parent key if this field has a parent or for child tables
+	 */
+	public $fk_element = 'fk_website_page';
 
 	/**
-	 * @var int ID
+	 * @var string[]	List of child tables. To know object to delete on cascade.
+	 */
+	protected $childtablesoncascade = array('categorie_website_page');
+
+	/**
+	 * @var int 		Website ID
 	 */
 	public $fk_website;
 
+	/**
+	 * @var ?int 		Page ID
+	 */
+	public $fk_page;		// If translation of another page
+
+	/**
+	 * @var string 		Page url
+	 */
 	public $pageurl;
+
+	/**
+	 * @var string	Full url of page, set by the wrapper of website templates to build the RSS feed
+	 */
+	public $fullpageurl;
+
+	/**
+	 * @var string 		Alias alt
+	 */
 	public $aliasalt;
+
+	/**
+	 * @var string 		Container type
+	 */
 	public $type_container;
 
 	/**
-	 * @var string title
+	 * @var string 		Title
 	 */
 	public $title;
+
 	/**
-	 * @var string description
+	 * @var string 		Description
 	 */
 	public $description;
+
 	/**
-	 * @var string image
+	 * @var string 		Image (deprecated)
 	 */
 	public $image;
+
 	/**
-	 * @var string keywords
+	 * @var string 		Keywords
 	 */
 	public $keywords;
+
 	/**
-	 * @var string language code ('en', 'fr', 'en-gb', ..)
+	 * @var string 		Language code ('en', 'fr', 'en-gb', ..)
 	 */
 	public $lang;
 
+	/**
+	 * @var int 		Page allowed in frames
+	 */
 	public $allowed_in_frames;
+
+	/**
+	 * @var ?int		Number of versions to keep in history (0 = keep all versions, n = keep only the n last versions)
+	 */
+	public $keep_history;
+
+	/**
+	 * @var int 		Use meta robot tag "index" (else "noindex")
+	 */
+	public $index = 1;
+
+	/**
+	 * @var int 		Use meta robot tag "follow" (else "nofollow")
+	 */
+	public $follow = 1;
+
+	/**
+	 * @var string		Disable WAF ('all', 'NOSCANAUDIOFORINJECTION,NOSCANIFRAMEFORINJECTION,NOSCANOBJECTFORINJECTION')
+	 */
+	public $disable_waf = 'NOSCANAUDIOFORINJECTION,NOSCANIFRAMEFORINJECTION,NOSCANOBJECTFORINJECTION';	// TODO Manage field in page setup
+
+	/**
+	 * @var string 		Page html header
+	 */
 	public $htmlheader;
+
+	/**
+	 * @var string 		Page content
+	 */
 	public $content;
+
+	/**
+	 * @var string 		Url page was grabbed from
+	 */
 	public $grabbed_from;
 
 	/**
-	 * @var int Status
+	 * @var int<0,1>	Status online or offline
 	 */
 	public $status;
 
 	/**
-	 * @var integer|string date_creation
+	 * @var int 		ID use of creation
 	 */
-	public $date_creation;
+	public $fk_user_creat;
 
 	/**
-	 * @var integer|string date_modification
+	 * @var int 		ID user of last modification
 	 */
-	public $date_modification;
+	public $fk_user_modif;
 
 	/**
-	 * @var string author_alias
+	 * @var string 		Author alias
 	 */
 	public $author_alias;
 
 	/**
-	 * @var string path of external object
+	 * @var string 		Path of external object
 	 */
 	public $object_type;
 
 	/**
-	 * @var string id of external object
+	 * @var string 		Id of external object
 	 */
 	public $fk_object;
 
-	const STATUS_DRAFT = 0;
-	const STATUS_VALIDATED = 1;
+	/**
+	 * @var int			Another ID that is the but with an offset so that ID of pages of the website start at 1
+	 */
+	public $newid;
+
+
+	const STATUS_DRAFT = 0;			// offline
+	const STATUS_VALIDATED = 1;		// online
 
 
 	/**
 	 *  'type' if the field format ('integer', 'integer:ObjectClass:PathToClass[:AddCreateButtonOrNot[:Filter]]', 'varchar(x)', 'double(24,8)', 'real', 'price', 'text', 'html', 'date', 'datetime', 'timestamp', 'duration', 'mail', 'phone', 'url', 'password')
-	 *         Note: Filter can be a string like "(t.ref:like:'SO-%') or (t.date_creation:<:'20160101') or (t.nature:is:NULL)"
+	 *         Note: Filter can be a string like "(t.ref:like:'SO-%') or (t.date_creation:>:'20160101') or (t.nature:is:NULL)"
 	 *  'label' the translation key.
-	 *  'enabled' is a condition when the field must be managed (Example: 1 or '$conf->global->MY_SETUP_PARAM)
+	 *  'enabled' is a condition when the field must be managed (Example: 1 or 'getDolGlobalString("MY_SETUP_PARAM")'
 	 *  'position' is the sort order of field.
 	 *  'notnull' is set to 1 if not null in database. Set to -1 if we must set data to null if empty ('' or 0).
 	 *  'visible' says if field is visible in list (Examples: 0=Not visible, 1=Visible on list and create/update/view forms, 2=Visible on list only, 3=Visible on create/update/view form only (not list), 4=Visible on list and update/view form only (not create). 5=Visible on list and view only (not create/not update). Using a negative value means field is not shown by default on list but can be selected for viewing)
 	 *  'noteditable' says if field is not editable (1 or 0)
-	 *  'default' is a default value for creation (can still be overwrote by the Setup of Default Values if field is editable in creation form). Note: If default is set to '(PROV)' and field is 'ref', the default value will be set to '(PROVid)' where id is rowid when a new record is created.
+	 *  'default' is a default value for creation (can still be overwritten by the Setup of Default Values if the field is editable in creation form). Note: If default is set to '(PROV)' and field is 'ref', the default value will be set to '(PROVid)' where id is rowid when a new record is created.
 	 *  'index' if we want an index in database.
-	 *  'foreignkey'=>'tablename.field' if the field is a foreign key (it is recommanded to name the field fk_...).
+	 *  'foreignkey'=>'tablename.field' if the field is a foreign key (it is recommended to name the field fk_...).
 	 *  'searchall' is 1 if we want to search in this field when making a search from the quick search button.
 	 *  'isameasure' must be set to 1 if you want to have a total on list for this field. Field type must be summable like integer or double(24,8).
 	 *  'css' is the CSS style to use on field. For example: 'maxwidth200'
@@ -146,72 +223,45 @@ class WebsitePage extends CommonObject
 
 	// BEGIN MODULEBUILDER PROPERTIES
 	/**
-	 * @var array  Array with all fields and their property. Do not use it as a static var. It may be modified by constructor.
+	 * @var array<string,array{type:string,label:string,enabled:int<0,2>|string,position:int,visible:int<-6,6>|string,langfile?:string,notnull?:int<-1,1>,noteditable?:int<0,1>,alwayseditable?:int<0,1>|string,default?:string|int,index?:int<0,1>,foreignkey?:string,searchall?:int<0,1>,isameasure?:int<0,1>,css?:string,cssview?:string,csslist?:string,help?:string,helplist?:string,showoncombobox?:int<0,4>|string,disabled?:int<0,1>|string,arrayofkeyval?:array<int|string,string>,autofocusoncreate?:int<0,1>,comment?:string,copytoclipboard?:int<1,2>,validate?:int<0,1>|string,showonheader?:int<0,1>,searchmulti?:int<0,1>,picto?:string,required?:int<0,1>,placeholder?:string}>  Array with all fields and their property. Do not use it as a static var. It may be modified by constructor.
 	 */
 	public $fields = array(
-		'rowid'          =>array('type'=>'integer', 'label'=>'TechnicalID', 'enabled'=>1, 'visible'=>-1, 'notnull'=>1, 'index'=>1, 'position'=>1, 'comment'=>'Id'),
-		'pageurl'        =>array('type'=>'varchar(16)', 'label'=>'WEBSITE_PAGENAME', 'enabled'=>1, 'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>10, 'searchall'=>1, 'comment'=>'Ref/alias of page'),
-		'aliasalt'       =>array('type'=>'varchar(255)', 'label'=>'AliasAlt', 'enabled'=>1, 'visible'=>1, 'notnull'=>1, 'index'=>0, 'position'=>11, 'searchall'=>0, 'comment'=>'Alias alternative of page'),
-		'type_container' =>array('type'=>'varchar(16)', 'label'=>'Type', 'enabled'=>1, 'visible'=>1, 'notnull'=>1, 'index'=>0, 'position'=>12, 'comment'=>'Type of container'),
-		'title'          =>array('type'=>'varchar(255)', 'label'=>'Label', 'enabled'=>1, 'visible'=>1, 'position'=>30, 'searchall'=>1, 'help'=>'UseTextBetween5And70Chars'),
-		'description'    =>array('type'=>'varchar(255)', 'label'=>'Description', 'enabled'=>1, 'visible'=>1, 'position'=>30, 'searchall'=>1),
-		'image'          =>array('type'=>'varchar(255)', 'label'=>'Image', 'enabled'=>1, 'visible'=>1, 'position'=>32, 'searchall'=>0, 'help'=>'Relative path of media. Used if Type is "blogpost"'),
-		'keywords'       =>array('type'=>'varchar(255)', 'label'=>'Keywords', 'enabled'=>1, 'visible'=>1, 'position'=>45, 'searchall'=>0),
-		'lang'           =>array('type'=>'varchar(6)', 'label'=>'Lang', 'enabled'=>1, 'notnull'=>-1, 'visible'=>1, 'position'=>45, 'searchall'=>0),
+		'rowid'          => array('type' => 'integer', 'label' => 'TechnicalID', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'index' => 1, 'position' => 1, 'comment' => 'Id'),
+		'pageurl'        => array('type' => 'varchar(16)', 'label' => 'WEBSITE_PAGENAME', 'enabled' => 1, 'visible' => 1, 'notnull' => 1, 'index' => 1, 'position' => 10, 'searchall' => 1, 'comment' => 'Ref/alias of page'),
+		'aliasalt'       => array('type' => 'text', 'label' => 'AliasAlt', 'enabled' => 1, 'visible' => 1, 'notnull' => 0, 'index' => 0, 'position' => 11, 'searchall' => 0, 'comment' => 'Alias alternative of page'),
+		'type_container' => array('type' => 'varchar(16)', 'label' => 'Type', 'enabled' => 1, 'visible' => 1, 'notnull' => 1, 'index' => 0, 'position' => 12, 'comment' => 'Type of container'),
+		'title'          => array('type' => 'varchar(255)', 'label' => 'Label', 'enabled' => 1, 'visible' => 1, 'position' => 30, 'searchall' => 1, 'help' => 'UseTextBetween5And70Chars'),
+		'description'    => array('type' => 'varchar(255)', 'label' => 'Description', 'enabled' => 1, 'visible' => 1, 'position' => 30, 'searchall' => 1),
+		'image'          => array('type' => 'varchar(255)', 'label' => 'Image', 'enabled' => 1, 'visible' => 1, 'position' => 32, 'searchall' => 0, 'help' => 'Relative path of media. Used if Type is "blogpost"'),
+		'keywords'       => array('type' => 'varchar(255)', 'label' => 'Keywords', 'enabled' => 1, 'visible' => 1, 'position' => 45, 'searchall' => 0),
+		'lang'           => array('type' => 'varchar(6)', 'label' => 'Lang', 'enabled' => 1, 'notnull' => -1, 'visible' => 1, 'position' => 45, 'searchall' => 0),
 		//'status'        =>array('type'=>'integer',      'label'=>'Status',           'enabled'=>1, 'visible'=>1,  'index'=>true,   'position'=>1000),
-		'fk_website'     =>array('type'=>'integer', 'label'=>'WebsiteId', 'enabled'=>1, 'visible'=>1, 'notnull'=>1, 'position'=>40, 'searchall'=>0, 'foreignkey'=>'websitepage.rowid'),
-		'fk_page'        =>array('type'=>'integer', 'label'=>'ParentPageId', 'enabled'=>1, 'visible'=>1, 'notnull'=>-1, 'position'=>45, 'searchall'=>0, 'foreignkey'=>'website.rowid'),
-		'allowed_in_frames'   =>array('type'=>'integer', 'label'=>'AllowedInFrames', 'enabled'=>1, 'visible'=>-1, 'position'=>48, 'searchall'=>0, 'default'=>0),
-		'htmlheader'     =>array('type'=>'text', 'label'=>'HtmlHeader', 'enabled'=>1, 'visible'=>0, 'position'=>50, 'searchall'=>0),
-		'content'        =>array('type'=>'mediumtext', 'label'=>'Content', 'enabled'=>1, 'visible'=>0, 'position'=>51, 'searchall'=>0),
-		'grabbed_from'   =>array('type'=>'varchar(255)', 'label'=>'GrabbedFrom', 'enabled'=>1, 'visible'=>1, 'index'=>1, 'position'=>400, 'comment'=>'URL page content was grabbed from'),
-		'date_creation'  =>array('type'=>'datetime', 'label'=>'DateCreation', 'enabled'=>1, 'visible'=>-1, 'notnull'=>1, 'position'=>500),
-		'tms'            =>array('type'=>'timestamp', 'label'=>'DateModification', 'enabled'=>1, 'visible'=>-1, 'notnull'=>1, 'position'=>501),
+		'fk_website'     => array('type' => 'integer', 'label' => 'WebsiteId', 'enabled' => 1, 'visible' => 1, 'notnull' => 1, 'position' => 40, 'searchall' => 0, 'foreignkey' => 'websitepage.rowid'),
+		'fk_page'        => array('type' => 'integer', 'label' => 'ParentPageId', 'enabled' => 1, 'visible' => 1, 'notnull' => -1, 'position' => 45, 'searchall' => 0, 'foreignkey' => 'website.rowid'),
+		'allowed_in_frames'   => array('type' => 'integer', 'label' => 'AllowedInFrames', 'enabled' => 1, 'visible' => -1, 'position' => 48, 'searchall' => 0, 'default' => '0'),
+		'keep_history'   => array('type' => 'integer', 'label' => 'NumberOfVersionsToKeepInHistory', 'enabled' => 1, 'visible' => -1, 'position' => 49, 'default' => '5', 'help' => 'NumberOfVersionsToKeepInHistoryHelp'),
+		'htmlheader'     => array('type' => 'html', 'label' => 'HtmlHeader', 'enabled' => 1, 'visible' => 0, 'position' => 50, 'searchall' => 0),
+		'content'        => array('type' => 'html', 'label' => 'Content', 'enabled' => 1, 'visible' => 0, 'position' => 51, 'searchall' => 0),
+		'grabbed_from'   => array('type' => 'varchar(255)', 'label' => 'GrabbedFrom', 'enabled' => 1, 'visible' => 1, 'index' => 1, 'position' => 400, 'comment' => 'URL page content was grabbed from'),
+		'date_creation'  => array('type' => 'datetime', 'label' => 'DateCreation', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 500),
+		'tms'            => array('type' => 'timestamp', 'label' => 'DateModification', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 501),
 		//'date_valid'    =>array('type'=>'datetime',     'label'=>'DateValidation',     'enabled'=>1, 'visible'=>-1, 'position'=>502),
-		'fk_user_creat'  =>array('type'=>'integer', 'label'=>'UserAuthor', 'enabled'=>1, 'visible'=>-1, 'notnull'=>true, 'position'=>510),
-		'author_alias'   =>array('type'=>'varchar(64)', 'label'=>'AuthorAlias', 'enabled'=>1, 'visible'=>-1, 'index'=>0, 'position'=>511, 'comment'=>'Author alias'),
-		'fk_user_modif'  =>array('type'=>'integer', 'label'=>'UserModif', 'enabled'=>1, 'visible'=>-1, 'position'=>512),
+		'fk_user_creat'  => array('type' => 'integer:User:user/class/user.class.php', 'label' => 'UserAuthor', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 510),
+		'author_alias'   => array('type' => 'varchar(64)', 'label' => 'AuthorAlias', 'enabled' => 1, 'visible' => -1, 'index' => 0, 'position' => 511, 'comment' => 'Author alias'),
+		'fk_user_modif'  => array('type' => 'integer:User:user/class/user.class.php', 'label' => 'UserModif', 'enabled' => 1, 'visible' => -1, 'position' => 512),
 		//'fk_user_valid' =>array('type'=>'integer',      'label'=>'UserValidation',        'enabled'=>1, 'visible'=>-1, 'position'=>512),
-		'import_key'     =>array('type'=>'varchar(14)', 'label'=>'ImportId', 'enabled'=>1, 'visible'=>-1, 'index'=>1, 'position'=>1000, 'notnull'=>-1),
-		'object_type' => array('type' => 'varchar(255)', 'label' => 'ObjectType', 'enabled'=>1, 'visible'=>0, 'position'=>46, 'searchall'=>0, 'help'=>''),
-		'fk_object' => array('type' => 'varchar(255)', 'label' => 'ObjectId', 'enabled'=>1, 'visible'=>0, 'position'=>47, 'searchall'=>0, 'help'=>'')
+		'import_key'     => array('type' => 'varchar(14)', 'label' => 'ImportId', 'enabled' => 1, 'visible' => -1, 'index' => 1, 'position' => 1000, 'notnull' => -1),
+		'object_type' => array('type' => 'varchar(255)', 'label' => 'ObjectType', 'enabled' => 1, 'visible' => 0, 'position' => 46, 'searchall' => 0, 'help' => ''),
+		'fk_object' => array('type' => 'varchar(255)', 'label' => 'ObjectId', 'enabled' => 1, 'visible' => 0, 'position' => 47, 'searchall' => 0, 'help' => ''),
+		'status'      => array('type' => 'integer', 'label' => 'Status', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 510),
 	);
 	// END MODULEBUILDER PROPERTIES
-
-
-	// If this object has a subtable with lines
-
-	// /**
-	//  * @var string    Name of subtable line
-	//  */
-	//public $table_element_line = 'mymodule_myobjectline';
-
-	/**
-	 * @var string 	Field with ID of parent key if this field has a parent or for child tables
-	 */
-	public $fk_element = 'fk_website_page';
-
-	// /**
-	//  * @var string    Name of subtable class that manage subtable lines
-	//  */
-	//public $class_element_line = 'MyObjectline';
-
-	/**
-	 * @var array	List of child tables. To test if we can delete object.
-	 */
-	//protected $childtables=array();
-
-	/**
-	 * @var array	List of child tables. To know object to delete on cascade.
-	 */
-	protected $childtablesoncascade = array('categorie_website_page');
-
 
 
 	/**
 	 * Constructor
 	 *
-	 * @param DoliDb $db Database handler
+	 * @param DoliDB $db Database handler
 	 */
 	public function __construct(DoliDB $db)
 	{
@@ -221,11 +271,12 @@ class WebsitePage extends CommonObject
 	/**
 	 * Create object into database
 	 *
-	 * @param  User $user      User that creates
-	 * @param  bool $notrigger false=launch triggers after, true=disable triggers
-	 * @return int             <0 if KO, Id of created object if OK
+	 * @param  User		$user      User that creates
+	 * @param  int<0,1> $notrigger 0=launch triggers after, 1=disable triggers
+	 * @param  string[] $phpwrappers	PHP code strings added by the application itself (like header and footer containers), allowed even without permission writephp
+	 * @return int      	       Return integer <0 if KO, Id of created object if OK
 	 */
-	public function create(User $user, $notrigger = false)
+	public function create(User $user, $notrigger = 0, $phpwrappers = array())
 	{
 		$this->description = dol_trunc($this->description, 255, 'right', 'utf-8', 1);
 		$this->keywords = dol_trunc($this->keywords, 255, 'right', 'utf-8', 1);
@@ -240,22 +291,57 @@ class WebsitePage extends CommonObject
 		// Remove spaces and be sure we have main language only
 		$this->lang = preg_replace('/[_-].*$/', '', trim($this->lang)); // en_US or en-US -> en
 
+		// Check there is no PHP into HTML header
+		$dataposted = trim($this->htmlheader);		// Must accept tags like '<script>' and '<link>'
+		$dataposted = preg_replace(array('/<html>\n*/ims', '/<\/html>\n*/ims'), array('', ''), $dataposted);
+		$dataposted = str_replace('<?=', '<?php', $dataposted);
+
+		// Check there is no PHP content into the imported file (must be only HTML + JS)
+		// Note: This one may be useless because this->htmlheader should be retrieved now using GETPOST(..., 'restricthtmlallowlinkscript') so without PHP content. We keep it in case of.
+		$phpcontent = dolKeepOnlyPhpCode($this->htmlheader);
+
+		if ($phpcontent) {
+			$this->error = 'Error: you try to create htmlheader with PHP content inside, this is not allowed.';
+			$this->errors[] = $this->error;
+			return -1;
+		}
+
+		// Test if page contains dynamic PHP content
+		if (!$user->hasRight('website', 'writephp')) {
+			// Check there is no PHP content into the imported file (must be only HTML + JS)
+			// PHP wrappers added by the application itself (parameter $phpwrappers) are excluded from this test
+			$contenttocheck = (string) $this->content;
+			if (is_array($phpwrappers)) {
+				foreach ($phpwrappers as $wrapper) {
+					$contenttocheck = str_replace((string) $wrapper, '', $contenttocheck);
+				}
+			}
+			$phpcontent = dolKeepOnlyPhpCode($contenttocheck);
+
+			if ($phpcontent) {
+				$this->error = 'Error: you try to create a page with PHP content in HTML body without having permissions for that.';
+				$this->errors[] = $this->error;
+				return -1;
+			}
+		}
+
 		return $this->createCommon($user, $notrigger);
 	}
 
 	/**
 	 * Load object in memory from the database
 	 *
-	 * @param int       $id             Id object.
-	 *                                  - If this is 0, the value into $page will be used. If not found or $page not defined, the default page of website_id will be used or the first page found if not set.
-	 *                                  - If value is < 0, we must exclude this ID.
-	 * @param string    $website_id     Web site id (page name must also be filled if this parameter is used)
-	 * @param string    $page           Page name (website id must also be filled if this parameter is used). Exemple 'myaliaspage' or 'fr/myaliaspage'
-	 * @param string    $aliasalt       Alternative alias to search page (slow)
-	 *
-	 * @return int <0 if KO, 0 if not found, >0 if OK
+	 * @param 	int       		$id             		Id object.
+	 *                          	        			- If this is 0, the value into $page will be used. If not found or $page not defined, the default page of website_id will be used or the first page found if not set.
+	 *                              	    			- If value is < 0, we must exclude this ID.
+	 * @param 	int|string|null $website_id     		Web site id (page name must also be filled if this parameter is used)
+	 * @param 	?string    		$page           		Page name (website id must also be filled if this parameter is used). Example 'myaliaspage' or 'fr/myaliaspage'
+	 * @param 	?string    		$aliasalt       		Alternative alias to search page (slow)
+	 * @param	int				$translationparentid	Translation parent ID (a main language page ID to get the translated page). Parameter $translationparentlang must also be set.
+	 * @param	string			$translationparentlang	Translation parent Lang (a language lang to search the translation of the main page ID). Parameter $translationparentid must also be set.
+	 * @return 	int<-1,1>								Return integer <0 if KO, 0 if not found, >0 if OK
 	 */
-	public function fetch($id, $website_id = null, $page = null, $aliasalt = null)
+	public function fetch($id, $website_id = null, $page = null, $aliasalt = null, $translationparentid = 0, $translationparentlang = '')
 	{
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
@@ -272,8 +358,9 @@ class WebsitePage extends CommonObject
 		$sql .= " t.htmlheader,";
 		$sql .= " t.content,";
 		$sql .= " t.lang,";
-		$sql .= " t.fk_page,";
+		$sql .= " t.fk_page,";				// Translation parent page (in mani language)
 		$sql .= " t.allowed_in_frames,";
+		$sql .= " t.keep_history,";
 		$sql .= " t.status,";
 		$sql .= " t.grabbed_from,";
 		$sql .= " t.date_creation,";
@@ -291,10 +378,10 @@ class WebsitePage extends CommonObject
 			$sql .= ' AND t.rowid = '.((int) $id);
 		} else {
 			if ($id < 0) {
-				$sql .= ' AND t.rowid <> '.abs($id);
+				$sql .= ' AND t.rowid <> '.((int) abs($id));
 			}
 			if (null !== $website_id) {
-				$sql .= " AND t.fk_website = '".$this->db->escape($website_id)."'";
+				$sql .= " AND t.fk_website = ".((int) $website_id);
 				if ($page) {
 					$pagetouse = $page;
 					$langtouse = '';
@@ -311,7 +398,11 @@ class WebsitePage extends CommonObject
 					}
 				}
 				if ($aliasalt) {
-					$sql .= " AND (t.aliasalt LIKE '%,".$this->db->escape($aliasalt).",%' OR t.aliasalt LIKE '%, ".$this->db->escape($aliasalt).",%')";
+					$sql .= " AND (t.aliasalt LIKE '%,".$this->db->escape($this->db->escapeforlike($aliasalt)).",%' OR t.aliasalt LIKE '%, ".$this->db->escape($this->db->escapeforlike($aliasalt)).",%')";
+				}
+				if ($translationparentid && $translationparentlang) {
+					$sql .= " AND t.fk_page = ".((int) $translationparentid);
+					$sql .= " AND t.lang = '".$this->db->escape($translationparentlang)."'";
 				}
 			}
 		}
@@ -325,12 +416,12 @@ class WebsitePage extends CommonObject
 
 				$this->id = $obj->rowid;
 
-				$this->fk_website = $obj->fk_website;
-				$this->type_container = $obj->type_container;
+				$this->fk_website = (int) $obj->fk_website;
+				$this->type_container = dol_sanitizeKeyCode($obj->type_container);
 
-				$this->pageurl = $obj->pageurl;
+				$this->pageurl = preg_replace('/[^\w_-]+/', '', $obj->pageurl);		// Sanitize page url
 				$this->ref = $obj->pageurl;
-				$this->aliasalt = preg_replace('/,+$/', '', preg_replace('/^,+/', '', $obj->aliasalt));
+				$this->aliasalt = preg_replace('/,+$/', '', preg_replace('/^,+/', '', (string) $obj->aliasalt));
 
 				$this->title = $obj->title;
 				$this->description = $obj->description;
@@ -341,7 +432,8 @@ class WebsitePage extends CommonObject
 				$this->lang = $obj->lang;
 				$this->fk_page = $obj->fk_page;
 				$this->allowed_in_frames = $obj->allowed_in_frames;
-				$this->status = $obj->status;
+				$this->keep_history = $obj->keep_history;
+				$this->status = (int) $obj->status;
 				$this->grabbed_from = $obj->grabbed_from;
 				$this->date_creation = $this->db->jdate($obj->date_creation);
 				$this->date_modification = $this->db->jdate($obj->date_modification);
@@ -361,7 +453,7 @@ class WebsitePage extends CommonObject
 			}
 		} else {
 			$this->errors[] = 'Error '.$this->db->lasterror();
-			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
 
 			return -1;
 		}
@@ -370,16 +462,17 @@ class WebsitePage extends CommonObject
 	/**
 	 * Return array of all web site pages.
 	 *
-	 * @param  string      $websiteid    Web site
-	 * @param  string      $sortorder    Sort Order
-	 * @param  string      $sortfield    Sort field
-	 * @param  int         $limit        limit
-	 * @param  int         $offset       Offset
-	 * @param  array       $filter       Filter array
-	 * @param  string      $filtermode   Filter mode (AND or OR)
-	 * @return array|int                 int <0 if KO, array of pages if OK
+	 * @param  string|int  	$websiteid   	Web site ID
+	 * @param  string      	$sortorder   	Sort Order
+	 * @param  string      	$sortfield    	Sort field
+	 * @param  int         	$limit        	limit
+	 * @param  int         	$offset       	Offset
+	 * @param  string|string[]	$filter       	Filter as an Universal Search string.
+	 *                                          Example: '((client:=:1) OR ((client:>=:2) AND (client:<=:3))) AND (client:!=:8) AND (nom:like:'a%')'
+	 * @param  string      	$filtermode   	No more used
+	 * @return WebSitePage[]|int<-1,-1>    	int <0 if KO, array of pages if OK
 	 */
-	public function fetchAll($websiteid, $sortorder = '', $sortfield = '', $limit = 0, $offset = 0, array $filter = array(), $filtermode = 'AND')
+	public function fetchAll($websiteid = '', $sortorder = '', $sortfield = '', $limit = 0, $offset = 0, $filter = '', $filtermode = 'AND')
 	{
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
@@ -411,37 +504,57 @@ class WebsitePage extends CommonObject
 		$sql .= " t.object_type,";
 		$sql .= " t.fk_object";
 		$sql .= ' FROM '.MAIN_DB_PREFIX.$this->table_element.' as t';
-		$sql .= ' WHERE t.fk_website = '.((int) $websiteid);
-		// Manage filter (same than into countAll)
-		$sqlwhere = array();
-		if (count($filter) > 0) {
-			foreach ($filter as $key => $value) {
-				if ($key == 't.rowid' || $key == 'rowid' || $key == 't.fk_website' || $key == 'fk_website' || $key == 'status' || $key == 't.status') {
-					$sqlwhere[] = $key." = ".((int) $value);
-				} elseif ($key == 'type_container' || $key == 't.type_container') {
-					$sqlwhere[] = $key." = '".$this->db->escape($value)."'";
-				} elseif ($key == 'lang' || $key == 't.lang') {
-					$listoflang = array();
-					$foundnull = 0;
-					foreach (explode(',', $value) as $tmpvalue) {
-						if ($tmpvalue == 'null') {
-							$foundnull++;
-							continue;
+		if (!empty($websiteid)) {
+			$sql .= ' WHERE t.fk_website = '.((int) $websiteid);
+		}
+
+		// Deprecated. If we receive an array, we use it. Prefer using the USF syntax.
+		if (is_array($filter)) {
+			$sqlwhere = array();
+
+			if (count($filter) > 0) {
+				foreach ($filter as $key => $value) {
+					if ($key == 't.rowid' || $key == 'rowid' || $key == 't.fk_website' || $key == 'fk_website' || $key == 'status' || $key == 't.status') {
+						$sqlwhere[] = $key." = ".((int) $value);
+					} elseif ($key == 'type_container' || $key == 't.type_container') {
+						$sqlwhere[] = $key." = '".$this->db->escape($value)."'";
+					} elseif ($key == 'lang' || $key == 't.lang') {
+						$listoflang = array();
+						$foundnull = 0;
+						foreach (explode(',', $value) as $tmpvalue) {
+							if ($tmpvalue == 'null') {
+								$foundnull++;
+								continue;
+							}
+							$listoflang[] = "'".$this->db->escape(substr(str_replace("'", '', $tmpvalue), 0, 2))."'";
 						}
-						$listoflang[] = "'".$this->db->escape(substr(str_replace("'", '', $tmpvalue), 0, 2))."'";
+						$sql_extrawhere = $this->db->sanitize($key)." IN (".$this->db->sanitize(implode(',', $listoflang), 1).")";
+						if ($foundnull) {
+							$sql_extrawhere = "(".$sql_extrawhere." OR ".$this->db->sanitize($key)." IS NULL)";
+						}
+						$sqlwhere[] = $sql_extrawhere;
+					} else {
+						$sqlwhere[] = $this->db->sanitize($key)." LIKE '%".$this->db->escape($value)."%'";
 					}
-					$stringtouse = $key." IN (".$this->db->sanitize(join(',', $listoflang), 1).")";
-					if ($foundnull) {
-						$stringtouse = "(".$stringtouse." OR ".$key." IS NULL)";
-					}
-					$sqlwhere[] = $stringtouse;
-				} else {
-					$sqlwhere[] = $key." LIKE '%".$this->db->escape($value)."%'";
 				}
 			}
+			if (count($sqlwhere) > 0) {
+				if (!empty($websiteid)) {
+					$sql .= " AND (".implode(' '.$this->db->sanitize($filtermode).' ', $sqlwhere).')';
+				} else {
+					$sql .= " WHERE ".implode(' '.$this->db->sanitize($filtermode).' ', $sqlwhere);
+				}
+			}
+
+			$filter = '';
 		}
-		if (count($sqlwhere) > 0) {
-			$sql .= " AND (".implode(' '.$this->db->escape($filtermode).' ', $sqlwhere).')';
+
+		$errormessage = '';
+		$sql .= forgeSQLFromUniversalSearchCriteria($filter, $errormessage);
+		if ($errormessage) {
+			$this->errors[] = $errormessage;
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
+			return -1;
 		}
 
 		if (!empty($sortfield)) {
@@ -462,7 +575,7 @@ class WebsitePage extends CommonObject
 				$record->fk_website = $obj->fk_website;
 				$record->type_container = $obj->type_container;
 				$record->pageurl = $obj->pageurl;
-				$record->aliasalt = preg_replace('/,+$/', '', preg_replace('/^,+/', '', $obj->aliasalt));
+				$record->aliasalt = preg_replace('/,+$/', '', preg_replace('/^,+/', '', (string) $obj->aliasalt));
 				$record->title = $obj->title;
 				$record->description = $obj->description;
 				$record->image = $obj->image;
@@ -491,7 +604,7 @@ class WebsitePage extends CommonObject
 		} else {
 			$this->error = 'Error '.$this->db->lasterror();
 			$this->errors[] = $this->error;
-			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
 
 			return -1;
 		}
@@ -500,12 +613,13 @@ class WebsitePage extends CommonObject
 	/**
 	 * Count objects in the database.
 	 *
-	 * @param  string      $websiteid    Web site
-	 * @param  array       $filter       Filter array
-	 * @param  string      $filtermode   Filter mode (AND or OR)
-	 * @return int         		         int <0 if KO, array of pages if OK
+	 * @param  string      	$websiteid    	Web site
+	 * @param  string|string[]	$filter       	Filter as an Universal Search string.
+	 *                                          Example: '((client:=:1) OR ((client:>=:2) AND (client:<=:3))) AND (client:!=:8) AND (nom:like:'a%')'
+	 * @param  string      	$filtermode   	Filter mode (AND or OR)
+	 * @return int         		         	int <0 if KO, array of pages if OK
 	 */
-	public function countAll($websiteid, array $filter = array(), $filtermode = 'AND')
+	public function countAll($websiteid, $filter = '', $filtermode = 'AND')
 	{
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
@@ -514,36 +628,54 @@ class WebsitePage extends CommonObject
 		$sql = 'SELECT COUNT(t.rowid) as nb';
 		$sql .= ' FROM '.MAIN_DB_PREFIX.$this->table_element.' as t';
 		$sql .= ' WHERE t.fk_website = '.((int) $websiteid);
-		// Manage filter (same than into fetchAll)
-		$sqlwhere = array();
-		if (count($filter) > 0) {
-			foreach ($filter as $key => $value) {
-				if ($key == 't.rowid' || $key == 't.fk_website' || $key == 'status') {
-					$sqlwhere[] = $key." = ".((int) $value);
-				} elseif ($key == 'type_container') {
-					$sqlwhere[] = $key." = '".$this->db->escape($value)."'";
-				} elseif ($key == 'lang' || $key == 't.lang') {
-					$listoflang = array();
-					$foundnull = 0;
-					foreach (explode(',', $value) as $tmpvalue) {
-						if ($tmpvalue == 'null') {
-							$foundnull++;
-							continue;
+
+		// Deprecated. If we receive an array, we use it. Prefer using the USF syntax.
+		if (is_array($filter)) {
+			$sqlwhere = array();
+
+			if (count($filter) > 0) {
+				foreach ($filter as $key => $value) {
+					if ($key == 't.rowid' || $key == 'rowid' || $key == 't.fk_website' || $key == 'fk_website' || $key == 'status' || $key == 't.status') {
+						$sqlwhere[] = $key." = ".((int) $value);
+					} elseif ($key == 'type_container' || $key == 't.type_container') {
+						$sqlwhere[] = $key." = '".$this->db->escape($value)."'";
+					} elseif ($key == 'lang' || $key == 't.lang') {
+						$listoflang = array();
+						$foundnull = 0;
+						foreach (explode(',', $value) as $tmpvalue) {
+							if ($tmpvalue == 'null') {
+								$foundnull++;
+								continue;
+							}
+							$listoflang[] = "'".$this->db->escape(substr(str_replace("'", '', $tmpvalue), 0, 2))."'";
 						}
-						$listoflang[] = "'".$this->db->escape(substr(str_replace("'", '', $tmpvalue), 0, 2))."'";
+						$sql_extrawhere = $this->db->sanitize($key)." IN (".$this->db->sanitize(implode(',', $listoflang), 1).")";
+						if ($foundnull) {
+							$sql_extrawhere = "(".$sql_extrawhere." OR ".$this->db->sanitize($key)." IS NULL)";
+						}
+						$sqlwhere[] = $sql_extrawhere;
+					} else {
+						$sqlwhere[] = $this->db->sanitize($key)." LIKE '%".$this->db->escape($value)."%'";
 					}
-					$stringtouse = $key." IN (".$this->db->sanitize(join(',', $listoflang), 1).")";
-					if ($foundnull) {
-						$stringtouse = "(".$stringtouse." OR ".$key." IS NULL)";
-					}
-					$sqlwhere[] = $stringtouse;
-				} else {
-					$sqlwhere[] = $key." LIKE '%".$this->db->escape($value)."%'";
 				}
 			}
+			if (count($sqlwhere) > 0) {
+				if (!empty($websiteid)) {
+					$sql .= " AND (".implode(' '.$this->db->sanitize($filtermode).' ', $sqlwhere).')';
+				} else {
+					$sql .= " WHERE ".implode(' '.$this->db->sanitize($filtermode).' ', $sqlwhere);
+				}
+			}
+
+			$filter = '';
 		}
-		if (count($sqlwhere) > 0) {
-			$sql .= ' AND ('.implode(' '.$this->db->escape($filtermode).' ', $sqlwhere).')';
+
+		$errormessage = '';
+		$sql .= forgeSQLFromUniversalSearchCriteria($filter, $errormessage);
+		if ($errormessage) {
+			$this->errors[] = $errormessage;
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
+			return -1;
 		}
 
 		$resql = $this->db->query($sql);
@@ -559,7 +691,7 @@ class WebsitePage extends CommonObject
 		} else {
 			$this->error = 'Error '.$this->db->lasterror();
 			$this->errors[] = $this->error;
-			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
 
 			return -1;
 		}
@@ -568,11 +700,11 @@ class WebsitePage extends CommonObject
 	/**
 	 * Update object into database
 	 *
-	 * @param  User $user      User that modifies
-	 * @param  bool $notrigger false=launch triggers after, true=disable triggers
-	 * @return int             <0 if KO, >0 if OK
+	 * @param  User		$user		User that modifies
+	 * @param  int<0,1>	$notrigger	0=launch triggers after, 1=disable triggers
+	 * @return int					Return integer <0 if KO, >0 if OK
 	 */
-	public function update(User $user, $notrigger = false)
+	public function update(User $user, $notrigger = 0)
 	{
 		$this->description = dol_trunc($this->description, 255, 'right', 'utf-8', 1);
 		$this->keywords = dol_trunc($this->keywords, 255, 'right', 'utf-8', 1);
@@ -593,11 +725,21 @@ class WebsitePage extends CommonObject
 				return -1;
 			}
 			$tmppage = new WebsitePage($this->db);
-			$tmppage->fetch($this->fk_page);
+			$tmppage->fetch((int) $this->fk_page);
 			if ($tmppage->lang == $this->lang) {
 				$this->error = "ErrorLanguageOfTranslatedPageIsSameThanThisPage";
 				return -1;
 			}
+		}
+
+		// Check there is no PHP content into the modifiedhtmlheader (must be only HTML + JS)
+		// Note: This one may be useless because this->htmlheader should be retrieved now using GETPOST(..., 'restricthtmlallowlinkscript') so without PHP content. We keep it in case of.
+		$phpcontent = dolKeepOnlyPhpCode($this->htmlheader);
+
+		if ($phpcontent) {
+			$this->error = 'Error: you try to create htmlheader with PHP content inside, this is not allowed.';
+			$this->errors[] = $this->error;
+			return -1;
 		}
 
 		return $this->updateCommon($user, $notrigger);
@@ -606,12 +748,14 @@ class WebsitePage extends CommonObject
 	/**
 	 * Delete object in database
 	 *
-	 * @param User $user       User that deletes
-	 * @param bool $notrigger  false=launch triggers after, true=disable triggers
-	 * @return int             <0 if KO, >0 if OK
+	 * @param User 	$user       User that deletes
+	 * @param int 	$notrigger  0=launch triggers after, 1=disable triggers
+	 * @return int             	Return integer <0 if KO, >0 if OK
 	 */
-	public function delete(User $user, $notrigger = false)
+	public function delete(User $user, $notrigger = 0)
 	{
+		global $conf;
+
 		$error = 0;
 
 		// Delete all child tables
@@ -630,7 +774,7 @@ class WebsitePage extends CommonObject
 		}
 
 		if (!$error) {
-			$result = $this->deleteCommon($user, $trigger);
+			$result = $this->deleteCommon($user, $notrigger);
 			if ($result <= 0) {
 				$error++;
 			}
@@ -665,16 +809,17 @@ class WebsitePage extends CommonObject
 	/**
 	 * Load an object from its id and create a new one in database
 	 *
-	 * @param	User	$user				User making the clone
-	 * @param 	int 	$fromid 			Id of object to clone
-	 * @param	string	$newref				New ref/alias of page
-	 * @param	string	$newlang			New language
-	 * @param	int		$istranslation		1=New page is a translation of the cloned page.
-	 * @param	int		$newwebsite			0=Same web site, >0=Id of new website
-	 * @param	string	$newtitle			New title
-	 * @return 	mixed 						New object created, <0 if KO
+	 * @param	User		$user				User making the clone
+	 * @param 	int 		$fromid 			Id of object to clone
+	 * @param	string		$newref				New ref/alias of page
+	 * @param	string		$newlang			New language
+	 * @param	int			$istranslation		1=New page is a translation of the cloned page.
+	 * @param	int			$newwebsite			0=Same web site, >0=Id of new website
+	 * @param	string		$newtitle			New title
+	 * @param	?Website	$website			Website
+	 * @return 	self|int<-1,-1>					New object created, <0 if KO
 	 */
-	public function createFromClone(User $user, $fromid, $newref, $newlang = '', $istranslation = 0, $newwebsite = 0, $newtitle = '')
+	public function createFromClone(User $user, $fromid, $newref, $newlang = '', $istranslation = 0, $newwebsite = 0, $newtitle = '', $website = null)
 	{
 		global $hookmanager, $langs;
 
@@ -697,6 +842,19 @@ class WebsitePage extends CommonObject
 			return -1;
 		}
 
+		if ($istranslation) {
+			if (is_null($website)) {
+				$website = new Website($this->db);
+			}
+			$website->fetch($object->fk_website);
+
+			if ($website->id != $newwebsite) {
+				$langs->load("errors");
+				$this->error = $langs->trans("WebsiteMustBeSameThanClonedPageIfTranslation");
+				return -1;
+			}
+		}
+
 		$this->db->begin();
 
 		// Load source object
@@ -716,11 +874,18 @@ class WebsitePage extends CommonObject
 		if (!empty($newlang)) {
 			$object->lang = $newlang;
 		}
+
 		if ($istranslation) {
-			$object->fk_page = $fromid;
+			if ($website->lang == $newlang) {
+				// The new page is into the website language, the parent page will be 0, and we must instead update the source page later.
+				$object->fk_page = 0;
+			} else {
+				$object->fk_page = $fromid;
+			}
 		} else {
 			$object->fk_page = 0;
 		}
+
 		if (!empty($newwebsite)) {
 			$object->fk_website = $newwebsite;
 		}
@@ -732,9 +897,21 @@ class WebsitePage extends CommonObject
 		$result = $object->create($user);
 		if ($result < 0) {
 			$error++;
-			$this->error = $object->error;
-			$this->errors = $object->errors;
-			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
+			$this->setErrorsFromObject($object);
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
+		}
+
+		if ($istranslation) {
+			if ($website->lang == $newlang) {
+				// We must now update the source page to link to the new page as a translation of.
+				$sql = "UPDATE ".MAIN_DB_PREFIX."website_page SET fk_page = ".((int) $result)." WHERE rowid = ".((int) $fromid);
+
+				$result = $this->db->query($sql);
+				if (!$result) {
+					$error++;
+					$this->error = $this->db->lasterror();
+				}
+			}
 		}
 
 		unset($object->context['createfromclone']);
@@ -752,15 +929,15 @@ class WebsitePage extends CommonObject
 	}
 
 	/**
-	 *  Return a link to the user card (with optionaly the picto)
+	 *  Return a link to the user card (with optionally the picto)
 	 * 	Use this->id,this->lastname, this->firstname
 	 *
-	 *	@param	int		$withpicto			Include picto in link (0=No picto, 1=Include picto into link, 2=Only picto)
-	 *	@param	string	$option				On what the link point to
-	 *  @param	integer	$notooltip			1=Disable tooltip
-	 *  @param	int		$maxlen				Max length of visible user name
-	 *  @param  string  $morecss            Add more css on link
-	 *	@return	string						String with URL
+	 *	@param	int<0,2>	$withpicto			Include picto in link (0=No picto, 1=Include picto into link, 2=Only picto)
+	 *	@param	string		$option				On what the link point to
+	 *  @param	int<0,1>	$notooltip			1=Disable tooltip
+	 *  @param	int			$maxlen				Max length of visible user name
+	 *  @param  string		$morecss            Add more css on link
+	 *	@return	string							String with URL
 	 */
 	public function getNomUrl($withpicto = 0, $option = '', $notooltip = 0, $maxlen = 24, $morecss = '')
 	{
@@ -781,11 +958,11 @@ class WebsitePage extends CommonObject
 
 		$linkclose = '';
 		if (empty($notooltip)) {
-			if (!empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER)) {
+			if (getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER')) {
 				$label = $langs->trans("ShowMyObject");
-				$linkclose .= ' alt="'.dol_escape_htmltag($label, 1).'"';
+				$linkclose .= ' alt="'.dolPrintHTMLForAttribute($label).'"';
 			}
-			$linkclose .= ' title="'.dol_escape_htmltag($label, 1).'"';
+			$linkclose .= ' title="'.dolPrintHTMLForAttribute($label).'"';
 			$linkclose .= ' class="classfortooltip'.($morecss ? ' '.$morecss : '').'"';
 		} else {
 			$linkclose = ($morecss ? ' class="'.$morecss.'"' : '');
@@ -810,10 +987,10 @@ class WebsitePage extends CommonObject
 	}
 
 	/**
-	 *  Retourne le libelle du status d'un user (actif, inactif)
+	 *  Return the label of the status
 	 *
-	 *  @param	int		$mode          0=libelle long, 1=libelle court, 2=Picto + Libelle court, 3=Picto, 4=Picto + Libelle long, 5=Libelle court + Picto
-	 *  @return	string 			       Label of status
+	 *  @param  int<0,6>	$mode	0=long label, 1=short label, 2=Picto + short label, 3=Picto, 4=Picto + long label, 5=Short label + Picto, 6=Long label + Picto
+	 *  @return	string 				Label of status
 	 */
 	public function getLibStatut($mode = 0)
 	{
@@ -822,11 +999,11 @@ class WebsitePage extends CommonObject
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
 	/**
-	 *  Renvoi le libelle d'un status donne
+	 *  Return the label of a given status
 	 *
-	 *  @param	int		$status        	Id status
-	 *  @param  int		$mode          	0=libelle long, 1=libelle court, 2=Picto + Libelle court, 3=Picto, 4=Picto + Libelle long, 5=Libelle court + Picto
-	 *  @return string 			       	Label of status
+	 *  @param	int			$status		Id status
+	 *  @param  int<0,6>	$mode		0=long label, 1=short label, 2=Picto + short label, 3=Picto, 4=Picto + long label, 5=Short label + Picto, 6=Long label + Picto
+	 *  @return string 					Label of status
 	 */
 	public function LibStatut($status, $mode = 0)
 	{
@@ -836,10 +1013,10 @@ class WebsitePage extends CommonObject
 		if (empty($this->labelStatus) || empty($this->labelStatusShort)) {
 			global $langs;
 			//$langs->load("mymodule");
-			$this->labelStatus[self::STATUS_DRAFT] = $langs->transnoentitiesnoconv('Disabled');
-			$this->labelStatus[self::STATUS_VALIDATED] = $langs->transnoentitiesnoconv('Enabled');
-			$this->labelStatusShort[self::STATUS_DRAFT] = $langs->transnoentitiesnoconv('Disabled');
-			$this->labelStatusShort[self::STATUS_VALIDATED] = $langs->transnoentitiesnoconv('Enabled');
+			$this->labelStatus[self::STATUS_DRAFT] = $langs->transnoentitiesnoconv('Offline');
+			$this->labelStatus[self::STATUS_VALIDATED] = $langs->transnoentitiesnoconv('Online');
+			$this->labelStatusShort[self::STATUS_DRAFT] = $langs->transnoentitiesnoconv('Offline');
+			$this->labelStatusShort[self::STATUS_VALIDATED] = $langs->transnoentitiesnoconv('Online');
 		}
 
 		$statusType = 'status5';
@@ -858,7 +1035,7 @@ class WebsitePage extends CommonObject
 	 * Existing categories are left untouch.
 	 *
 	 * @param 	int[]|int 	$categories 	Category ID or array of Categories IDs
-	 * @return	int							<0 if KO, >0 if OK
+	 * @return	int							Return integer <0 if KO, >0 if OK
 	 */
 	public function setCategories($categories)
 	{
@@ -870,7 +1047,7 @@ class WebsitePage extends CommonObject
 	 * Initialise object with example values
 	 * Id must be 0 if object instance is a specimen
 	 *
-	 * @return void
+	 * @return int
 	 */
 	public function initAsSpecimen()
 	{
@@ -880,7 +1057,7 @@ class WebsitePage extends CommonObject
 
 		$now = dol_now();
 
-		$this->fk_website = '';
+		$this->fk_website = 0;
 		$this->type_container = 'page';
 		$this->pageurl = 'specimen';
 		$this->aliasalt = 'specimenalt';
@@ -891,11 +1068,13 @@ class WebsitePage extends CommonObject
 		$this->allowed_in_frames = 1;
 		$this->htmlheader = '';
 		$this->content = '<html><body>This is a html content</body></html>';
-		$this->status = '';
+		$this->status = self::STATUS_DRAFT;
 		$this->grabbed_from = '';
 		$this->date_creation = $now - (24 * 30 * 3600);
 		$this->date_modification = $now - (24 * 7 * 3600);
 		$this->fk_user_creat = $user->id;
 		$this->author_alias = 'mypublicpseudo';
+
+		return 1;
 	}
 }

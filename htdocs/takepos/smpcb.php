@@ -1,5 +1,6 @@
 <?php
 /* Copyright (C) 2020	Andreu Bisquerra Gaya <jove@bisquerra.com>
+ * Copyright (C) 2025       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -12,7 +13,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
 /**
@@ -21,9 +22,6 @@
  *	\brief      Page with the content for smpcb payment
  */
 
-if (!defined('NOCSRFCHECK')) {
-	define('NOCSRFCHECK', '1');
-}
 if (!defined('NOTOKENRENEWAL')) {
 	define('NOTOKENRENEWAL', '1');
 }
@@ -37,15 +35,26 @@ if (!defined('NOREQUIREAJAX')) {
 	define('NOREQUIREAJAX', '1');
 }
 
+// Load Dolibarr environment
 require '../main.inc.php';
+/**
+ * @var User $user
+ */
 
-if (empty($user->rights->takepos->run)) {
+if (!$user->hasRight('takepos', 'run')) {
 	accessforbidden();
 }
 
 if (GETPOSTISSET('status')) {
 	die(strtoupper($_SESSION['SMP_CURRENT_PAYMENT']));
 }
+
+
+/*
+ * View
+ */
+
+top_httphead('text/html', 1);
 
 if (GETPOST('smp-status')) {
 	print '<html lang="en">';
@@ -66,7 +75,7 @@ if (GETPOST('smp-status')) {
 	print '<script type="application/javascript">
                 window.onload = function() {
                     window.close();
-                };
+                }
             </script>';
 
 	print "Transaction status registered, you can close this";

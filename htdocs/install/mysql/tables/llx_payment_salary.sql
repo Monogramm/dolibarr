@@ -23,7 +23,7 @@ create table llx_payment_salary
   tms             timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   datec           datetime,                   -- Create date
   fk_user         integer DEFAULT NULL,
-  datep           date,                       -- payment date
+  datep           datetime,                   -- payment date
   datev           date,                       -- value date (this field should not be here, only into bank tables)
   salary          double(24,8),               -- salary of user when payment was done
   amount          double(24,8) NOT NULL DEFAULT 0,
@@ -38,5 +38,6 @@ create table llx_payment_salary
   fk_bank         integer,
   fk_user_author  integer,                    -- user creating
   fk_user_modif   integer,                     -- user making last change
-  fk_salary       integer
+  fk_salary       integer,
+  import_key      varchar(14)                  -- import key
 )ENGINE=innodb;

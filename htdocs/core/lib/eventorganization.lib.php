@@ -1,5 +1,7 @@
 <?php
 /* Copyright (C) 2021		Florian Henry			<florian.henry@scopen.fr>
+ * Copyright (C) 2023-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,11 +26,14 @@
 /**
  * Prepare admin pages header
  *
- * @return array
+ * @return	array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function eventorganizationAdminPrepareHead()
 {
-	global $langs, $conf;
+	global $langs, $conf, $extrafields;
+
+	$extrafields->fetch_name_optionals_label('actioncomm');
+	$extrafields->fetch_name_optionals_label('eventorganization_conferenceorboothattendee');
 
 	$langs->load("eventorganization");
 
@@ -41,14 +46,27 @@ function eventorganizationAdminPrepareHead()
 	$h++;
 
 
-	$head[$h][0] = DOL_URL_ROOT.'/admin/eventorganization_confbooth_extrafields.php';
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/admin/extrafields.php', array('elementtype' => 'actioncomm'));
 	$head[$h][1] = $langs->trans("ExtraFields")." (".$langs->trans("EventOrganizationConfOrBooth").")";
+	$nbExtrafields = $extrafields->attributes['actioncomm']['count'];
+	if ($nbExtrafields > 0) {
+		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.$nbExtrafields.'</span>';
+	}
 	$head[$h][2] = 'eventorganization_extrafields';
 	$h++;
 
-	$head[$h][0] = DOL_URL_ROOT.'/admin/eventorganization_confboothattendee_extrafields.php';
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/admin/extrafields.php', array('elementtype' => 'eventorganization_conferenceorboothattendee'));
 	$head[$h][1] = $langs->trans("ExtraFields")." (".$langs->trans("Attendees").")";
+	$nbExtrafields = $extrafields->attributes['eventorganization_conferenceorboothattendee']['count'];
+	if ($nbExtrafields > 0) {
+		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.$nbExtrafields.'</span>';
+	}
 	$head[$h][2] = 'conferenceorboothattendee_extrafields';
+	$h++;
+
+	$head[$h][0] = DOL_URL_ROOT.'/admin/eventorganization_public.php';
+	$head[$h][1] = $langs->trans("BlankSubscriptionForm");
+	$head[$h][2] = 'public';
 	$h++;
 
 	// Show more tabs from modules

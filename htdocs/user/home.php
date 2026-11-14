@@ -1,7 +1,9 @@
 <?php
-/* Copyright (C) 2005-2018	Laurent Destailleur	<eldy@users.sourceforge.net>
- * Copyright (C) 2005-2018	Regis Houssin		<regis.houssin@inodbox.com>
- * Copyright (C) 2019           Nicolas ZABOURI         <info@inovea-conseil.com>
+/* Copyright (C) 2005-2018	Laurent Destailleur		<eldy@users.sourceforge.net>
+ * Copyright (C) 2005-2024	Regis Houssin			<regis.houssin@inodbox.com>
+ * Copyright (C) 2019		Nicolas ZABOURI			<info@inovea-conseil.com>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2026		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,14 +24,23 @@
  *	\brief      Home page of users and groups management
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
 require_once DOL_DOCUMENT_ROOT.'/user/class/usergroup.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formother.class.php';
 
-$contextpage = GETPOST('contextpage', 'aZ') ?GETPOST('contextpage', 'aZ') : 'userhome'; // To manage different context of search
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 
-if (!$user->rights->user->user->lire && !$user->admin) {
-	// Redirection vers la page de l'utilisateur
+$contextpage = GETPOST('contextpage', 'aZ') ? GETPOST('contextpage', 'aZ') : 'userhome'; // To manage different context of search
+
+if (!$user->hasRight('user', 'user', 'lire') && !$user->admin) {
+	// Redirect to the user's own page
 	header("Location: card.php?id=".$user->id);
 	exit;
 }
@@ -37,9 +48,9 @@ if (!$user->rights->user->user->lire && !$user->admin) {
 // Load translation files required by page
 $langs->load("users");
 
-$canreadperms = true;
-if (!empty($conf->global->MAIN_USE_ADVANCED_PERMS)) {
-	$canreadperms = ($user->admin || $user->rights->user->group_advance->read);
+$permissiontoreadgroup = true;
+if (getDolGlobalString('MAIN_USE_ADVANCED_PERMS')) {
+	$permissiontoreadgroup = (!empty($user->admin) || $user->hasRight("user", "group_advance", "read"));
 }
 
 // Security check (for external users)
@@ -51,7 +62,7 @@ if ($user->socid > 0) {
 $companystatic = new Societe($db);
 $fuserstatic = new User($db);
 
-// Initialize technical object to manage hooks. Note that conf->hooks_modules contains array
+// Initialize a technical object to manage hooks. Note that conf->hooks_modules contains array
 $hookmanager->initHooks(array('userhome'));
 if (!isset($form) || !is_object($form)) {
 	$form = new Form($db);
@@ -59,24 +70,19 @@ if (!isset($form) || !is_object($form)) {
 // Load $resultboxes (selectboxlist + boxactivated + boxlista + boxlistb)
 $resultboxes = FormOther::getBoxesArea($user, "1");
 
-if (GETPOST('addbox')) {
-	// Add box (when submit is done from a form when ajax disabled)
-	require_once DOL_DOCUMENT_ROOT.'/core/class/infobox.class.php';
-	$zone = GETPOST('areacode', 'int');
-	$userid = GETPOST('userid', 'int');
-	$boxorder = GETPOST('boxorder', 'aZ09');
-	$boxorder .= GETPOST('boxcombo', 'aZ09');
-	$result = InfoBox::saveboxorder($db, $zone, $boxorder, $userid);
-	if ($result > 0) {
-		setEventMessages($langs->trans("BoxAdded"), null);
-	}
-}
+// Add box (when submit is done from a form when ajax disabled)
+include DOL_DOCUMENT_ROOT.'/core/actions_addbox.inc.php';
+
+$max = getDolUserInt('MAIN_SIZE_SHORTLIST_LIMIT', getDolGlobalInt('MAIN_SIZE_SHORTLIST_LIMIT', 5));
+
 
 /*
  * View
  */
 
-llxHeader();
+$title = $langs->trans("MenuUsersAndGroups");
+$help_url = '';
+llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-user page-home');
 
 
 print load_fiche_titre($langs->trans("MenuUsersAndGroups"), $resultboxes['selectboxlist'], 'user');
@@ -92,7 +98,7 @@ $searchbox .= '<tr><td>';
 $searchbox .= $langs->trans("User").':</td><td><input class="flat inputsearch width200" type="text" name="search_user"></td></tr>';
 
 // Search Group
-if ($canreadperms) {
+if ($permissiontoreadgroup) {
 	$searchbox .= '<tr><td>';
 	$searchbox .= $langs->trans("Group").':</td><td><input class="flat inputsearch width200" type="text" name="search_group"></td></tr>';
 }
@@ -106,7 +112,7 @@ $searchbox .= '</form>';
 /*
  * Latest created users
  */
-$max = 10;
+
 $lastcreatedbox = '';
 $sql = "SELECT DISTINCT u.rowid, u.lastname, u.firstname, u.admin, u.login, u.fk_soc, u.datec, u.statut";
 $sql .= ", u.entity";
@@ -139,8 +145,15 @@ if ($resql) {
 
 	$lastcreatedbox .= '<div class="div-table-responsive-no-min">';
 	$lastcreatedbox .= '<table class="noborder centpercent">';
-	$lastcreatedbox .= '<tr class="liste_titre"><td colspan="3">'.$langs->trans("LastUsersCreated", min($num, $max)).'</td>';
-	$lastcreatedbox .= '<td class="right" colspan="2"><a class="commonlink" href="'.DOL_URL_ROOT.'/user/list.php?sortfield=u.datec&sortorder=DESC">'.$langs->trans("FullList").'</td>';
+	$lastcreatedbox .= '<tr class="liste_titre"><td colspan="3" class="valignmiddle">';
+	$lastcreatedbox .= '<span class="valignmiddle">'.$langs->trans("LastUsersCreated", min($num, $max)).'</span>';
+	$lastcreatedbox .= '<a class="valignmiddle marginleftonlyshort" href="'.dolBuildUrl(DOL_URL_ROOT.'/user/list.php', ['sortfield' => 'u.datec', 'sortorder' => 'DESC']).'" title="'.$langs->trans("FullList").'">';
+	$lastcreatedbox .= '<span class="badge marginleftonlyshort valignmiddle">...</span>';
+	$lastcreatedbox .= '</a>';
+	$lastcreatedbox .= '</td>';
+	$lastcreatedbox .= '<td class="right" colspan="2">';
+	//$lastcreatedbox .= '<a class="commonlink" href="'.DOL_URL_ROOT.'/user/list.php?sortfield=u.datec&sortorder=DESC">'.$langs->trans("FullList");
+	$lastcreatedbox .= '</td>';
 	$lastcreatedbox .= '</tr>'."\n";
 	$i = 0;
 
@@ -148,7 +161,7 @@ if ($resql) {
 		$obj = $db->fetch_object($resql);
 
 		$fuserstatic->id = $obj->rowid;
-		$fuserstatic->statut = $obj->statut;
+		$fuserstatic->status = $obj->statut;
 		$fuserstatic->lastname = $obj->lastname;
 		$fuserstatic->firstname = $obj->firstname;
 		$fuserstatic->login = $obj->login;
@@ -163,29 +176,28 @@ if ($resql) {
 		$companystatic->canvas = $obj->canvas;
 
 		$lastcreatedbox .= '<tr class="oddeven">';
-		$lastcreatedbox .= '<td class="nowraponall">';
+		$lastcreatedbox .= '<td class="nowraponall tdoverflowmax150">';
 		$lastcreatedbox .= $fuserstatic->getNomUrl(-1);
-		if (!empty($conf->multicompany->enabled) && $obj->admin && !$obj->entity) {
-			$lastcreatedbox .= img_picto($langs->trans("SuperAdministrator"), 'redstar');
+		if (isModEnabled('multicompany') && $obj->admin && !$obj->entity) {
+			$lastcreatedbox .= img_picto($langs->trans("SuperAdministratorDesc"), 'superadmin');
 		} elseif ($obj->admin) {
-			$lastcreatedbox .= img_picto($langs->trans("Administrator"), 'star');
+			$lastcreatedbox .= img_picto($langs->trans("AdministratorDesc"), 'admin');
 		}
 		$lastcreatedbox .= "</td>";
-		$lastcreatedbox .= '<td>'.$obj->login.'</td>';
-		$lastcreatedbox .= "<td>";
+		$lastcreatedbox .= '<td class="tdoverflowmax150" title="'.dol_escape_htmltag($obj->login).'">'.dol_escape_htmltag($obj->login).'</td>';
+		$texttoshow = '';
 		if ($obj->fk_soc) {
-			$lastcreatedbox .= $companystatic->getNomUrl(1);
+			$texttoshow .= $companystatic->getNomUrl(1);
 		} else {
-			$lastcreatedbox .= $langs->trans("InternalUser");
+			$texttoshow .= '<span class="opacitymedium">'.$langs->trans("InternalUser").'</span>';
 		}
 		if ($obj->ldap_sid) {
-			$lastcreatedbox .= ' ('.$langs->trans("DomainUser").')';
+			$texttoshow .= ' <span class="opacitymedium">('.$langs->trans("DomainUser").')</span>';
 		}
-
 		$entity = $obj->entity;
 		$entitystring = '';
 		// TODO Set of entitystring should be done with a hook
-		if (!empty($conf->multicompany->enabled) && is_object($mc)) {
+		if (isModEnabled('multicompany') && isset($mc) && is_object($mc)) {
 			if (empty($entity)) {
 				$entitystring = $langs->trans("AllEntities");
 			} else {
@@ -193,8 +205,9 @@ if ($resql) {
 				$entitystring = $mc->label;
 			}
 		}
-		$lastcreatedbox .= ($entitystring ? ' ('.$entitystring.')' : '');
-
+		$texttoshow .= ($entitystring ? ' <span class="opacitymedium">('.$entitystring.')</span>' : '');
+		$lastcreatedbox .= '<td class="tdoverflowmax150" title="'.dol_escape_htmltag(dol_string_nohtmltag($texttoshow)).'">';
+		$lastcreatedbox .= $texttoshow;
 		$lastcreatedbox .= '</td>';
 		$lastcreatedbox .= '<td class="center nowrap">'.dol_print_date($db->jdate($obj->datec), 'dayhour').'</td>';
 		$lastcreatedbox .= '<td class="right">';
@@ -217,15 +230,13 @@ if ($resql) {
  * Last groups created
  */
 $lastgroupbox = '';
-if ($canreadperms) {
-	$max = 5;
-
+if ($permissiontoreadgroup) {
 	$sql = "SELECT g.rowid, g.nom as name, g.note, g.entity, g.datec";
 	$sql .= " FROM ".MAIN_DB_PREFIX."usergroup as g";
-	if (!empty($conf->multicompany->enabled) && $conf->entity == 1 && ($conf->global->MULTICOMPANY_TRANSVERSE_MODE || ($user->admin && !$user->entity))) {
+	if (isModEnabled('multicompany') && $conf->entity == 1 && (getDolGlobalInt('MULTICOMPANY_TRANSVERSE_MODE') || ($user->admin && !$user->entity))) {
 		$sql .= " WHERE g.entity IS NOT NULL";
 	} else {
-		$sql .= " WHERE g.entity IN (0,".$conf->entity.")";
+		$sql .= " WHERE g.entity IN (0, ".((int) $conf->entity).")";
 	}
 	$sql .= $db->order("g.datec", "DESC");
 	$sql .= $db->plimit($max);
@@ -233,15 +244,20 @@ if ($canreadperms) {
 	$resql = $db->query($sql);
 	if ($resql) {
 		$colspan = 1;
-		if (!empty($conf->multicompany->enabled)) {
+		if (isModEnabled('multicompany')) {
 			$colspan++;
 		}
 		$num = $db->num_rows($resql);
 
 		$lastgroupbox .= '<div class="div-table-responsive-no-min">';
 		$lastgroupbox .= '<table class="noborder centpercent">';
-		$lastgroupbox .= '<tr class="liste_titre"><td colspan="'.$colspan.'">'.$langs->trans("LastGroupsCreated", ($num ? $num : $max)).'</td>';
-		$lastgroupbox .= '<td class="right"><a class="commonlink" href="'.DOL_URL_ROOT.'/user/group/list.php?sortfield=g.datec&sortorder=DESC">'.$langs->trans("FullList").'</td>';
+		$lastgroupbox .= '<tr class="liste_titre"><td colspan="'.($colspan + 1).'">';
+		$lastgroupbox .= '<span class="valignmiddle">'.$langs->trans("LastGroupsCreated", ($num ? $num : $max)).'</span>';
+		$lastgroupbox .= '<a class="valignmiddle marginleftonlyshort" href="'.DOL_URL_ROOT.'/user/group/list.php?sortfield=g.datec&sortorder=DESC" title="'.$langs->trans("FullList").'">';
+		$lastgroupbox .= '<span class="badge marginleftonlyshort valignmiddle">...</span>';
+		$lastgroupbox .= '</a>';
+
+		$lastgroupbox .= '</td>';
 		$lastgroupbox .= '</tr>';
 		$i = 0;
 
@@ -255,13 +271,13 @@ if ($canreadperms) {
 			$grouptemp->note = $obj->note;
 
 			$lastgroupbox .= '<tr class="oddeven">';
-			$lastgroupbox .= '<td>';
+			$lastgroupbox .= '<td class="tdoverflowmax300">';
 			$lastgroupbox .= $grouptemp->getNomUrl(1);
 			if (!$obj->entity) {
-				$lastgroupbox .= img_picto($langs->trans("GlobalGroup"), 'redstar');
+				$lastgroupbox .= img_picto($langs->trans("GlobalGroup"), 'superadmin');
 			}
 			$lastgroupbox .= "</td>";
-			if (!empty($conf->multicompany->enabled) && is_object($mc)) {
+			if (isModEnabled('multicompany') && isset($mc) && is_object($mc)) {
 				$mc->getInfo($obj->entity);
 				$lastgroupbox .= '<td>';
 				$lastgroupbox .= $mc->label;
@@ -303,7 +319,7 @@ print $boxlist;
 
 print '</div>';
 
-// Initialize technical object to manage hooks. Note that conf->hooks_modules contains array
+// Initialize a technical object to manage hooks. Note that conf->hooks_modules contains array
 $parameters = array('user' => $user);
 $reshook = $hookmanager->executeHooks('dashboardUsersGroups', $parameters, $object); // Note that $action and $object may have been modified by hook
 

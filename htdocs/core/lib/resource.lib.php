@@ -1,7 +1,9 @@
 <?php
 /* Module to manage locations, buildings, floors and rooms into Dolibarr ERP/CRM
- * Copyright (C) 2013	Jean-François Ferry	<jfefe@aternatik.fr>
- * Copyright (C) 2016	Gilles Poirier		<glgpoirier@gmail.com>
+ * Copyright (C) 2013       Jean-François Ferry     <jfefe@aternatik.fr>
+ * Copyright (C) 2016       Gilles Poirier          <gilles.poirier@netlogic.fr>
+ * Copyright (C) 2023-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,8 +28,8 @@
 /**
  * Prepare head for tabs
  *
- * @param	Object	$object		Object
- * @return	array				Array of head entries
+ * @param	Dolresource	$object		Object
+ * @return	array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function resource_prepare_head($object)
 {
@@ -35,12 +37,12 @@ function resource_prepare_head($object)
 	$h = 0;
 	$head = array();
 
-	$head[$h][0] = dol_buildpath('/resource/card.php', 1).'?id='.$object->id;
+	$head[$h][0] = DOL_URL_ROOT.'/resource/card.php?id='.$object->id;
 	$head[$h][1] = $langs->trans("ResourceCard");
 	$head[$h][2] = 'resource';
 	$h++;
 
-	if (empty($conf->global->MAIN_DISABLE_CONTACTS_TAB) && (empty($conf->global->RESOURCE_HIDE_ADD_CONTACT_USER) || empty($conf->global->RESOURCE_HIDE_ADD_CONTACT_THIPARTY))) {
+	if (!getDolGlobalString('MAIN_DISABLE_CONTACTS_TAB') && (!getDolGlobalString('RESOURCE_HIDE_ADD_CONTACT_USER') || !getDolGlobalString('RESOURCE_HIDE_ADD_CONTACT_THIPARTY'))) {
 		$nbContact = count($object->liste_contact(-1, 'internal')) + count($object->liste_contact(-1, 'external'));
 		$head[$h][0] = DOL_URL_ROOT.'/resource/contact.php?id='.$object->id;
 		$head[$h][1] = $langs->trans('ContactsAddresses');
@@ -55,9 +57,9 @@ function resource_prepare_head($object)
 	// Entries must be declared in modules descriptor with line
 	// $this->tabs = array('entity:+tabname:Title:@mymodule:/mymodule/mypage.php?id=__ID__');   to add new tab
 	// $this->tabs = array('entity:-tabname:Title:@mymodule:/mymodule/mypage.php?id=__ID__');   to remove a tab
-	complete_head_from_modules($conf, $langs, $object, $head, $h, 'resource');
+	complete_head_from_modules($conf, $langs, $object, $head, $h, 'resource', 'add', 'core');
 
-	if (empty($conf->global->MAIN_DISABLE_NOTES_TAB)) {
+	if (!getDolGlobalString('MAIN_DISABLE_NOTES_TAB')) {
 		$nbNote = 0;
 		if (!empty($object->note_private)) {
 			$nbNote++;
@@ -65,7 +67,7 @@ function resource_prepare_head($object)
 		if (!empty($object->note_public)) {
 			$nbNote++;
 		}
-		$head[$h][0] = DOL_URL_ROOT.'/resource/note.php?id='.$object->id;
+		$head[$h][0] = DOL_URL_ROOT.'/core/note.php?element=resource&id='.$object->id;
 		$head[$h][1] = $langs->trans('Notes');
 		if ($nbNote > 0) {
 			$head[$h][1] .= '<span class="badge marginleftonlyshort">'.$nbNote.'</span>';
@@ -87,7 +89,7 @@ function resource_prepare_head($object)
 
 	$head[$h][0] = DOL_URL_ROOT.'/resource/agenda.php?id='.$object->id;
 	$head[$h][1] = $langs->trans("Events");
-	if (isModEnabled('agenda') && (!empty($user->rights->agenda->myactions->read) || !empty($user->rights->agenda->allactions->read))) {
+	if (isModEnabled('agenda') && ($user->hasRight('agenda', 'myactions', 'read') || $user->hasRight('agenda', 'allactions', 'read'))) {
 		$head[$h][1] .= '/';
 		$head[$h][1] .= $langs->trans("Agenda");
 	}
@@ -99,6 +101,8 @@ function resource_prepare_head($object)
 	$head[$h][2] = 'info';
 	$h++;*/
 
+	complete_head_from_modules($conf, $langs, $object, $head, $h, 'resource', 'add', 'external');
+
 	complete_head_from_modules($conf, $langs, $object, $head, $h, 'resource', 'remove');
 
 	return $head;
@@ -107,12 +111,13 @@ function resource_prepare_head($object)
 /**
  * Prepare head for admin tabs
  *
- * @return  array               Array of head entries
+ * @return	array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function resource_admin_prepare_head()
 {
+	global $conf, $extrafields, $langs, $user;
 
-	global $langs, $conf, $user;
+	$extrafields->fetch_name_optionals_label('resource');
 
 	$h = 0;
 	$head = array();
@@ -128,8 +133,12 @@ function resource_admin_prepare_head()
 	// $this->tabs = array('entity:-tabname:Title:@mymodule:/mymodule/mypage.php?id=__ID__');   to remove a tab
 	complete_head_from_modules($conf, $langs, null, $head, $h, 'resource_admin');
 
-	$head[$h][0] = DOL_URL_ROOT.'/admin/resource_extrafields.php';
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/admin/extrafields.php', array('elementtype' => 'resource'));
 	$head[$h][1] = $langs->trans("ExtraFields");
+	$nbExtrafields = $extrafields->attributes['resource']['count'];
+	if ($nbExtrafields > 0) {
+		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.$nbExtrafields.'</span>';
+	}
 	$head[$h][2] = 'attributes';
 	$h++;
 

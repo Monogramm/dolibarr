@@ -1,5 +1,7 @@
 <?php
-/* Copyright (C) 2017  Laurent Destailleur <eldy@users.sourceforge.net>
+/* Copyright (C) 2017       Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2026		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,6 +48,10 @@ if (!defined('NOREQUIREAJAX')) {
 session_cache_limiter('public');
 
 require_once '../../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var Translate $langs
+ */
 
 
 /*
@@ -55,50 +61,73 @@ require_once '../../main.inc.php';
 // Define javascript type
 top_httphead('text/javascript; charset=UTF-8');
 // Important: Following code is to avoid page request by browser and PHP CPU at each Dolibarr page access.
-if (empty($dolibarr_nocache)) {
-	header('Cache-Control: max-age=10800, public, must-revalidate');
-} else {
-	header('Cache-Control: no-cache');
-}
+header('Cache-Control: max-age=10800, public, must-revalidate');
 
-//var_dump($conf);
 
+$jsConst = [
+	'DOL_URL_ROOT' => DOL_URL_ROOT,
+	'classfortooltiponclicktextWidth' => ($conf->browser->layout == 'phone' ? max((empty($_SESSION['dol_screenwidth']) ? 0 : $_SESSION['dol_screenwidth']) - 20, 320) : 700),
+	'dol_no_mouse_hover' => !empty($conf->dol_no_mouse_hover)
+];
+
+
+include __DIR__ . '/lib_initTooltips.js';
+
+?>
 
 // Wrapper to show tooltips (html or onclick popup)
-print "\n/* JS CODE TO ENABLE Tooltips on all object with class classfortooltip */\n";
-print "jQuery(document).ready(function () {\n";
+/* JS CODE TO ENABLE Tooltips on all object with class classfortooltip */
+jQuery(function() {
 
-if (empty($conf->dol_no_mouse_hover)) {
-	print 'jQuery(".classfortooltip").tooltip({
-		show: { collision: "flipfit", effect:"toggle", delay:50, duration: 20 },
-		hide: { delay: 250, duration: 20 },
-		tooltipClass: "mytooltip",
-		content: function () {
-    		console.log("Return title for popup");
-            return $(this).prop("title");		/* To force to get title as is */
-   		}
-	});'."\n";
-}
-
-print '
-jQuery(".classfortooltiponclicktext").dialog({
-    closeOnEscape: true, classes: { "ui-dialog": "highlight" },
-    maxHeight: window.innerHeight-60, width: '.($conf->browser->layout == 'phone' ? max($_SESSION['dol_screenwidth'] - 20, 320) : 700).',
-    modal: true,
-    autoOpen: false
-    }).css("z-index: 5000");
-jQuery(".classfortooltiponclick").click(function () {
-    console.log("We click on tooltip for element with dolid="+$(this).attr(\'dolid\'));
-    if ($(this).attr(\'dolid\')) {
-        obj=$("#idfortooltiponclick_"+$(this).attr(\'dolid\'));		/* obj is a div component */
-        obj.dialog("open");
-        return false;
-    }
-});'."\n";
-
-print "});\n";
+	const footerConst = <?php print json_encode($jsConst); ?>;
 
 
+	if(!footerConst.dol_no_mouse_hover) {
+		// --------------------------------
+		// Initial page load
+		// --------------------------------
+		initTooltips(document.body); // initialize all tooltips on page load
+		initAjaxTooltips(document.body, footerConst.DOL_URL_ROOT); // initialize all AJAX tooltips on page load
+
+
+		// --------------------------------
+		// Dynamic reload via Dolibarr hook
+		// --------------------------------
+		if (typeof Dolibarr !== "undefined" && Dolibarr.on) {
+			// Because Dolibarr context isn't in all Dolibarr page and lib_foot.js.php can be loaded everywhere
+			// it useful to check Dolibarr context is loaded before but we are already in a jQuery(function() so event Dolibarr:Ready can't be used here
+			Dolibarr.on('initNewContent', ({targets}) => {
+				targets.forEach(container => {
+					initTooltips(container);
+					initAjaxTooltips(container, footerConst.DOL_URL_ROOT);
+				})
+			});
+		};
+	}
+
+	// --------------------------------
+	// Initial page load
+	// --------------------------------
+	jQuery(function() {
+		initTooltipDialogs(document.body, footerConst.classfortooltiponclicktextWidth);
+	});
+
+	// --------------------------------
+	// Dynamic reload via Dolibarr hook
+	// --------------------------------
+
+	if (typeof Dolibarr !== "undefined" && Dolibarr.on) {
+		// Because Dolibarr context isn't in all Dolibarr page and lib_foot.js.php can be loaded everywhere
+		// it useful to check Dolibarr context is loaded before but we are already in a jQuery(function() so event Dolibarr:Ready can't be used here
+		Dolibarr.on('initNewContent', ({ targets }) => {
+			targets.forEach(container => initTooltipDialogs(container, footerConst.classfortooltiponclicktextWidth));
+		});
+	};
+
+});
+
+
+<?php
 // Wrapper to manage dropdown
 if (!defined('JS_JQUERY_DISABLE_DROPDOWN')) {
 	print "\n/* JS CODE TO ENABLE dropdown (hamburger, linkto, ...) */\n";
@@ -110,6 +139,7 @@ if (!defined('JS_JQUERY_DISABLE_DROPDOWN')) {
                   	  console.log("toggle dropdown dt a");
 
                       //$(this).parent().parent().find(\'dd ul\').slideToggle(\'fast\');
+                      $(".ulselectedfields").removeClass("open");
 					  $(this).parent().parent().find(\'dd ul\').toggleClass("open");
 
 					  if ($(this).parent().parent().find(\'dd ul\').hasClass("open")) {
@@ -171,9 +201,14 @@ if (!defined('JS_JQUERY_DISABLE_DROPDOWN')) {
 if ($conf->browser->layout != 'phone') {
 	print "\n/* JS CODE TO ENABLE document_preview */\n"; // Function document_preview is into header
 	print '		jQuery(document).ready(function () {
+					// Click on the preview picto
 			        jQuery(".documentpreview").click(function () {
             		    console.log("We click on preview for element with href="+$(this).attr(\'href\')+" mime="+$(this).attr(\'mime\'));
-            		    document_preview($(this).attr(\'href\'), $(this).attr(\'mime\'), \''.dol_escape_js($langs->transnoentities("Preview")).'\');
+						var titledocpreview = $(this).attr(\'data-title\');
+						if (titledocpreview == undefined || titledocpreview == "") {
+							titledocpreview = \''.dol_escape_js($langs->transnoentities("Preview")).'\'
+						}
+            		    document_preview($(this).attr(\'href\'), $(this).attr(\'mime\'), titledocpreview);
                 		return false;
         			});
 		});'."\n";
@@ -182,47 +217,76 @@ if ($conf->browser->layout != 'phone') {
 // Code to manage reposition
 print "\n/* JS CODE TO ENABLE reposition management (does not work if a redirect is done after action of submission) */\n";
 print '
-	jQuery(document).ready(function() {
-				/* If page_y set, we set scollbar with it */
-				page_y=getParameterByName(\'page_y\', 0);				/* search in GET parameter */
-				if (page_y == 0) page_y = jQuery("#page_y").text();		/* search in POST parameter that is filed at bottom of page */
-				if (page_y > 0)
-				{
-					console.log("page_y found is "+page_y);
-					$(\'html, body\').scrollTop(page_y);
-				}
+    jQuery(document).ready(function() {
+		/* If page_y set, we set scrollbar with it */
+        page_y = getParameterByName("page_y", 0);				/* search in GET parameter */
+        if (page_y == 0) page_y = jQuery("#page_y").text();		/* search in POST parameter that is filed at bottom of page */
+        if (page_y > 0) {
+			console.log("page_y found is "+page_y);
+            jQuery("html, body").scrollTop(page_y);
+        }
 
-				/* Set handler to add page_y param on output (click on href links or submit button) */
-				jQuery(".reposition").click(function() {
-					var page_y = $(document).scrollTop();
+		/* Set handler to add page_y param on output (click on href links or submit button) */
+        jQuery(".reposition").click(function(event) {
+            var page_y = jQuery(document).scrollTop();
+            if (page_y > 0) {
+                if (this.href) {
+					console.log("We click on tag with .reposition class. this.ref was "+this.href);
+                    var url = new URL(this.href, window.location.origin);
+                    url.searchParams.delete("page_y");		/* remove page_y param if already present */
+                    url.searchParams.set("page_y", page_y);
+                    this.href = url.toString();
+					console.log("We click on tag with .reposition class. this.ref is now "+this.href);
+                } else {
+					console.log("We click on tag with .reposition class but element is not an <a> html tag, so we try to update input form field with name=page_y with value "+page_y);
+                    jQuery("input[type=hidden][name=page_y]").val(page_y);
+                }
+            }
+        });
+    });
+' . "\n";
 
-					if (page_y > 0)
-					{
-						if (this.href)
-						{
-							console.log("We click on tag with .reposition class. this.ref was "+this.href);
-							var hrefarray = this.href.split("#", 2);
-							hrefarray[0]=hrefarray[0].replace(/&page_y=(\d+)/, \'\');		/* remove page_y param if already present */
-							this.href=hrefarray[0]+\'&page_y=\'+page_y;
-							console.log("We click on tag with .reposition class. this.ref is now "+this.href);
-						}
-						else
-						{
-							console.log("We click on tag with .reposition class but element is not an <a> html tag, so we try to update input form field with name=page_y with value "+page_y);
-							jQuery("input[type=hidden][name=page_y]").val(page_y);
-						}
-					}
-				});
-	});'."\n";
+// Code to disable submit buttons once form is submitted
+print "\n/* JS CODE TO DISABLE buttons with class disableonsubmit once form is submitted, to avoid duplicate submissions */\n";
+print '
+    jQuery(document).ready(function() {
+        jQuery(document).on("submit", "form", function(event) {
+            if (event.isDefaultPrevented() || (this.target && this.target != "_self")) {
+                return;
+            }
+            var $buttons = jQuery(this).find(".disableonsubmit");
+            if ($buttons.length == 0) {
+                return;
+            }
+            /* Flag is set synchronously, so a second very fast click is blocked even before buttons are disabled */
+            if (jQuery(this).data("dolsubmitted")) {
+                console.log("Form already submitted, we discard this new submission");
+                event.preventDefault();
+                return;
+            }
+            jQuery(this).data("dolsubmitted", true);
+            /* Disable after a timeout so the clicked button is still included into the submitted data */
+            setTimeout(function() { $buttons.prop("disabled", true); }, 0);
+        });
+        /* Enable buttons again if page is restored from browser cache (back button) */
+        jQuery(window).on("pageshow", function(event) {
+            if (event.originalEvent && event.originalEvent.persisted) {
+                jQuery("form").removeData("dolsubmitted");
+                jQuery(".disableonsubmit").prop("disabled", false);
+            }
+        });
+    });
+' . "\n";
 
 // Code to manage Copy To Clipboard click
 print "\n/* JS CODE TO ENABLE ClipBoard copy paste */\n";
+// Suppress because dol_escape_js is wrapped in '' @phan-suppress-next-line FunctionMissingSingleQuoteWrapping
 print '
 	jQuery(document).ready(function() {
 				jQuery(\'.clipboardCPShowOnHover\').hover(
 					function() {
 						console.log("We hover a value with a copy paste feature");
-						$(this).children(".clipboardCPButton, .clipboardCPText").show();
+						$(this).children(".clipboardCPButton, .clipboardCPText").css("display", "inline-block");	/* better than .show() because the show set the display to "inline" */
 					},
 					function() {
 						console.log("We hover out the value with a copy paste feature");
@@ -231,41 +295,51 @@ print '
 				);
 
 				jQuery(\'.clipboardCPValue, .clipboardCPButton, .clipboardCPValueToPrint\').click(function() {
-					/* console.log(this.parentNode); */
 					console.log("We click on a clipboardCPButton or clipboardCPValueToPrint class and we want to copy content of clipboardCPValue class");
 
 					if (window.getSelection) {
-						range = document.createRange();
-
-						/* We select value to print using the parent. */
-						/* We should use the class clipboardCPValue but it may have several element with copy/paste so class to select is not enough */
-						range.selectNodeContents(this.parentNode.firstChild);
+						jqobj=$(this).parent().children(".clipboardCPValue");
+						console.log(jqobj.html());
 
 						selection = window.getSelection();	/* get the object used for selection */
 						selection.removeAllRanges();		/* clear current selection */
+
+						/* We select the value to print using the parentNode.firstChild */
+						/* We should use the class clipboardCPValue but it may have several element with copy/paste so class to select is not enough */
+						range = document.createRange();
+						range.selectNodeContents(this.parentNode.firstChild);
 						selection.addRange(range);			/* make the new selection with the value to copy */
+
+						/* copy selection into clipboard */
+						var succeed;
+					    try {
+							console.log("We set the style display to unset for the span so the copy will work");
+							jqobj.css("display", "unset");	/* Because copy does not work on "block" object */
+
+							succeed = document.execCommand(\'copy\');
+
+							console.log("We set the style display back to inline-block");
+							jqobj.css("display", "inline-block");	/* better than .show() because the show set the display to "inline" */
+					    } catch(e) {
+					        succeed = false;
+					    }
+
+						/* Remove the selection to avoid to see the hidden field to copy selected */
+						window.getSelection().removeAllRanges();
 					}
 
-					/* copy selection into clipboard */
-					var succeed;
-				    try {
-				    	succeed = document.execCommand(\'copy\');
-				    } catch(e) {
-				        succeed = false;
-				    }
-
-					/* Remove the selection to avoid to see the hidden field to copy selected */
-					window.getSelection().removeAllRanges();
-
-					/* Show message */
+					/* Show result - message */
+					var lastparent = $(this).parent();				/* .parent is clipboardCP */
 					var lastchild = this.parentNode.lastChild;		/* .parentNode is clipboardCP and last child is clipboardCPText */
 					var tmp = lastchild.innerHTML
 					if (succeed) {
-						lastchild.innerHTML = \'<div class="clipboardCPTextDivInside opacitymedium">'.dol_escape_js($langs->trans('CopiedToClipboard')).'</div>\';
+						$(this).parent().children(".clipboardCPButton").hide();
+						$(this).parent().children(".clipboardCPTick").css("display", "inline-block");	/* better than .show() because the show set the display to "inline" */
+						//lastchild.innerHTML = \'<div class="clipboardCPTextDivInside opacitymedium">'.dolPrintHTML($langs->trans('CopiedToClipboard')).'</div>\';
 					} else {
-						lastchild.innerHTML = \'<div class="clipboardCPTextDivInside opacitymedium">'.dol_escape_js($langs->trans('Error')).'</div>\';
+						lastchild.innerHTML = \'<div class="clipboardCPTextDivInside opacitymedium">'.dolPrintHTML($langs->trans('Error')).'</div>\';
 					}
-					setTimeout(() => { lastchild.innerHTML = tmp; }, 1000);
+					setTimeout(() => { lastchild.innerHTML = tmp; lastparent.children(".clipboardCPTick").hide(); }, 2000);
 				});
 	});'."\n";
 
@@ -275,11 +349,12 @@ print '
 	jQuery(document).ready(function() {
 		jQuery(".cssforclicktodial").click(function() {
 			event.preventDefault();
-			console.log("We click on a cssforclicktodial class with url="+this.href);
+			var currenttoken = jQuery("meta[name=anti-csrf-currenttoken]").attr("content");
+			console.log("We click on a cssforclicktodial class with href="+this.href);
 			$.ajax({
-			  url: this.href,
-			  type: \'GET\',
-			  data: { token: \''.newToken().'\' }
+				url: this.href,
+				type: \'GET\',
+				data: { token: currenttoken }
 			}).done(function(xhr, textStatus, errorThrown) {
 			    /* do nothing */
 			}).fail(function(xhr, textStatus, errorThrown) {
@@ -328,15 +403,15 @@ print '
 						text: confirmActionBtnLabel,
 						"class": \'ui-state-information\',
 						click: function () {
-						window.location.replace(confirmUrl);
-					}
+							window.location.replace(confirmUrl);
+						}
 					},
 					{
 						text: confirmCancelBtnLabel,
 						"class": \'ui-state-information\',
 						click: function () {
-						$(this).dialog("close");
-					}
+							$(this).dialog("close");
+						}
 					}
 				],
 				close: function( event, ui ) {
@@ -349,3 +424,8 @@ print '
 		});
 	});
 '."\n";
+
+
+// JS CODE USED by form::getSearchFilterToolInput
+include __DIR__ . '/lib_foot_search_tool.js';
+include __DIR__ . '/lib_tooltip-freeze-by-alt-keypress.js';

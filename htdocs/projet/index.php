@@ -1,8 +1,10 @@
 <?php
-/* Copyright (C) 2001-2005 Rodolphe Quiedeville <rodolphe@quiedeville.org>
- * Copyright (C) 2004-2020 Laurent Destailleur  <eldy@users.sourceforge.net>
- * Copyright (C) 2005-2010 Regis Houssin        <regis.houssin@inodbox.com>
- * Copyright (C) 2019      Nicolas ZABOURI      <info@inovea-conseil.com>
+/* Copyright (C) 2001-2005  Rodolphe Quiedeville    <rodolphe@quiedeville.org>
+ * Copyright (C) 2004-2022  Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2005-2010  Regis Houssin           <regis.houssin@inodbox.com>
+ * Copyright (C) 2019       Nicolas ZABOURI         <info@inovea-conseil.com>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,42 +26,49 @@
  *       \brief      Main project home page
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/projet/class/project.class.php';
 require_once DOL_DOCUMENT_ROOT.'/projet/class/task.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
+require_once DOL_DOCUMENT_ROOT.'/core/class/html.formother.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/project.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
-
-$hookmanager = new HookManager($db);
-
-// Initialize technical object to manage hooks. Note that conf->hooks_modules contains array
-$hookmanager->initHooks(array('projectsindex'));
 
 // Load translation files required by the page
 $langs->loadLangs(array('projects', 'companies'));
 
+// Initialize a technical object to manage hooks. Note that conf->hooks_modules contains array
+$hookmanager->initHooks(array('projectsindex'));
+
 $action = GETPOST('action', 'aZ09');
-$search_project_user = GETPOST('search_project_user', 'int');
-$mine = GETPOST('mode', 'aZ09') == 'mine' ? 1 : 0;
+$search_project_user = GETPOST('search_project_user');
+$mine = (GETPOST('mode', 'aZ09') == 'mine' || $search_project_user == $user->id) ? 1 : 0;
 if ($mine == 0 && $search_project_user === '') {
-	$search_project_user = (empty($user->conf->MAIN_SEARCH_PROJECT_USER_PROJECTSINDEX) ? '' : $user->conf->MAIN_SEARCH_PROJECT_USER_PROJECTSINDEX);
+	$search_project_user = getDolGlobalString('MAIN_SEARCH_PROJECT_USER_PROJECTSINDEX');
 }
 if ($search_project_user == $user->id) {
 	$mine = 1;
 }
 
-// Security check
-$socid = 0;
-//if ($user->socid > 0) $socid = $user->socid;    // For external user, no check is done on company because readability is managed by public status of project and assignement.
-if (!$user->rights->projet->lire) {
-	accessforbidden();
-}
-
 $sortfield = GETPOST('sortfield', 'aZ09comma');
 $sortorder = GETPOST('sortorder', 'aZ09comma');
 
-$max = $conf->global->MAIN_SIZE_SHORTLIST_LIMIT;
+$max = getDolUserInt('MAIN_SIZE_SHORTLIST_LIMIT', getDolGlobalInt('MAIN_SIZE_SHORTLIST_LIMIT', 5));
+
+// Security check
+$socid = 0;
+//if ($user->socid > 0) $socid = $user->socid;    // For external user, no check is done on company because readability is managed by public status of project and assignment.
+if (!$user->hasRight('projet', 'lire')) {
+	accessforbidden();
+}
 
 
 /*
@@ -72,14 +81,17 @@ if ($reshook < 0) {
 	setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
 }
 if (empty($reshook)) {
-	if ($action == 'refresh_search_project_user') {
-		$search_project_user = GETPOST('search_project_user', 'int');
+	if ($action == 'refresh_search_project_user' && $user->hasRight('projet', 'lire')) {
+		$search_project_user = GETPOSTINT('search_project_user');
 		$tabparam = array("MAIN_SEARCH_PROJECT_USER_PROJECTSINDEX" => $search_project_user);
 
 		include_once DOL_DOCUMENT_ROOT.'/core/lib/functions2.lib.php';
 		$result = dol_set_user_param($db, $conf, $user, $tabparam);
 	}
 }
+
+// Add box (when submit is done from a form when ajax disabled)
+include DOL_DOCUMENT_ROOT.'/core/actions_addbox.inc.php';
 
 
 /*
@@ -91,7 +103,7 @@ $projectstatic = new Project($db);
 $form = new Form($db);
 $formfile = new FormFile($db);
 
-$projectset = ($mine ? $mine : (empty($user->rights->projet->all->lire) ? 0 : 2));
+$projectset = ($mine ? $mine : (!$user->hasRight('projet', 'all', 'lire') ? 0 : 2));
 $projectsListId = $projectstatic->getProjectsAuthorizedForUser($user, $projectset, 1);
 //var_dump($projectsListId);
 
@@ -100,7 +112,10 @@ $title = $langs->trans('ProjectsArea');
 
 $help_url = 'EN:Module_Projects|FR:Module_Projets|ES:M&oacute;dulo_Proyectos|DE:Modul_Projekte';
 
-llxHeader('', $title, $help_url);
+// Load $resultboxes
+$resultboxes = FormOther::getBoxesArea($user, "8");
+
+llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-project page-dashboard');
 
 
 //if ($mine) $title=$langs->trans("MyProjectsArea");
@@ -108,39 +123,69 @@ llxHeader('', $title, $help_url);
 
 // Title for combo list see all projects
 $titleall = $langs->trans("AllAllowedProjects");
-if (!empty($user->rights->projet->all->lire) && !$socid) {
+if ($user->hasRight('projet', 'all', 'lire') && !$socid) {
 	$titleall = $langs->trans("AllProjects");
 } else {
 	$titleall = $langs->trans("AllAllowedProjects").'<br><br>';
 }
 
-$morehtml = '';
-$morehtml .= '<form name="projectform" method="POST">';
+$morehtml = '<form name="projectform" method="POST" action="'.dolBuildUrl($_SERVER["PHP_SELF"]).'">';
 $morehtml .= '<input type="hidden" name="token" value="'.newToken().'">';
 $morehtml .= '<input type="hidden" name="action" value="refresh_search_project_user">';
-$morehtml .= '<SELECT name="search_project_user">';
+
+$morehtml .= '<select name="search_project_user" id="search_project_user">';
 $morehtml .= '<option name="all" value="0"'.($mine ? '' : ' selected').'>'.$titleall.'</option>';
 $morehtml .= '<option name="mine" value="'.$user->id.'"'.(($search_project_user == $user->id) ? ' selected' : '').'>'.$langs->trans("ProjectsImContactFor").'</option>';
-$morehtml .= '</SELECT>';
+$morehtml .= '</select>';
+$morehtml .= ajax_combobox("search_project_user", array(), 0, 0, 'resolve', '-1', 'small');
 $morehtml .= '<input type="submit" class="button smallpaddingimp" name="refresh" value="'.$langs->trans("Refresh").'">';
 $morehtml .= '</form>';
 
+$morehtml .= $resultboxes['selectboxlist'];
+
 if ($mine) {
-	$tooltiphelp = $langs->trans("MyProjectsDesc");
+	$htmltooltip = $langs->trans("MyProjectsDesc");
 } else {
-	if (!empty($user->rights->projet->all->lire) && !$socid) {
-		$tooltiphelp = $langs->trans("ProjectsDesc");
+	if ($user->hasRight('projet', 'all', 'lire') && !$socid) {
+		$htmltooltip = $langs->trans("ProjectsDesc");
 	} else {
-		$tooltiphelp = $langs->trans("ProjectsPublicDesc");
+		$htmltooltip = $langs->trans("ProjectsPublicDesc");
 	}
 }
 
-print_barre_liste($form->textwithpicto($title, $tooltiphelp), 0, $_SERVER["PHP_SELF"], '', '', '', '', 0, -1, 'project', 0, $morehtml);
+print_barre_liste($form->textwithpicto($title, $htmltooltip), 0, $_SERVER["PHP_SELF"], '', '', '', '', 0, -1, 'project', 0, $morehtml);
 
 
 // Get list of ponderated percent and colors for each status
-include DOL_DOCUMENT_ROOT.'/theme/'.$conf->theme.'/theme_vars.inc.php';
-$listofoppstatus = array(); $listofopplabel = array(); $listofoppcode = array(); $colorseries = array();
+$theme_vars_file = dol_getThemeFilePath('theme_vars.inc.php');
+if ($theme_vars_file) {
+	include $theme_vars_file;
+}
+/**
+ * @var string $badgeStatus0
+ * @var string $badgeStatus1
+ * @var string $badgeStatus2
+ * @var string $badgeStatus4
+ * @var string $badgeStatus6
+ * @var string $badgeStatus9
+ */
+// Available from theme_vars:
+'
+@phan-var-force string $badgeStatus0
+@phan-var-force string $badgeStatus1
+@phan-var-force string $badgeStatus2
+@phan-var-force string $badgeStatus3
+@phan-var-force string $badgeStatus4
+@phan-var-force string $badgeStatus5
+@phan-var-force string $badgeStatus6
+@phan-var-force string $badgeStatus7
+@phan-var-force string $badgeStatus8
+@phan-var-force string $badgeStatus9
+';
+$listofoppstatus = array();
+$listofopplabel = array();
+$listofoppcode = array();
+$colorseries = array();
 $sql = "SELECT cls.rowid, cls.code, cls.percent, cls.label";
 $sql .= " FROM ".MAIN_DB_PREFIX."c_lead_status as cls";
 $sql .= " WHERE active=1";
@@ -182,25 +227,29 @@ if ($resql) {
 } else {
 	dol_print_error($db);
 }
-//var_dump($listofoppcode);
 
 
-print '<div class="fichecenter"><div class="fichethirdleft">';
+print '<div class="fichecenter">';
 
-/*
- * Statistics
- */
+print '<div class="twocolumns">';
+
+print '<div class="firstcolumn fichehalfleft boxhalfleft" id="boxhalfleft">';
+
+
+// Statistics
 include DOL_DOCUMENT_ROOT.'/projet/graph_opportunities.inc.php';
 
-
 // List of draft projects
-print_projecttasks_array($db, $form, $socid, $projectsListId, 0, 0, $listofoppstatus, array('projectlabel', 'plannedworkload', 'declaredprogress', 'prospectionstatus', 'projectstatus'));
+print_projecttasks_array($db, $form, $socid, $projectsListId, 0, 0, $listofoppstatus, array('projectlabel', 'plannedworkload', 'declaredprogress', 'prospectionstatus', 'projectstatus'), $max);
 
 
-print '</div><div class="fichetwothirdright">';
+print $resultboxes['boxlista'];
+
+print '</div><div class="secondcolumn fichehalfright boxhalfright" id="boxhalfright">';
+
 
 // Latest modified projects
-$sql = "SELECT p.rowid, p.ref, p.title, p.dateo, p.datee, p.fk_statut as status, p.tms as datem";
+$sql = "SELECT p.rowid, p.ref, p.title, p.dateo as date_start, p.datee as date_end, p.fk_statut as status, p.tms as datem";
 $sql .= ", s.rowid as socid, s.nom as name, s.name_alias";
 $sql .= ", s.code_client, s.code_compta, s.client";
 $sql .= ", s.code_fournisseur, s.code_compta_fournisseur, s.fournisseur";
@@ -209,7 +258,7 @@ $sql .= ", s.canvas, s.status as thirdpartystatus";
 $sql .= " FROM ".MAIN_DB_PREFIX."projet as p";
 $sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe as s on p.fk_soc = s.rowid";
 $sql .= " WHERE p.entity IN (".getEntity('project').")";
-if ($mine || empty($user->rights->projet->all->lire)) {
+if ($mine || !$user->hasRight('projet', 'all', 'lire')) {
 	$sql .= " AND p.rowid IN (".$db->sanitize($projectsListId).")"; // If we have this test true, it also means projectset is not 2
 }
 if ($socid) {
@@ -220,11 +269,7 @@ $sql .= $db->plimit($max, 0);
 
 $resql = $db->query($sql);
 if ($resql) {
-	print '<div class="div-table-responsive-no-min">';
-	print '<table class="noborder centpercent">';
-	print '<tr class="liste_titre">';
-	print '<th colspan="5">'.$langs->trans("LatestModifiedProjects", $max).'</th>';
-	print '</tr>';
+	startSimpleTable($langs->trans("LatestModifiedProjects", $max), "projet/list.php", "sortfield=p.tms&sortorder=DESC", 2, -1, 'project');
 
 	$num = $db->num_rows($resql);
 
@@ -234,23 +279,27 @@ if ($resql) {
 			$obj = $db->fetch_object($resql);
 
 			print '<tr class="oddeven">';
-			print '<td class="nowrap">';
+			print '<td class="minwidth100onall">';
 
 			$projectstatic->id = $obj->rowid;
 			$projectstatic->ref = $obj->ref;
 			$projectstatic->title = $obj->title;
 			$projectstatic->thirdparty_name = $obj->name;
 			$projectstatic->status = $obj->status;
+			$projectstatic->date_start = $db->jdate($obj->date_start);
+			$projectstatic->date_end = $db->jdate($obj->date_end);
 
 			$companystatic->id = $obj->socid;
 			$companystatic->name = $obj->name;
-			//$companystatic->name_alias = $obj->name_alias;
+			$companystatic->name_alias = $obj->name_alias;
+			$companystatic->client = $obj->client;
+			$companystatic->fournisseur = $obj->fournisseur;
+
 			//$companystatic->code_client = $obj->code_client;
 			$companystatic->code_compta = $obj->code_compta;
-			$companystatic->client = $obj->client;
-			//$companystatic->code_fournisseur = $obj->code_fournisseur;
+			$companystatic->code_compta_client = $obj->code_compta;
 			$companystatic->code_compta_fournisseur = $obj->code_compta_fournisseur;
-			$companystatic->fournisseur = $obj->fournisseur;
+
 			$companystatic->logo = $obj->logo;
 			$companystatic->email = $obj->email;
 			$companystatic->entity = $obj->entity;
@@ -258,7 +307,7 @@ if ($resql) {
 			$companystatic->status = $obj->thirdpartystatus;
 
 			print '<table class="nobordernopadding"><tr class="nocellnopadd">';
-			print '<td width="96" class="nobordernopadding nowrap">';
+			print '<td width="96" class="nobordernopadding nowraponall">';
 			print $projectstatic->getNomUrl(1);
 			print '</td>';
 
@@ -268,20 +317,19 @@ if ($resql) {
 
 			print '<td width="16" class="right nobordernopadding hideonsmartphone">';
 			$filename = dol_sanitizeFileName($obj->ref);
-			$filedir = $conf->commande->dir_output.'/'.dol_sanitizeFileName($obj->ref);
-			$urlsource = $_SERVER['PHP_SELF'].'?id='.$obj->rowid;
+			$filedir = $conf->project->dir_output.'/'.dol_sanitizeFileName($obj->ref);
 			print $formfile->getDocumentsLink($projectstatic->element, $filename, $filedir);
 			print '</td></tr></table>';
 
-			print '</td>';
-
 			// Label
-			print '<td class="tdoverflowmax150" title="'.dol_escape_htmltag($obj->title).'">';
-			print $projectstatic->title;
+			print '<div class="twolinesmax-normallineheight minwidth100onall" title="'.dolPrintHTMLForAttribute($obj->title).'">';
+			print '<span class="spantitle">'.dolPrintHTML($projectstatic->title).'</span>';
+			print '</div>';
+
 			print '</td>';
 
 			// Thirdparty
-			print '<td class="nowrap">';
+			print '<td class="tdoverflowmax125" title="'.dolPrintHTMLForAttribute($companystatic->name).'">';
 			if ($companystatic->id > 0) {
 				print $companystatic->getNomUrl(1, 'company', 16);
 			}
@@ -289,7 +337,7 @@ if ($resql) {
 
 			// Date
 			$datem = $db->jdate($obj->datem);
-			print '<td class="center" title="'.dol_escape_htmltag($langs->trans("DateModification").': '.dol_print_date($datem, 'dayhour', 'tzuserrel')).'">';
+			print '<td class="center" title="'.dolPrintHTMLForAttribute($langs->trans("DateModification").': '.dol_print_date($datem, 'dayhour', 'tzuserrel')).'">';
 			print dol_print_date($datem, 'day', 'tzuserrel');
 			print '</td>';
 
@@ -301,127 +349,138 @@ if ($resql) {
 	} else {
 		print '<tr><td colspan="4"><span class="opacitymedium">'.$langs->trans("None").'</span></td></tr>';
 	}
-	print "</table></div>";
+
+	finishSimpleTable(true);
 } else {
 	dol_print_error($db);
 }
 
 
-$companystatic = new Societe($db); // We need a clean new object for next loop because current one has some properties set.
+if (getDolGlobalString('PROJECT_SHOW_OPEN_PROJECTS_PER_THIRDPARTY_ON_PROJECT_AREA')) {
+	$companystatic = new Societe($db); // We need a clean new object for next loop because current one has some properties set.
 
-
-$sql = "SELECT COUNT(p.rowid) as nb, SUM(p.opp_amount)";
-$sql .= ", s.rowid as socid, s.nom as name, s.name_alias";
-$sql .= ", s.code_client, s.code_compta, s.client";
-$sql .= ", s.code_fournisseur, s.code_compta_fournisseur, s.fournisseur";
-$sql .= ", s.logo, s.email, s.entity";
-$sql .= ", s.canvas, s.status";
-$sql .= " FROM ".MAIN_DB_PREFIX."projet as p";
-$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe as s on p.fk_soc = s.rowid";
-$sql .= " WHERE p.entity IN (".getEntity('project').")";
-$sql .= " AND p.fk_statut = 1";
-if ($mine || empty($user->rights->projet->all->lire)) {
-	$sql .= " AND p.rowid IN (".$db->sanitize($projectsListId).")"; // If we have this test true, it also means projectset is not 2
-}
-if ($socid > 0) {
-	$sql .= " AND (p.fk_soc IS NULL OR p.fk_soc = 0 OR p.fk_soc = ".((int) $socid).")";
-}
-$sql .= " GROUP BY s.rowid, s.nom, s.name_alias, s.code_client, s.code_compta, s.client, s.code_fournisseur, s.code_compta_fournisseur, s.fournisseur, s.logo, s.email, s.entity, s.canvas, s.status";
-$sql .= $db->order($sortfield, $sortorder);
-//$sql .= $db->plimit($max + 1, 0);
-
-$resql = $db->query($sql);
-if ($resql) {
-	$num = $db->num_rows($resql);
-	$i = 0;
-	$othernb = 0;
-
-	if ($num) {
-		print '<br>';
-
-		// Open project per thirdparty
-		print '<div class="div-table-responsive-no-min">';
-		print '<table class="noborder centpercent">';
-		print '<tr class="liste_titre">';
-		print_liste_field_titre("OpenedProjectsByThirdparties", $_SERVER["PHP_SELF"], "", "", "", '', $sortfield, $sortorder);
-		print_liste_field_titre("NbOfProjects", $_SERVER["PHP_SELF"], "nb", "", "", '', $sortfield, $sortorder, 'right ');
-		print "</tr>\n";
+	if (empty($sortfield)) {
+		$sortfield = 'nb';
+		$sortorder = 'desc';
 	}
 
-	while ($i < $num) {
-		$obj = $db->fetch_object($resql);
+	// List of open projects per thirdparty
+	$sql = "SELECT COUNT(p.rowid) as nb, SUM(p.opp_amount)";
+	$sql .= ", s.rowid as socid, s.nom as name, s.name_alias";
+	$sql .= ", s.code_client, s.code_compta, s.client";
+	$sql .= ", s.code_fournisseur, s.code_compta_fournisseur, s.fournisseur";
+	$sql .= ", s.logo, s.email, s.entity";
+	$sql .= ", s.canvas, s.status";
+	$sql .= " FROM ".MAIN_DB_PREFIX."projet as p";
+	$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe as s on p.fk_soc = s.rowid";
+	$sql .= " WHERE p.entity IN (".getEntity('project').")";
+	$sql .= " AND p.fk_statut = 1";
+	if ($mine || !$user->hasRight('projet', 'all', 'lire')) {
+		$sql .= " AND p.rowid IN (".$db->sanitize($projectsListId).")"; // If we have this test true, it also means projectset is not 2
+	}
+	if ($socid > 0) {
+		$sql .= " AND (p.fk_soc IS NULL OR p.fk_soc = 0 OR p.fk_soc = ".((int) $socid).")";
+	}
+	$sql .= " GROUP BY s.rowid, s.nom, s.name_alias, s.code_client, s.code_compta, s.client, s.code_fournisseur, s.code_compta_fournisseur, s.fournisseur, s.logo, s.email, s.entity, s.canvas, s.status";
+	$sql .= $db->order($sortfield, $sortorder);
+	//$sql .= $db->plimit($max + 1, 0);
 
-		if ($i >= $max) {
-			$othernb += $obj->nb;
+	$resql = $db->query($sql);
+	if ($resql) {
+		$num = $db->num_rows($resql);
+		$i = 0;
+		$othernb = 0;
+
+		// Load all records first to get the total number of open projects for the title badge
+		$arrayofrecords = array();
+		$totalnb = 0;
+		while ($obj = $db->fetch_object($resql)) {
+			$arrayofrecords[] = $obj;
+			$totalnb += $obj->nb;
+		}
+
+		if ($num) {
+			// Open project per thirdparty
+			print '<div class="div-table-responsive-no-min">';
+			print '<table class="noborder centpercent">';
+			print '<tr class="liste_titre">';
+			$titletoshow = $langs->trans("OpenedProjectsByThirdparties").'<a href="'.DOL_URL_ROOT.'/projet/list.php?search_status=1"><span class="badge marginleftonlyshort">'.$totalnb.'</span></a>';
+			print_liste_field_titre($titletoshow, $_SERVER["PHP_SELF"], "", "", "", '', $sortfield, $sortorder);
+			print_liste_field_titre("Number", $_SERVER["PHP_SELF"], "nb", "", "", '', $sortfield, $sortorder, 'right ');
+			print "</tr>\n";
+		}
+
+		while ($i < $num) {
+			$obj = $arrayofrecords[$i];
+
+			if ($i >= $max) {
+				$othernb += $obj->nb;
+				$i++;
+				continue;
+			}
+
+			print '<tr class="oddeven">';
+			print '<td class="nowraponall tdoverflowmax100">';
+			if ($obj->socid > 0) {
+				$companystatic->id = $obj->socid;
+				$companystatic->name = $obj->name;
+				$companystatic->name_alias = $obj->name_alias;
+				$companystatic->code_client = $obj->code_client;
+				$companystatic->code_compta = $obj->code_compta;
+				$companystatic->code_compta_client = $obj->code_compta;
+				$companystatic->client = $obj->client;
+				$companystatic->code_fournisseur = $obj->code_fournisseur;
+				$companystatic->code_compta_fournisseur = $obj->code_compta_fournisseur;
+				$companystatic->fournisseur = $obj->fournisseur;
+				$companystatic->logo = $obj->logo;
+				$companystatic->email = $obj->email;
+				$companystatic->entity = $obj->entity;
+				$companystatic->canvas = $obj->canvas;
+				$companystatic->status = $obj->status;
+
+				print $companystatic->getNomUrl(1);
+			} else {
+				print $langs->trans("OthersNotLinkedToThirdParty");
+			}
+			print '</td>';
+			print '<td class="right">';
+			if ($obj->socid) {
+				print '<a href="'.DOL_URL_ROOT.'/projet/list.php?socid='.$obj->socid.'&search_status=1">'.$obj->nb.'</a>';
+			} else {
+				print '<a href="'.DOL_URL_ROOT.'/projet/list.php?search_societe='.urlencode('^$').'&search_status=1">'.$obj->nb.'</a>';
+			}
+			print '</td>';
+			print "</tr>\n";
+
 			$i++;
-			continue;
+		}
+		if ($othernb) {
+			print '<tr class="oddeven">';
+			print '<td class="nowrap" colspan="2">';
+			print '<span class="opacitymedium">'.$langs->trans("More").'... ('.$othernb.')</span>';
+			print '</td>';
+			print "</tr>\n";
 		}
 
-		print '<tr class="oddeven">';
-		print '<td class="nowraponall tdoverflowmax100">';
-		if ($obj->socid > 0) {
-			$companystatic->id = $obj->socid;
-			$companystatic->name = $obj->name;
-			$companystatic->name_alias = $obj->name_alias;
-			$companystatic->code_client = $obj->code_client;
-			$companystatic->code_compta = $obj->code_compta;
-			$companystatic->client = $obj->client;
-			$companystatic->code_fournisseur = $obj->code_fournisseur;
-			$companystatic->code_compta_fournisseur = $obj->code_compta_fournisseur;
-			$companystatic->fournisseur = $obj->fournisseur;
-			$companystatic->logo = $obj->logo;
-			$companystatic->email = $obj->email;
-			$companystatic->entity = $obj->entity;
-			$companystatic->canvas = $obj->canvas;
-			$companystatic->status = $obj->status;
-
-			print $companystatic->getNomUrl(1);
-		} else {
-			print $langs->trans("OthersNotLinkedToThirdParty");
+		if ($num) {
+			print "</table>";
+			print '</div>';
 		}
-		print '</td>';
-		print '<td class="right">';
-		if ($obj->socid) {
-			print '<a href="'.DOL_URL_ROOT.'/projet/list.php?socid='.$obj->socid.'&search_status=1">'.$obj->nb.'</a>';
-		} else {
-			print '<a href="'.DOL_URL_ROOT.'/projet/list.php?search_societe='.urlencode('^$').'&search_status=1">'.$obj->nb.'</a>';
-		}
-		print '</td>';
-		print "</tr>\n";
 
-		$i++;
+		$db->free($resql);
+	} else {
+		dol_print_error($db);
 	}
-	if ($othernb) {
-		print '<tr class="oddeven">';
-		print '<td class="nowrap">';
-		print '<span class="opacitymedium">...</span>';
-		print '</td>';
-		print '<td class="nowrap right">';
-		print $othernb;
-		print '</td>';
-		print "</tr>\n";
-	}
-
-	if ($num) {
-		print "</table>";
-		print '</div>';
-	}
-
-	$db->free($resql);
-} else {
-	dol_print_error($db);
-}
-
-if (empty($conf->global->PROJECT_HIDE_PROJECT_LIST_ON_PROJECT_AREA)) {
-	// This list can be very long, so we allow to hide it to prefer to use the list page.
-	// Add constant PROJECT_HIDE_PROJECT_LIST_ON_PROJECT_AREA to hide this list
 
 	print '<br>';
-
-	print_projecttasks_array($db, $form, $socid, $projectsListId, 0, 1, $listofoppstatus, array());
 }
 
-print '</div></div>';
+
+print_projecttasks_array($db, $form, $socid, $projectsListId, 0, 1, $listofoppstatus, array(), $max);
+
+print $resultboxes['boxlistb'];
+
+print '</div></div></div>';
 
 $parameters = array('user' => $user);
 $reshook = $hookmanager->executeHooks('dashboardProjects', $parameters, $projectstatic); // Note that $action and $object may have been modified by hook

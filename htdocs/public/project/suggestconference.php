@@ -1,5 +1,7 @@
 <?php
-/* Copyright (C) 2021		Dorian Vabre			<dorian.vabre@gmail.com>
+/* Copyright (C) 2021		Dorian Vabre				<dorian.vabre@gmail.com>
+ * Copyright (C) 2024-2025	MDW							<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France             <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,7 +20,7 @@
 /**
  *	\file       htdocs/public/project/suggestconference.php
  *	\ingroup    member
- *	\brief      Example of form to suggest a conference
+ *	\brief      Form to suggest a conference of a given project
  */
 
 if (!defined('NOLOGIN')) {
@@ -33,21 +35,19 @@ if (!defined('NOIPCHECK')) {
 if (!defined('NOBROWSERNOTIF')) {
 	define('NOBROWSERNOTIF', '1');
 }
-if (!defined('NOIPCHECK')) {
-	define('NOIPCHECK', '1'); // Do not check IP defined into conf $dolibarr_main_restrict_ip
-}
+
 
 // For MultiCompany module.
 // Do not use GETPOST here, function is not defined and define must be done before including main.inc.php
-// TODO This should be useless. Because entity must be retrieve from object ref and not from url.
+// Because 2 entities can have the same ref.
 $entity = (!empty($_GET['entity']) ? (int) $_GET['entity'] : (!empty($_POST['entity']) ? (int) $_POST['entity'] : 1));
 if (is_numeric($entity)) {
 	define("DOLENTITY", $entity);
 }
 
+// Load Dolibarr environment
 require '../../main.inc.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
-require_once DOL_DOCUMENT_ROOT.'/core/class/extrafields.class.php';
 require_once DOL_DOCUMENT_ROOT.'/eventorganization/class/conferenceorbooth.class.php';
 require_once DOL_DOCUMENT_ROOT.'/projet/class/project.class.php';
 require_once DOL_DOCUMENT_ROOT.'/contact/class/contact.class.php';
@@ -55,38 +55,49 @@ require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/paymentterm.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formcompany.class.php';
+require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 
 global $dolibarr_main_url_root;
+
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Societe $mysoc
+ * @var Translate $langs
+ * @var User $user
+ */
 
 // Init vars
 $errmsg = '';
 $num = 0;
 $error = 0;
+$errors = [];
 $backtopage = GETPOST('backtopage', 'alpha');
 $action = GETPOST('action', 'aZ09');
 
-$eventtype = GETPOST("eventtype");
+$eventtype = GETPOSTINT("eventtype");
 $email = GETPOST("email");
 $societe = GETPOST("societe");
 $label = GETPOST("label");
 $note = GETPOST("note");
-$datestart = GETPOST("datestart");
-$dateend = GETPOST("dateend");
+$datestart = dol_mktime(0, 0, 0, GETPOSTINT('datestartmonth'), GETPOSTINT('datestartday'), GETPOSTINT('datestartyear'));
+$dateend = dol_mktime(23, 59, 59, GETPOSTINT('dateendmonth'), GETPOSTINT('dateendday'), GETPOSTINT('dateendyear'));
 
 $id = GETPOST('id');
 
 $project = new Project($db);
-$resultproject = $project->fetch($id);
+$resultproject = $project->fetch((int) $id);
 if ($resultproject < 0) {
 	$error++;
 	$errmsg .= $project->error;
 }
 
 // Security check
-$securekeyreceived = GETPOST("securekey");
-$securekeytocompare = dol_hash($conf->global->EVENTORGANIZATION_SECUREKEY.'conferenceorbooth'.$id, 'md5');
+$securekeyreceived = GETPOST('securekey', 'alpha');
+$securekeytocompare = dol_hash(getDolGlobalString('EVENTORGANIZATION_SECUREKEY') . 'conferenceorbooth'.((int) $id), 'md5');
 
-if ($securekeytocompare != $securekeyreceived) {
+if (!hash_equals($securekeytocompare, (string) $securekeyreceived)) {
 	print $langs->trans('MissingOrBadSecureKey');
 	exit;
 }
@@ -94,36 +105,40 @@ if ($securekeytocompare != $securekeyreceived) {
 // Load translation files
 $langs->loadLangs(array("main", "companies", "install", "other", "eventorganization"));
 
-// Initialize technical object to manage hooks of page. Note that conf->hooks_modules contains array of hook context
+// Initialize a technical object to manage hooks of page. Note that conf->hooks_modules contains an array of hook context
 $hookmanager->initHooks(array('publicnewmembercard', 'globalcard'));
-
-$extrafields = new ExtraFields($db);
 
 $user->loadDefaultValues();
 
 $cactioncomm = new CActionComm($db);
-$arrayofeventtype = $cactioncomm->liste_array('', 'id', '', 0, "module='conference@eventorganization'");
+$arrayofconfboothtype = $cactioncomm->liste_array('', 'id', '', 0, "module:=:'conference@eventorganization'");
+if ($arrayofconfboothtype == -1) {
+	$arrayofconfboothtype = [];
+}
 
 // Security check
-if (empty($conf->eventorganization->enabled)) {
-	accessforbidden('', 0, 0, 1);
+if (!isModEnabled('eventorganization')) {
+	httponly_accessforbidden('Module Event organization not enabled');
 }
 
 
 /**
  * Show header for new member
  *
+ * Note: also called by functions.lib:recordNotFound
+ *
  * @param 	string		$title				Title
  * @param 	string		$head				Head array
  * @param 	int    		$disablejs			More content into html header
  * @param 	int    		$disablehead		More content into html header
- * @param 	array  		$arrayofjs			Array of complementary js files
- * @param 	array  		$arrayofcss			Array of complementary css files
+ * @param 	string[]|string	$arrayofjs			Array of complementary js files
+ * @param 	string[]|string	$arrayofcss			Array of complementary css files
+ * @param 	string			$ws					Website ref if we are called from a website
  * @return	void
  */
-function llxHeaderVierge($title, $head = "", $disablejs = 0, $disablehead = 0, $arrayofjs = '', $arrayofcss = '')
+function llxHeaderVierge($title, $head = "", $disablejs = 0, $disablehead = 0, $arrayofjs = [], $arrayofcss = [], $ws = '')  // @phan-suppress-current-line PhanRedefineFunction
 {
-	global $user, $conf, $langs, $mysoc;
+	global $conf, $langs, $mysoc;
 
 	top_htmlhead($head, $title, $disablejs, $disablehead, $arrayofjs, $arrayofcss); // Show html headers
 
@@ -149,15 +164,15 @@ function llxHeaderVierge($title, $head = "", $disablejs = 0, $disablehead = 0, $
 		print '<img id="dolpaymentlogo" src="'.$urllogo.'"';
 		print '>';
 		print '</div>';
-		if (empty($conf->global->MAIN_HIDE_POWERED_BY)) {
+		if (!getDolGlobalString('MAIN_HIDE_POWERED_BY')) {
 			print '<div class="poweredbypublicpayment opacitymedium right"><a class="poweredbyhref" href="https://www.dolibarr.org?utm_medium=website&utm_source=poweredby" target="dolibarr" rel="noopener">'.$langs->trans("PoweredBy").'<br><img class="poweredbyimg" src="'.DOL_URL_ROOT.'/theme/dolibarr_logo.svg" width="80px"></a></div>';
 		}
 		print '</div>';
 	}
 
-	if (!empty($conf->global->PROJECT_IMAGE_PUBLIC_SUGGEST_CONFERENCE)) {
+	if (getDolGlobalString('PROJECT_IMAGE_PUBLIC_SUGGEST_CONFERENCE')) {
 		print '<div class="backimagepublicsuggestconference">';
-		print '<img id="idPROJECT_IMAGE_PUBLIC_SUGGEST_CONFERENCE" src="'.$conf->global->PROJECT_IMAGE_PUBLIC_SUGGEST_CONFERENCE.'">';
+		print '<img id="idPROJECT_IMAGE_PUBLIC_SUGGEST_CONFERENCE" src="' . getDolGlobalString('PROJECT_IMAGE_PUBLIC_SUGGEST_CONFERENCE').'">';
 		print '</div>';
 	}
 
@@ -169,9 +184,11 @@ function llxHeaderVierge($title, $head = "", $disablejs = 0, $disablehead = 0, $
 /**
  * Show footer for new member
  *
+ * Note: also called by functions.lib:recordNotFound
+ *
  * @return	void
  */
-function llxFooterVierge()
+function llxFooterVierge()  // @phan-suppress-current-line PhanRedefineFunction
 {
 	print '</div>';
 
@@ -195,8 +212,9 @@ if ($reshook < 0) {
 }
 
 // Action called when page is submitted
-if (empty($reshook) && $action == 'add') {
+if (empty($reshook) && $action == 'add') {	// Test on permission not required here. This is an anonymous public ssubmission. Check is done on the secureket + mitigation.
 	$error = 0;
+	$errors = [];
 
 	$urlback = '';
 
@@ -216,7 +234,7 @@ if (empty($reshook) && $action == 'add') {
 	}
 	if (!GETPOST("societe")) {
 		$error++;
-		$errmsg .= $langs->trans("ErrorFieldRequired", $langs->transnoentitiesnoconv("Societe"))."<br>\n";
+		$errmsg .= $langs->trans("ErrorFieldRequired", $langs->transnoentitiesnoconv("ThirdParty"))."<br>\n";
 	}
 	if (!GETPOST("label")) {
 		$error++;
@@ -232,25 +250,37 @@ if (empty($reshook) && $action == 'add') {
 		$errmsg .= $langs->trans("ErrorBadEMail", GETPOST("email"))."<br>\n";
 	}
 
+	$tmpcode = '';
 	if (!$error) {
 		// Getting the thirdparty or creating it
 		$thirdparty = new Societe($db);
-		$resultfetchthirdparty = $thirdparty->fetch('', $societe);
+		$resultfetchthirdparty = $thirdparty->fetch(0, $societe);
 
-		if ($resultfetchthirdparty<=0) {
-			// Need to create a new one (not found or multiple with the same name)
-			$thirdparty->name     = $societe;
+		if ($resultfetchthirdparty < 0) {
+			// If an error was found
+			$error++;
+			$errmsg .= $thirdparty->error;
+			$errors = array_merge($errors, $thirdparty->errors);
+		} elseif ($resultfetchthirdparty == 0) {	// No thirdparty found + a payment is expected
+			// Creation of a new thirdparty
+			$genericcompanyname = 'Unknown company';
+
+			if (!empty($societe)) {
+				$thirdparty->name     = $societe;
+			} else {
+				$thirdparty->name     = $genericcompanyname;
+			}
 			$thirdparty->address      = GETPOST("address");
 			$thirdparty->zip          = GETPOST("zipcode");
 			$thirdparty->town         = GETPOST("town");
-			$thirdparty->client       = 2;
+			$thirdparty->client       = $thirdparty::PROSPECT;
 			$thirdparty->fournisseur  = 0;
-			$thirdparty->country_id   = GETPOST("country_id", 'int');
-			$thirdparty->state_id     = GETPOST("state_id", 'int');
+			$thirdparty->country_id   = GETPOSTINT("country_id");
+			$thirdparty->state_id     = GETPOSTINT("state_id");
 			$thirdparty->email        = $email;
 
 			// Load object modCodeTiers
-			$module = (!empty($conf->global->SOCIETE_CODECLIENT_ADDON) ? $conf->global->SOCIETE_CODECLIENT_ADDON : 'mod_codeclient_leopard');
+			$module = getDolGlobalString('SOCIETE_CODECLIENT_ADDON', 'mod_codeclient_leopard');
 			if (substr($module, 0, 15) == 'mod_codeclient_' && substr($module, -3) == 'php') {
 				$module = substr($module, 0, dol_strlen($module) - 4);
 			}
@@ -262,25 +292,29 @@ if (empty($reshook) && $action == 'add') {
 				}
 			}
 			$modCodeClient = new $module($db);
+			'@phan-var-force ModeleThirdPartyCode $modCodeClient';
+			/** @var ModeleThirdPartyCode $modCodeClient */
 
 			if (empty($tmpcode) && !empty($modCodeClient->code_auto)) {
 				$tmpcode = $modCodeClient->getNextValue($thirdparty, 0);
 			}
 			$thirdparty->code_client = $tmpcode;
 			$readythirdparty = $thirdparty->create($user);
-			if ($readythirdparty <0) {
+			if ($readythirdparty < 0) {
 				$error++;
 				$errmsg .= $thirdparty->error;
+				$errors = array_merge($errors, $thirdparty->errors);
 			} else {
-				$thirdparty->country_code = getCountry($thirdparty->country_id, 2, $db, $langs);
-				$thirdparty->country      = getCountry($thirdparty->country_code, 0, $db, $langs);
+				$thirdparty->country_code = getCountry($thirdparty->country_id, '2', $db, $langs);
+				$thirdparty->country      = getCountry($thirdparty->country_code, '', $db, $langs);
 			}
 		}
 		// From there we have a thirdparty, now looking for the contact
+		$contact = null;
 		if (!$error) {
 			$contact = new Contact($db);
-			$resultcontact = $contact->fetch('', '', '', $email);
-			if ($resultcontact<=0) {
+			$resultcontact = $contact->fetch(0, null, '', $email);
+			if ($resultcontact <= 0) {
 				// Need to create a contact
 				$contact->socid = $thirdparty->id;
 				$contact->lastname = (string) GETPOST("lastname", 'alpha');
@@ -288,12 +322,13 @@ if (empty($reshook) && $action == 'add') {
 				$contact->address = (string) GETPOST("address", 'alpha');
 				$contact->zip = (string) GETPOST("zipcode", 'alpha');
 				$contact->town = (string) GETPOST("town", 'alpha');
-				$contact->country_id = (int) GETPOST("country_id", 'int');
-				$contact->state_id = (int) GETPOST("state_id", 'int');
+				$contact->country_id = GETPOSTINT("country_id");
+				$contact->state_id = GETPOSTINT("state_id");
 				$contact->email = $email;
+				$contact->status = 1; //Default status to Actif
 				$contact->statut = 1; //Default status to Actif
 				$resultcreatecontact = $contact->create($user);
-				if ($resultcreatecontact<0) {
+				if ($resultcreatecontact < 0) {
 					$error++;
 					$errmsg .= $contact->error;
 				}
@@ -304,13 +339,13 @@ if (empty($reshook) && $action == 'add') {
 			// Adding supplier tag and tag from setup to thirdparty
 			$category = new Categorie($db);
 
-			$resultcategory = $category->fetch($conf->global->EVENTORGANIZATION_CATEG_THIRDPARTY_CONF);
+			$resultcategory = $category->fetch(getDolGlobalInt('EVENTORGANIZATION_CATEG_THIRDPARTY_CONF'));
 
-			if ($resultcategory<=0) {
+			if ($resultcategory <= 0) {
 				$error++;
 				$errmsg .= $category->error;
 			} else {
-				$resultsetcategory = $thirdparty->setCategoriesCommon(array($category->id), CATEGORIE::TYPE_CUSTOMER, false);
+				$resultsetcategory = $thirdparty->setCategoriesCommon(array($category->id), Categorie::TYPE_CUSTOMER, false);
 				if ($resultsetcategory < 0) {
 					$error++;
 					$errmsg .= $thirdparty->error;
@@ -318,7 +353,7 @@ if (empty($reshook) && $action == 'add') {
 					$thirdparty->fournisseur = 1;
 
 					// Load object modCodeFournisseur
-					$module = (!empty($conf->global->SOCIETE_CODECLIENT_ADDON) ? $conf->global->SOCIETE_CODECLIENT_ADDON : 'mod_codeclient_leopard');
+					$module = getDolGlobalString('SOCIETE_CODECLIENT_ADDON', 'mod_codeclient_leopard');
 					if (substr($module, 0, 15) == 'mod_codeclient_' && substr($module, -3) == 'php') {
 						$module = substr($module, 0, dol_strlen($module) - 4);
 					}
@@ -329,7 +364,10 @@ if (empty($reshook) && $action == 'add') {
 							break;
 						}
 					}
-					$modCodeFournisseur = new $module;
+					$modCodeFournisseur = new $module($db);
+					'@phan-var-force ModeleThirdPartyCode $modCodeFournisseur';
+					/** @var ModeleThirdPartyCode $modCodeFournisseur */
+
 					if (empty($tmpcode) && !empty($modCodeFournisseur->code_auto)) {
 						$tmpcode = $modCodeFournisseur->getNextValue($thirdparty, 1);
 					}
@@ -344,7 +382,7 @@ if (empty($reshook) && $action == 'add') {
 			}
 		}
 
-		if (!$error) {
+		if (!$error && !is_null($contact)) {
 			// We have the contact and the thirdparty
 			$conforbooth = new ConferenceOrBooth($db);
 			$conforbooth->label = $label;
@@ -352,20 +390,54 @@ if (empty($reshook) && $action == 'add') {
 			$conforbooth->fk_project = $project->id;
 			$conforbooth->note = $note;
 			$conforbooth->fk_action = $eventtype;
-			$conforbooth->datep =$datestart;
+			$conforbooth->datep = $datestart;
 			$conforbooth->datep2 = $dateend;
 			$conforbooth->datec = dol_now();
 			$conforbooth->tms = dol_now();
 			$conforbooth->firstname = $contact->firstname;
 			$conforbooth->lastname = $contact->lastname;
-			$resultconforbooth = $conforbooth->create($user);
-			if ($resultconforbooth<=0) {
+			$conforbooth->ip = getUserRemoteIP();
+
+			$nb_post_max = getDolGlobalInt("MAIN_SECURITY_MAX_POST_ON_PUBLIC_PAGES_BY_IP_ADDRESS", 200);
+			$now = dol_now();
+			$minmonthpost = dol_time_plus_duree($now, -1, "m");
+
+			// Calculate nb of post for IP
+			$nb_post_ip = 0;
+			if ($nb_post_max > 0) {	// Calculate only if there is a limit to check
+				$sql = "SELECT COUNT(ref) as nb_confs";
+				$sql .= " FROM ".MAIN_DB_PREFIX."actioncomm";
+				$sql .= " WHERE ip = '".$db->escape($conforbooth->ip)."'";
+				$sql .= " AND datec > '".$db->idate($minmonthpost)."'";
+				$resql = $db->query($sql);
+				if ($resql) {
+					$num = $db->num_rows($resql);
+					$i = 0;
+					while ($i < $num) {
+						$i++;
+						$obj = $db->fetch_object($resql);
+						$nb_post_ip = $obj->nb_confs;
+					}
+				}
+			}
+
+			$resultconforbooth = 0;
+
+			if ($nb_post_max > 0 && $nb_post_ip >= $nb_post_max) {
+				$error++;
+				$errmsg .= $langs->trans("AlreadyTooMuchPostOnThisIPAdress");
+				array_push($conforbooth->errors, $langs->trans("AlreadyTooMuchPostOnThisIPAdress"));
+				setEventMessage($errmsg, 'errors');
+			} else {
+				$resultconforbooth = $conforbooth->create($user);
+			}
+			if ($resultconforbooth <= 0) {
 				$error++;
 				$errmsg .= $conforbooth->error;
 			} else {
 				// Adding the contact to the project
 				$resultaddcontact = $conforbooth->add_contact($contact->id, 'SPEAKER');
-				if ($resultaddcontact<0) {
+				if ($resultaddcontact < 0) {
 					$error++;
 					$errmsg .= $conforbooth->error;
 				} else {
@@ -380,33 +452,36 @@ if (empty($reshook) && $action == 'add') {
 					$outputlangs = new Translate('', $conf);
 					$outputlangs->setDefaultLang(empty($thirdparty->default_lang) ? $mysoc->default_lang : $thirdparty->default_lang);
 					// Load traductions files required by page
-					$outputlangs->loadLangs(array("main", "members"));
+					$outputlangs->loadLangs(array("main", "members", "eventorganization"));
 					// Get email content from template
 					$arraydefaultmessage = null;
 
-					$labeltouse = $conf->global->EVENTORGANIZATION_TEMPLATE_EMAIL_ASK_CONF;
+					$labeltouse = getDolGlobalInt('EVENTORGANIZATION_TEMPLATE_EMAIL_ASK_CONF');
 					if (!empty($labeltouse)) {
 						$arraydefaultmessage = $formmail->getEMailTemplate($db, 'conferenceorbooth', $user, $outputlangs, $labeltouse, 1, '');
 					}
 
+					$subject = '';
+					$msg = '';
 					if (!empty($labeltouse) && is_object($arraydefaultmessage) && $arraydefaultmessage->id > 0) {
 						$subject = $arraydefaultmessage->topic;
 						$msg     = $arraydefaultmessage->content;
 					}
 
 					$substitutionarray = getCommonSubstitutionArray($outputlangs, 0, null, $thirdparty);
-					complete_substitutions_array($substitutionarray, $outputlangs, $object);
+					complete_substitutions_array($substitutionarray, $outputlangs, $project);
 
 					$subjecttosend = make_substitutions($subject, $substitutionarray, $outputlangs);
 					$texttosend = make_substitutions($msg, $substitutionarray, $outputlangs);
 
 					$sendto = $thirdparty->email;
-					$from = $conf->global->MAILING_EMAIL_FROM;
+					$from = getDolGlobalString('MAILING_EMAIL_FROM');
 					$urlback = $_SERVER["REQUEST_URI"];
+					$trackid = 'proj'.$project->id;
 
 					$ishtml = dol_textishtml($texttosend); // May contain urls
 
-					$mailfile = new CMailFile($subjecttosend, $sendto, $from, $texttosend, array(), array(), array(), '', '', 0, $ishtml);
+					$mailfile = new CMailFile($subjecttosend, $sendto, $from, $texttosend, array(), array(), array(), '', '', 0, $ishtml ? 1 : 0, '', '', $trackid);
 
 					$result = $mailfile->sendfile();
 					if ($result) {
@@ -418,11 +493,12 @@ if (empty($reshook) && $action == 'add') {
 			}
 		}
 	}
+
 	if (!$error) {
 		$db->commit();
-		$securekeyurl = dol_hash($conf->global->EVENTORGANIZATION_SECUREKEY.'conferenceorbooth'.$id, 2);
-		$redirection = $dolibarr_main_url_root.'/public/eventorganization/subscriptionok.php?id='.$id.'&securekey='.$securekeyurl;
-		Header("Location: ".$redirection);
+		$securekeyurl = dol_hash(getDolGlobalString('EVENTORGANIZATION_SECUREKEY') . 'conferenceorbooth'.((int) $id), 'md5');
+		$redirection = $dolibarr_main_url_root.'/public/eventorganization/subscriptionok.php?id='.((int) $id).'&securekey='.urlencode($securekeyurl);
+		header("Location: ".$redirection);
 		exit;
 	} else {
 		$db->rollback();
@@ -439,32 +515,64 @@ $formcompany = new FormCompany($db);
 
 llxHeaderVierge($langs->trans("NewSuggestionOfConference"));
 
-print '<br>';
-
-// Event summary
-print '<div class="center">';
-print '<span class="large">'.$project->title.'</span><br>';
-print img_picto('', 'calendar', 'class="pictofixedwidth"').$langs->trans("Date").': ';
-print dol_print_date($project->date_start, 'daytext');
-if ($project->date_end && $project->date_start != $project->date_end) {
-	print ' - '.dol_print_date($project->date_end, 'daytext');
-}
-print '<br><br>'."\n";
-//print $langs->trans("EvntOrgRegistrationWelcomeMessage")."\n";
-//print $project->note_public."\n";
-//print img_picto('', 'map-marker-alt').$langs->trans("Location").': xxxx';
-print '</div>';
-
-
-print load_fiche_titre($langs->trans("NewSuggestionOfConference"), '', '', 0, 0, 'center');
-
 
 print '<div align="center">';
 print '<div id="divsubscribe">';
-print '<div class="center subscriptionformhelptext justify">';
+
+print '<br>';
+
+// Sub banner
+print '<div class="center subscriptionformbanner subbanner justify margintoponly paddingtop marginbottomonly padingbottom">';
+print load_fiche_titre($langs->trans("NewSuggestionOfConference"), '', '', 0, '', 'center');
+// Welcome message
+print '<br>';
+print '<span class="opacitymedium">'.$langs->trans("EvntOrgRegistrationWelcomeMessage").'</span>';
+print '<br>';
+// Title
+print '<span class="eventlabel large">'.dol_escape_htmltag($project->title).'</span><br>';
+print '</div>';
+
+// Help text
+print '<div class="justify subscriptionformhelptext">';
+
+if ($project->date_start_event || $project->date_end_event) {
+	print '<br><span class="fa fa-calendar pictofixedwidth opacitymedium"></span>';
+}
+if ($project->date_start_event) {
+	$format = 'day';
+	$tmparray = dol_getdate($project->date_start_event, false, '');
+	if ($tmparray['hours'] || $tmparray['minutes'] || $tmparray['seconds']) {
+		$format = 'dayhour';
+	}
+	print dol_print_date($project->date_start_event, $format);
+}
+if ($project->date_start_event && $project->date_end_event) {
+	print ' - ';
+}
+if ($project->date_end_event) {
+	$format = 'day';
+	$tmparray = dol_getdate($project->date_end_event, false, '');
+	if ($tmparray['hours'] || $tmparray['minutes'] || $tmparray['seconds']) {
+		$format = 'dayhour';
+	}
+	print dol_print_date($project->date_end_event, $format);
+}
+if ($project->date_start_event || $project->date_end_event) {
+	print '<br>';
+}
+if ($project->location) {
+	print '<span class="fa fa-map-marked-alt pictofixedwidth opacitymedium"></span>'.dol_escape_htmltag($project->location).'<br>';
+}
+if ($project->note_public) {
+	print '<br><!-- note public --><span class="opacitymedium">'.dol_htmlentitiesbr($project->note_public).'</span><br>';
+}
+
+print '</div>';
+
+print '<br>';
 
 
-dol_htmloutput_errors($errmsg);
+dol_htmloutput_errors($errmsg, $errors);
 
 // Print form
 print '<form action="'.$_SERVER["PHP_SELF"].'" method="POST" name="newmember">'."\n";
@@ -474,12 +582,10 @@ print '<input type="hidden" name="action" value="add" />';
 print '<input type="hidden" name="id" value="'.$id.'" />';
 print '<input type="hidden" name="securekey" value="'.$securekeyreceived.'" />';
 
-print '<br>';
-
-print '<br><span class="opacitymedium">'.$langs->trans("FieldsWithAreMandatory", '*').'</span><br>';
+//print '<br><span class="opacitymedium small">'.$langs->trans("FieldsWithAreMandatory", '*').'</span><br>';
 //print $langs->trans("FieldsWithIsForPublic",'**').'<br>';
 
-print dol_get_fiche_head('');
+print dol_get_fiche_head();
 
 print '<script type="text/javascript">
 jQuery(document).ready(function () {
@@ -495,17 +601,17 @@ jQuery(document).ready(function () {
 print '<table class="border" summary="form to subscribe" id="tablesubscribe">'."\n";
 
 // Last Name
-print '<tr><td><label for="lastname">'.$langs->trans("Lastname").'<span style="color: red">*</span></label></td>';
-print '<td colspan="3"><input name="lastname" id="lastname" type="text" class="maxwidth100onsmartphone" maxlength="80" value="'.dol_escape_htmltag(GETPOST("lastname", 'alpha') ?GETPOST("lastname", 'alpha') : $object->lastname).'" autofocus="autofocus"></td>';
+print '<tr><td><label for="lastname">'.$langs->trans("Lastname").'<span class="star" title="'.dolPrintHTMLForAttribute("Mandatory").'">*</span></label></td>';
+print '<td colspan="3"><input name="lastname" id="lastname" type="text" class="maxwidth100onsmartphone" maxlength="80" value="'.dol_escape_htmltag(GETPOST("lastname", 'alpha')).'" autofocus="autofocus"></td>';
 print '</tr>';
 // First Name
-print '<tr><td><label for="firstname">'.$langs->trans("Firstname").'<span style="color: red">*</span></label></td>';
-print '<td colspan="3"><input name="firstname" id="firstname" type="text" class="maxwidth100onsmartphone" maxlength="80" value="'.dol_escape_htmltag(GETPOST("firstname", 'alpha') ?GETPOST("firstname", 'alpha') : $object->firstname).'" autofocus="autofocus"></td>';
+print '<tr><td><label for="firstname">'.$langs->trans("Firstname").'<span class="star" title="'.dolPrintHTMLForAttribute("Mandatory").'">*</span></label></td>';
+print '<td colspan="3"><input name="firstname" id="firstname" type="text" class="maxwidth100onsmartphone" maxlength="80" value="'.dol_escape_htmltag(GETPOST("firstname", 'alpha')).'" autofocus="autofocus"></td>';
 print '</tr>';
 // Email
-print '<tr><td>'.$langs->trans("Email").'<span style="color: red">*</span></td><td><input type="text" name="email" maxlength="255" class="minwidth150" value="'.dol_escape_htmltag(GETPOST('email')).'"></td></tr>'."\n";
+print '<tr><td>'.$langs->trans("Email").'<span class="star" title="'.dolPrintHTMLForAttribute("Mandatory").'">*</span></td><td><input type="text" name="email" maxlength="255" class="minwidth150" value="'.dol_escape_htmltag(GETPOST('email')).'"></td></tr>'."\n";
 // Company
-print '<tr id="trcompany" class="trcompany"><td>'.$langs->trans("Company").'<span style="color: red">*</span>';
+print '<tr id="trcompany" class="trcompany"><td>'.$langs->trans("Company").'<span class="star" title="'.dolPrintHTMLForAttribute("Mandatory").'">*</span>';
 print ' </td><td><input type="text" name="societe" class="minwidth150" value="'.dol_escape_htmltag(GETPOST('societe')).'"></td></tr>'."\n";
 // Address
 print '<tr><td>'.$langs->trans("Address").'</td><td>'."\n";
@@ -519,42 +625,42 @@ print '</td></tr>';
 // Country
 print '<tr><td>'.$langs->trans('Country').'</td><td>';
 $country_id = GETPOST('country_id');
-if (!$country_id && !empty($conf->global->MEMBER_NEWFORM_FORCECOUNTRYCODE)) {
-	$country_id = getCountry($conf->global->MEMBER_NEWFORM_FORCECOUNTRYCODE, 2, $db, $langs);
+if (!$country_id && getDolGlobalString('MEMBER_NEWFORM_FORCECOUNTRYCODE')) {
+	$country_id = getCountry($conf->global->MEMBER_NEWFORM_FORCECOUNTRYCODE, '2', $db, $langs);
 }
 if (!$country_id && !empty($conf->geoipmaxmind->enabled)) {
 	$country_code = dol_user_country();
 	//print $country_code;
 	if ($country_code) {
-		$new_country_id = getCountry($country_code, 3, $db, $langs);
+		$new_country_id = getCountry($country_code, '3', $db, $langs);
 		//print 'xxx'.$country_code.' - '.$new_country_id;
 		if ($new_country_id) {
 			$country_id = $new_country_id;
 		}
 	}
 }
-$country_code = getCountry($country_id, 2, $db, $langs);
+$country_code = getCountry($country_id, '2', $db, $langs);
 print $form->select_country($country_id, 'country_id');
 print '</td></tr>';
 // State
-if (empty($conf->global->SOCIETE_DISABLE_STATE)) {
+if (!getDolGlobalString('SOCIETE_DISABLE_STATE')) {
 	print '<tr><td>'.$langs->trans('State').'</td><td>';
 	if ($country_code) {
-		print $formcompany->select_state(GETPOST("state_id"), $country_code);
+		print $formcompany->select_state(GETPOSTINT("state_id"), $country_code);
 	} else {
 		print '';
 	}
 	print '</td></tr>';
 }
 // Type of event
-print '<tr><td>'.$langs->trans("EventType").'<span style="color: red">*</span></td>'."\n";
-print '<td>'.FORM::selectarray('eventtype', $arrayofeventtype, $eventtype).'</td>';
+print '<tr><td>'.$langs->trans("Format").'<span class="star" title="'.dolPrintHTMLForAttribute("Mandatory").'">*</span></td>'."\n";
+print '<td>'.Form::selectarray('eventtype', $arrayofconfboothtype, $eventtype, 1).'</td>';
 // Label
-print '<tr><td>'.$langs->trans("LabelOfconference").'<span style="color: red">*</span></td>'."\n";
-print '</td><td><input type="text" name="label" class="minwidth150" value="'.dol_escape_htmltag(GETPOST('label')).'"></td></tr>'."\n";
+print '<tr><td>'.$langs->trans("LabelOfconference").'<span class="star" title="'.dolPrintHTMLForAttribute("Mandatory").'">*</span></td>'."\n";
+print '</td><td><input type="text" name="label" class="minwidth300" value="'.dol_escape_htmltag(GETPOST('label')).'"></td></tr>'."\n";
 // Note
-print '<tr><td>'.$langs->trans("Description").'<span style="color: red">*</span></td>'."\n";
-print '<td><textarea name="note" id="note" wrap="soft" class="quatrevingtpercent" rows="'.ROWS_3.'">'.dol_escape_htmltag(GETPOST('note', 'restricthtml'), 0, 1).'</textarea></td></tr>'."\n";
+print '<tr><td>'.$langs->trans("Description").'<span class="star" title="'.dolPrintHTMLForAttribute("Mandatory").'">*</span></td>'."\n";
+print '<td><textarea name="note" id="note" wrap="soft" class="quatrevingtpercent" rows="'.ROWS_4.'">'.dol_escape_htmltag(GETPOST('note', 'restricthtml'), 0, 1).'</textarea></td></tr>'."\n";
 
 print "</table>\n";
 

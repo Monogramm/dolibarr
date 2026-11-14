@@ -2,7 +2,8 @@
 /* Copyright (C) 2003-2007 Rodolphe Quiedeville <rodolphe@quiedeville.org>
  * Copyright (C) 2004-2009 Laurent Destailleur  <eldy@users.sourceforge.net>
  * Copyright (C) 2005-2009 Regis Houssin        <regis.houssin@inodbox.com>
- * Copyright (C) 2015      Frederic France      <frederic.france@free.fr>
+ * Copyright (C) 2015-2024  Frédéric France      <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW							<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,25 +29,14 @@ include_once DOL_DOCUMENT_ROOT.'/core/boxes/modules_boxes.php';
 
 
 /**
- * Class to manage the box to show last orders
+ * Class to manage the box to show last modified BOMs
  */
 class box_boms extends ModeleBoxes
 {
-	public $boxcode = "lastboms";
-	public $boximg = "object_bom";
+	public $boxcode  = "lastboms";
+	public $boximg   = "object_bom";
 	public $boxlabel = "BoxTitleLatestModifiedBoms";
-	public $depends = array("bom");
-
-	/**
-	 * @var DoliDB Database handler.
-	 */
-	public $db;
-
-	public $param;
-
-	public $info_box_head = array();
-	public $info_box_contents = array();
-
+	public $depends  = array("bom");
 
 	/**
 	 *  Constructor
@@ -54,13 +44,15 @@ class box_boms extends ModeleBoxes
 	 *  @param  DoliDB  $db         Database handler
 	 *  @param  string  $param      More parameters
 	 */
-	public function __construct($db, $param)
+	public function __construct($db, $param)  // @phpstan-ignore constructor.unusedParameter
 	{
 		global $user;
 
 		$this->db = $db;
 
-		$this->hidden = !($user->rights->bom->read);
+		$this->hidden = !$user->hasRight('bom', 'read');
+		$this->urltoaddentry = DOL_URL_ROOT.'/bom/bom_card.php?action=create';
+		$this->msgNoRecords = 'NoRecordedOrders';
 	}
 
 	/**
@@ -78,13 +70,13 @@ class box_boms extends ModeleBoxes
 		include_once DOL_DOCUMENT_ROOT.'/bom/class/bom.class.php';
 		include_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 
-		$bomstatic = new Bom($this->db);
+		$bomstatic = new BOM($this->db);
 		$productstatic = new Product($this->db);
 		$userstatic = new User($this->db);
 
 		$this->info_box_head = array('text' => $langs->trans("BoxTitleLatestModifiedBoms", $max));
 
-		if ($user->rights->bom->read) {
+		if ($user->hasRight('bom', 'read')) {
 			$sql = "SELECT p.ref as product_ref";
 			$sql .= ", p.rowid as productid";
 			$sql .= ", p.tosell";
@@ -99,7 +91,7 @@ class box_boms extends ModeleBoxes
 			$sql .= " FROM ".MAIN_DB_PREFIX."product as p";
 			$sql .= ", ".MAIN_DB_PREFIX."bom_bom as c";
 			$sql .= " WHERE c.fk_product = p.rowid";
-			$sql .= " AND c.entity = ".$conf->entity;
+			$sql .= " AND c.entity = ".((int) $conf->entity);
 			$sql .= " ORDER BY c.tms DESC, c.ref DESC";
 			$sql .= $this->db->plimit($max, 0);
 
@@ -135,7 +127,7 @@ class box_boms extends ModeleBoxes
 						'asis' => 1,
 					);
 
-					if (!empty($conf->global->BOM_BOX_LAST_BOMS_SHOW_VALIDATE_USER)) {
+					if (getDolGlobalString('BOM_BOX_LAST_BOMS_SHOW_VALIDATE_USER')) {
 						if ($objp->fk_user_valid > 0) {
 							$userstatic->fetch($objp->fk_user_valid);
 						}
@@ -159,35 +151,37 @@ class box_boms extends ModeleBoxes
 					$line++;
 				}
 
-				if ($num == 0) {
-					$this->info_box_contents[$line][0] = array(
-					'td' => 'class="center opacitymedium"',
-					'text'=>$langs->trans("NoRecordedOrders")
-					);
-				}
+				// if ($num == 0) {
+				// 	$this->info_box_contents[$line][0] = array(
+				// 	'td' => 'class="center"',
+				// 	'text' => '<span class="opacitymedium">'.$langs->trans("NoRecordedOrders").'</span>'
+				// 	);
+				// }
 
 				$this->db->free($result);
 			} else {
 				$this->info_box_contents[0][0] = array(
 					'td' => '',
-					'maxlength'=>500,
+					'maxlength' => 500,
 					'text' => ($this->db->error().' sql='.$sql),
 				);
 			}
 		} else {
 			$this->info_box_contents[0][0] = array(
-				'td' => 'class="nohover opacitymedium left"',
-				'text' => $langs->trans("ReadPermissionNotAllowed")
+				'td' => 'class="nohover left"',
+				'text' => '<span class="opacitymedium">'.$langs->trans("ReadPermissionNotAllowed").'</span>'
 			);
 		}
 	}
 
+
+
 	/**
-	 *	Method to show box
+	 *	Method to show box.  Called when the box needs to be displayed.
 	 *
-	 *	@param	array	$head       Array with properties of box title
-	 *	@param  array	$contents   Array with properties of box lines
-	 *  @param	int		$nooutput	No print, only return string
+	 *	@param	?array<array{text?:string,sublink?:string,subtext?:string,subpicto?:?string,picto?:string,nbcol?:int,limit?:int,subclass?:string,graph?:int<0,1>,target?:string}>   $head       Array with properties of box title
+	 *	@param	?array<array{tr?:string,td?:string,target?:string,text?:string,text2?:string,textnoformat?:string,tooltip?:string,logo?:string,url?:string,maxlength?:int,asis?:int<0,1>}>   $contents   Array with properties of box lines
+	 *	@param	int<0,1>	$nooutput	No print, only return string
 	 *	@return	string
 	 */
 	public function showBox($head = null, $contents = null, $nooutput = 0)

@@ -1,65 +1,150 @@
-# Copyright (C) 2018      Alexandre Spangaro   <aspangaro@open-dsi.fr>
+# Copyright (C) 2018-2022  Alexandre Spangaro   <aspangaro@open-dsi.fr>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#
 # Generic
-#
-Assets = Activos
-NewAsset = Novo activo
-AccountancyCodeAsset = Código contable (activo)
-AccountancyCodeDepreciationAsset = Código contable (conta depreciación activo)
-AccountancyCodeDepreciationExpense = Código contable (conta depreciación gastos)
-NewAssetType=Novo tipo de activo
-AssetsTypeSetup=Configuración tipos de activos
-AssetTypeModified=Tipo de activo modificado
-AssetType=Tipo de activo
+NewAsset=Novo activo
+AccountancyCodeAsset=Código contable (activo)
+AccountancyCodeDepreciationAsset=Código contable (conta depreciación activo)
+AccountancyCodeDepreciationExpense=Código contable (conta depreciación gastos)
 AssetsLines=Activos
-DeleteType=Eliminar
-DeleteAnAssetType=Eliminar un tipo de activo
+ConfirmValidateAsset=Está certo de  querer validar este activo coa referencia <b>%s</b>?
+DeleteAnAssetType=Eliminar un modelo de activo
 ConfirmDeleteAssetType=¿Está certo de querer eliminar este tipo de activo?
-ShowTypeCard=Ver tipo '%s'
-
 # Module label 'ModuleAssetsName'
-ModuleAssetsName = Activos
+ModuleAssetsName=Activos
 # Module description 'ModuleAssetsDesc'
-ModuleAssetsDesc = Descrición de activos
-
-#
+ModuleAssetsDesc=Descrición de activos
 # Admin page
-#
-AssetsSetup = Configuración activos
-Settings = Configuracións
-AssetsSetupPage = Configuración activos
-ExtraFieldsAssetsType = Campos adicionais (tipos de activos)
+AssetSetup=Configuración activos
+AssetSetupPage=Configuración activos
+ExtraFieldsAssetModel=Campos adicionais (modelo de activo)
 AssetsType=Tipo de activo
 AssetsTypeId=Id tipo de activo
 AssetsTypeLabel=Etiqueta tipo de activo
 AssetsTypes=Tipos de activos
-
-#
+ASSET_ACCOUNTANCY_CATEGORY=Grupo de contabilidade de activos fixos
+ASSET_DEPRECIATION_DURATION_PER_YEAR=Período proporcional en días para o cálculo da amortización ao longo dun ano
+ASSET_DEPRECIATION_DAY_COUNT_CONVENTION=Convención de reconto de días do prorata temporis
+ASSET_DEPRECIATION_DAY_COUNT_CONVENTIONTooltip=Como se calcula a depreciación dun período <b>parcial</b>, é dicir, o primeiro e o último ano dun activo. Unha renda vitalicia completa é sempre o valor dividido pola duración e nunca se ve afectada por esta configuración.<br><br>Unha convención define <b>tanto</b>como se contan os días do período <b>como</b> polo número de días que se divide un ano completo. Os dous deben coincidir sempre: contar os días do calendario reais e dividilos entre 360 sobrestima cada período parcial nun 1,39 por cento aproximadamente.<br><br><b>30/360</b>: cada mes conta 30 días e cada ano 360 días. O convenio aplicado pola maioría das empresas de contabilidade en Francia.<br><b>Días reais / 365</b>: días naturais reais do período, divididos por 365.<br><b>Días reais / ano real</b>: días naturais reais, cada ano dividido pola súa propia duración real, 365 ou 366. O máis preciso nun período que abrangue un día bisesto.<br><br>Exemplo nun activo de 13000 amortizado durante 5 anos, posto en servizo o 10 de marzo e vendido o 23 de febreiro do cuarto ano, con exercicios fiscais que van de agosto a xullo. Depreciación acumulada na disposición: 7684,44 con 30/360, 7700,27 con días reais / 365, 7697,29 con días reais / ano real.<br><br><b>Aviso</b>: ao cambiar esta configuración non se recalculan os plans xa xerados. Garde de novo as opcións de depreciación dun activo para rexenerar o seu plan.
+AssetDayCountConventionThirty360=30/360 - cada mes conta 30 días, cada ano 360 días (normal en Francia)
+AssetDayCountConventionAct365=Días reais / 365 - días reais do calendario dividido por 365
+AssetDayCountConventionActAct=Días reais / ano real - días do calendario reais, cada ano dividido pola súa propia duración (365 ou 366)
 # Menu
-#
-MenuAssets = Activos
-MenuNewAsset = Novo ben
-MenuTypeAssets = Tipo de activos
-MenuListAssets = Listaxe
-MenuNewTypeAssets = Novo
-MenuListTypeAssets = Listaxe
-
-#
+MenuAssets=Activos
+MenuNewAsset=Novo ben
+MenuAssetModels=Tipo de activos
+MenuListAssets=Listaxe
+MenuNewAssetModel=Novo tipo de activo
+MenuListAssetModels=Listaxe
 # Module
-#
-NewAssetType=Novo tipo de activo
-NewAsset=Novo activo
+ConfirmDeleteAsset=Está certo de querer eliminar este activo?
+# Tab
+AssetDepreciationOptions=Opcións de amortización
+AssetAccountancyCodes=Contas contables
+AssetDepreciation=Amortización
+# Asset
+Asset=Activo
+Assets=Activos
+AssetReversalAmountHT=Importe de reversión (sen impostos)
+AssetAcquisitionValueHT=Importe de adquisición (sen impostos)
+AssetRecoveredVAT=IVE recuperado
+AssetReversalDate=Data de reversión
+AssetDateAcquisition=Data de adquisición
+AssetDateStart=Data inicio
+AssetAcquisitionType=Tipo de adquisición
+AssetAcquisitionTypeNew=Novo
+AssetAcquisitionTypeOccasion=Usado
+AssetType=Tipo de activo
+AssetTypeIntangible=Intanxible
+AssetTypeTangible=Tanxible
+AssetTypeInProgress=En progreso
+AssetTypeFinancial=Financeiro
+AssetNotDepreciated=Non se amortiza
+AssetDisposal=Disposición
+AssetConfirmDisposalAsk=Estás certo de querer eliminar o activo <b> %s </b>?
+AssetConfirmReOpenAsk=Estás seguro de querer abrir de novo o activo <b> %s </b>?
+# Asset status
+AssetInDraft=Non validada
+AssetInProgress=En progreso
+AssetDisposed=Disposto
+AssetRecorded=Contabilizado
+# Asset disposal
+AssetDisposalDate=Data de disposición
+AssetDisposalAmount=Valor de disposición
+AssetDisposalType=Tipo de disposición
+AssetDisposalDepreciated=Amortizar o ano de transferencia
+AssetDisposalSubjectToVat=Disposición suxeita ao IVE
+# Asset model
+AssetModel=Modelo de activo
+AssetModels=Modelos de activos
+# Asset depreciation options
+AssetDepreciationOptionEconomic=Amortización económica
+AssetDepreciationOptionAcceleratedDepreciation=Amortización acelerada (impostos)
+AssetDepreciationOptionDepreciationType=Tipo de amortización
+AssetDepreciationOptionDepreciationTypeLinear=Lineal
+AssetDepreciationOptionDepreciationTypeDegressive=Decrecente
+AssetDepreciationOptionDepreciationTypeExceptional=Excepcional
+AssetDepreciationOptionDegressiveRate=Taxa decrecente
+AssetDepreciationOptionDuration=Permanencia
+AssetDepreciationOptionDurationType=Duración do tipo
+AssetDepreciationOptionDurationTypeAnnual=Anual
+AssetDepreciationOptionDurationTypeMonthly=Mensual
+AssetDepreciationOptionDurationTypeDaily=Diariamente
+AssetDepreciationOptionRate=Importe (%%)
+AssetDepreciationOptionAmountBaseDepreciationHT=Base de amortización (IVE excluído)
+AssetDepreciationOptionAmountBaseDeductibleHT=Base deducible (sen IVE)
+AssetDepreciationOptionTotalAmountLastDepreciationHT=Importe total da última amortización (IVE excluído)
+# Asset accountancy codes
+AssetAccountancyCodeDepreciationEconomic=Amortización económica
+AssetAccountancyCodeAsset=Activo
+AssetAccountancyCodeDepreciationAsset=Amortización
+AssetAccountancyCodeDepreciationExpense=Importe de amortización
+AssetAccountancyCodeValueAssetSold=Valor do ben disposto
+AssetAccountancyCodeReceivableOnAssignment=Cobrar por disposición
+AssetAccountancyCodeProceedsFromSales=Recadación da disposición
+AssetAccountancyCodeVatCollected=IVE recadado
+AssetAccountancyCodeVatDeductible=IVE recuperado sobre activos
+AssetAccountancyCodeDepreciationAcceleratedDepreciation=Amortización acelerada (impostos)
+AssetAccountancyCodeAcceleratedDepreciation=Conta
+AssetAccountancyCodeEndowmentAcceleratedDepreciation=Importe de amortización
+AssetAccountancyCodeProvisionAcceleratedDepreciation=Reposesión/Provisión
+# Asset depreciation
+AssetBaseDepreciationHT=Base de amortización (sen IVE)
+AssetDepreciationBeginDate=Inicio da amortización en
+AssetDepreciationDuration=Permanencia
+AssetDepreciationRate=Importe (%%)
+AssetDepreciationDate=Data de amortización
+AssetDepreciationHT=Amortización (sen IVE)
+AssetCumulativeDepreciationHT=Amortización acumulada (sen IVE)
+AssetResidualHT=Valor residual (sen IVE)
+AssetDispatchedInBookkeeping=Amortización rexistrada
+AssetFutureDepreciationLine=Amortización futura
+AssetDepreciationReversal=Reversión
+# Errors
+AssetErrorAssetOrAssetModelIDNotProvide=Non se proporcionou a identificación do recurso ou o modelo atopado
+AssetErrorFetchAccountancyCodesForMode=Produciuse un erro ao recuperar as contas contables para o modo de amortización "%s"
+AssetErrorDeleteAccountancyCodesForMode=Produciuse un erro ao eliminar as contas de contabilidade do modo de amortización "%s"
+AssetErrorInsertAccountancyCodesForMode=Erro ao inserir as contas contables do modo de amortización '%s'
+AssetErrorFetchDepreciationOptionsForMode=Produciuse un erro ao recuperar as opcións para o modo de amortización "%s"
+AssetErrorDeleteDepreciationOptionsForMode=Produciuse un erro ao eliminar as opcións do modo de amortización "%s".
+AssetErrorInsertDepreciationOptionsForMode=Produciuse un erro ao inserir as opcións do modo de amortización "%s".
+AssetErrorFetchDepreciationLines=Erro ao recuperar as liñas de amortización rexistradas
+AssetErrorClearDepreciationLines=Erro ao eliminar as liñas de amortización rexistradas (reversión e futuras)
+AssetErrorAddDepreciationLine=Produciuse un erro ao engadir unha liña de amortización
+AssetErrorCalculationDepreciationLines=Erro ao calcular as liñas de amortización (recuperación e futuro)
+AssetErrorReversalDateNotProvidedForMode=Non se proporciona a data de reversión para o método de amortización "%s"
+AssetErrorReversalDateNotGreaterThanCurrentBeginFiscalDateForMode=A data de reversión debe ser maior ou igual ao inicio do exercicio fiscal actual para o método de amortización "%s"
+AssetErrorReversalAmountNotProvidedForMode=O importe de reversión non se proporciona para o modo de amortización "%s".
+AssetErrorDegressiveDailyDurationForMode=Unha depreciación degresiva precisa unha duración en anos ou en meses para o modo de depreciación '%s'.
+AssetErrorFetchCumulativeDepreciation=Erro ao recuperar o importe acumulado da amortización da liña de amortización
+AssetErrorSetLastCumulativeDepreciation=Erro ao rexistrar o último importe de amortización acumulado

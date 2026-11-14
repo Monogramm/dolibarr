@@ -1,6 +1,8 @@
 <?php
-/* Copyright (C) 2017-2020  Laurent Destailleur     <eldy@users.sourceforge.net>
- * Copyright (C) 2019       Frédéric France         <frederic.france@netlogic.fr>
+/* Copyright (C) 2017-2023  Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2019-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2023       Charlene Benke          <charlene@patas-monkey.com>
+ * Copyright (C) 2024-2025	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,13 +19,23 @@
  */
 
 /**
- *   	\file       htdocs/bom/bom_card.php
- *		\ingroup    bom
- *		\brief      Page to create/edit/view bom
+ *    \file       htdocs/bom/bom_card.php
+ *    \ingroup    bom
+ *    \brief      Page to create/edit/view Bill Of Material
  */
 
 // Load Dolibarr environment
 require '../main.inc.php';
+/**
+ * The main.inc.php has been included so the following variable are now defined:
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var ExtraFields $extrafields
+ * @var HookManager $hookmanager
+ * @var Societe $mysoc
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formcompany.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 require_once DOL_DOCUMENT_ROOT.'/bom/class/bom.class.php';
@@ -32,33 +44,34 @@ require_once DOL_DOCUMENT_ROOT.'/mrp/lib/mrp.lib.php';
 
 
 // Load translation files required by the page
-$langs->loadLangs(array("mrp", "other"));
+$langs->loadLangs(array('mrp', 'other'));
 
 // Get parameters
-$id = GETPOST('id', 'int');
-$ref        = GETPOST('ref', 'alpha');
-$action = GETPOST('action', 'aZ09');
-$confirm    = GETPOST('confirm', 'alpha');
-$cancel = GETPOST('cancel', 'aZ09');
-$contextpage = GETPOST('contextpage', 'aZ') ?GETPOST('contextpage', 'aZ') : 'bomcard'; // To manage different context of search
-$backtopage = GETPOST('backtopage', 'alpha');
-$lineid = GETPOST('lineid', 'int');
+$id      = GETPOSTINT('id');
+$lineid  = GETPOSTINT('lineid');
+$ref     = GETPOST('ref', 'alpha');
+$action  = GETPOST('action', 'aZ09');
+$confirm = GETPOST('confirm', 'alpha');
+$cancel  = GETPOST('cancel', 'alpha');
+$contextpage = GETPOST('contextpage', 'aZ') ? GETPOST('contextpage', 'aZ') : 'bomcard'; // To manage different context of search
+$backtopage  = GETPOST('backtopage', 'alpha');
+
 
 // PDF
-$hidedetails = (GETPOST('hidedetails', 'int') ? GETPOST('hidedetails', 'int') : (!empty($conf->global->MAIN_GENERATE_DOCUMENTS_HIDE_DETAILS) ? 1 : 0));
-$hidedesc = (GETPOST('hidedesc', 'int') ? GETPOST('hidedesc', 'int') : (!empty($conf->global->MAIN_GENERATE_DOCUMENTS_HIDE_DESC) ? 1 : 0));
-$hideref = (GETPOST('hideref', 'int') ? GETPOST('hideref', 'int') : (!empty($conf->global->MAIN_GENERATE_DOCUMENTS_HIDE_REF) ? 1 : 0));
+$hidedetails = (GETPOSTINT('hidedetails') ? GETPOSTINT('hidedetails') : (getDolGlobalString('MAIN_GENERATE_DOCUMENTS_HIDE_DETAILS') ? 1 : 0));
+$hidedesc = (GETPOSTINT('hidedesc') ? GETPOSTINT('hidedesc') : (getDolGlobalString('MAIN_GENERATE_DOCUMENTS_HIDE_DESC') ? 1 : 0));
+$hideref = (GETPOSTINT('hideref') ? GETPOSTINT('hideref') : (getDolGlobalString('MAIN_GENERATE_DOCUMENTS_HIDE_REF') ? 1 : 0));
 
-// Initialize technical objects
+// Initialize a technical objects
 $object = new BOM($db);
-$extrafields = new ExtraFields($db);
-$diroutputmassaction = $conf->bom->dir_output.'/temp/massgeneration/'.$user->id;
+$diroutputmassaction = getMultidirOutput($object, '', 0, 'temp') . 'massgeneration/'.$user->id;
 $hookmanager->initHooks(array('bomcard', 'globalcard')); // Note that conf->hooks_modules contains array
+
 // Fetch optionals attributes and labels
 $extrafields->fetch_name_optionals_label($object->table_element);
 $search_array_options = $extrafields->getOptionalsFromPost($object->table_element, '', 'search_');
 
-// Initialize array of search criterias
+// Initialize array of search criteria
 $search_all = GETPOST("search_all", 'alpha');
 $search = array();
 foreach ($object->fields as $key => $val) {
@@ -72,7 +85,7 @@ if (empty($action) && empty($id) && empty($ref)) {
 }
 
 // Load object
-include DOL_DOCUMENT_ROOT.'/core/actions_fetchobject.inc.php'; // Must be include, not include_once.
+include DOL_DOCUMENT_ROOT.'/core/actions_fetchobject.inc.php'; // Must be 'include', not 'include_once'.
 if ($object->id > 0) {
 	$object->calculateCosts();
 }
@@ -82,12 +95,13 @@ if ($object->id > 0) {
 //if ($user->socid > 0) accessforbidden();
 //if ($user->socid > 0) $socid = $user->socid;
 $isdraft = (($object->status == $object::STATUS_DRAFT) ? 1 : 0);
-$result = restrictedArea($user, 'bom', $object->id, 'bom_bom', '', '', 'rowid', $isdraft);
+$result = restrictedArea($user, 'bom', $object->id, $object->table_element, '', '', 'rowid', $isdraft);
 
-$permissionnote = $user->rights->bom->write; // Used by the include of actions_setnotes.inc.php
-$permissiondellink = $user->rights->bom->write; // Used by the include of actions_dellink.inc.php
-$permissiontoadd = $user->rights->bom->write; // Used by the include of actions_addupdatedelete.inc.php and actions_lineupdown.inc.php
-$permissiontodelete = $user->rights->bom->delete || ($permissiontoadd && isset($object->status) && $object->status == $object::STATUS_DRAFT);
+// Permissions
+$permissionnote = $user->hasRight('bom', 'write'); // Used by the include of actions_setnotes.inc.php
+$permissiondellink = $user->hasRight('bom', 'write'); // Used by the include of actions_dellink.inc.php
+$permissiontoadd = $user->hasRight('bom', 'write'); // Used by the include of actions_addupdatedelete.inc.php and actions_lineupdown.inc.php
+$permissiontodelete = $user->hasRight('bom', 'delete') || ($permissiontoadd && isset($object->status) && $object->status == $object::STATUS_DRAFT);
 $upload_dir = $conf->bom->multidir_output[isset($object->entity) ? $object->entity : 1];
 
 
@@ -116,13 +130,13 @@ if (empty($reshook)) {
 		}
 	}
 
-	$triggermodname = 'BOM_MODIFY'; // Name of trigger action code to execute when we modify record
-
+	$triggermodname = $object->TRIGGER_PREFIX.'_MODIFY'; // Name of trigger action code to execute when we modify record. Used in actions_addupdatedelete.inc.php
 
 	// Actions cancel, add, update, delete or clone
 	include DOL_DOCUMENT_ROOT.'/core/actions_addupdatedelete.inc.php';
+
 	// The fetch/fetch_lines was redone into the inc.php so we must recall the calculateCosts()
-	if ($action == 'confirm_validate' && $object->id > 0) {
+	if ($action == 'confirm_validate' && $object->id > 0) {		// Test on permission not required
 		$object->calculateCosts();
 	}
 
@@ -139,18 +153,20 @@ if (empty($reshook)) {
 	include DOL_DOCUMENT_ROOT.'/core/actions_builddoc.inc.php';
 
 	// Actions to send emails
-	$triggersendname = 'BOM_SENTBYMAIL';
-	$autocopy = 'MAIN_MAIL_AUTOCOPY_BOM_TO';
+	$triggersendname = $object->TRIGGER_PREFIX.'_SENTBYMAIL';
+	$autocopy = 'MAIN_MAIL_AUTOCOPY_'.$object->TRIGGER_PREFIX.'_TO';
 	$trackid = 'bom'.$object->id;
 	include DOL_DOCUMENT_ROOT.'/core/actions_sendmails.inc.php';
 
 	// Add line
-	if ($action == 'addline' && $user->rights->bom->write) {
+	if ($action == 'addline' && $user->hasRight('bom', 'write')) {
 		$langs->load('errors');
 		$error = 0;
+		$predef = '';
 
 		// Set if we used free entry or predefined product
-		$bom_child_id = (int) GETPOST('bom_id', 'int');
+		$bom_child_id = GETPOSTINT('bom_id');
+		$idprod = 0;
 		if ($bom_child_id > 0) {
 			$bom_child = new BOM($db);
 			$res = $bom_child->fetch($bom_child_id);
@@ -158,13 +174,38 @@ if (empty($reshook)) {
 				$idprod = $bom_child->fk_product;
 			}
 		} else {
-			$idprod = (int) GETPOST('idprod', 'int');
+			$idprod = (GETPOSTINT('idprodservice') ? GETPOSTINT('idprodservice') : GETPOSTINT('idprod'));
 		}
 
 		$qty = price2num(GETPOST('qty', 'alpha'), 'MS');
-		$qty_frozen = price2num(GETPOST('qty_frozen', 'alpha'), 'MS');
-		$disable_stock_change = GETPOST('disable_stock_change', 'int');
+		$qty_frozen = GETPOSTINT('qty_frozen');
+		$disable_stock_change = GETPOSTINT('disable_stock_change');
+		$fk_workstation = GETPOSTINT('idworkstations');
 		$efficiency = price2num(GETPOST('efficiency', 'alpha'));
+		$fk_unit = GETPOSTINT('fk_unit');
+
+		$fk_default_workstation = 0;
+		if (!empty($idprod)) {
+			$product = new Product($db);
+			$res = $product->fetch($idprod);
+			if ($res > 0 && $product->type == Product::TYPE_SERVICE) {
+				if (isModEnabled('workstation')) {
+					if ($fk_workstation > 0) {
+						$fk_default_workstation = $fk_workstation;
+					} else {
+						$fk_default_workstation = $product->fk_default_workstation;
+					}
+				}
+				if (empty($fk_unit) && !empty($product->duration_unit)) {
+					require_once DOL_DOCUMENT_ROOT.'/core/class/cunits.class.php';
+					$cUnit = new CUnits($db);
+					$fk_unit = (int) $cUnit->getUnitFromCode((string) $product->duration_unit, 'short_label', 'time');
+				}
+			}
+			if (empty($fk_unit)) {
+				$fk_unit = $product->fk_unit;
+			}
+		}
 
 		if ($qty == '') {
 			setEventMessages($langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('Qty')), null, 'errors');
@@ -180,79 +221,112 @@ if (empty($reshook)) {
 			$error++;
 		}
 
-		if (!$error) {
-			$bomline = new BOMLine($db);
-			$bomline->fk_bom = $id;
-			$bomline->fk_product = $idprod;
-			$bomline->fk_bom_child = $bom_child_id;
-			$bomline->qty = $qty;
-			$bomline->qty_frozen = (int) $qty_frozen;
-			$bomline->disable_stock_change = (int) $disable_stock_change;
-			$bomline->efficiency = $efficiency;
-
-			// Rang to use
-			$rangmax = $object->line_max(0);
-			$ranktouse = $rangmax + 1;
-
-			$bomline->position = ($ranktouse + 1);
-
-			$result = $bomline->create($user);
-			if ($result <= 0) {
-				setEventMessages($bomline->error, $bomline->errors, 'errors');
-				$action = '';
-			} else {
-				unset($_POST['idprod']);
-				unset($_POST['qty']);
-				unset($_POST['qty_frozen']);
-				unset($_POST['disable_stock_change']);
-
-				$object->fetchLines();
-
-				$object->calculateCosts();
-			}
-		}
-	}
-
-	// Add line
-	if ($action == 'updateline' && $user->rights->bom->write) {
-		$langs->load('errors');
-		$error = 0;
-
-		// Set if we used free entry or predefined product
-		$qty = price2num(GETPOST('qty', 'alpha'), 'MS');
-		$qty_frozen = price2num(GETPOST('qty_frozen', 'alpha'), 'MS');
-		$disable_stock_change = GETPOST('disable_stock_change', 'int');
-		$efficiency = price2num(GETPOST('efficiency', 'alpha'));
-
-		if ($qty == '') {
-			setEventMessages($langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('Qty')), null, 'errors');
+		// We check if we're allowed to add this bom
+		$TParentBom = array();
+		$object->getParentBomTreeRecursive($TParentBom);
+		if ($bom_child_id > 0 && in_array($bom_child_id, $TParentBom)) {
+			$n_child = new BOM($db);
+			$n_child->fetch($bom_child_id);
+			setEventMessages($langs->transnoentities('BomCantAddChildBom', $n_child->getNomUrl(1), $object->getNomUrl(1)), null, 'errors');
 			$error++;
 		}
 
-		$bomline = new BOMLine($db);
-		$bomline->fetch($lineid);
-		$bomline->qty = $qty;
-		$bomline->qty_frozen = (int) $qty_frozen;
-		$bomline->disable_stock_change = (int) $disable_stock_change;
-		$bomline->efficiency = $efficiency;
+		if (!$error) {
+			// Extrafields
+			$extralabelsline = $extrafields->fetch_name_optionals_label($object->table_element_line);
+			$array_options = $extrafields->getOptionalsFromPost($object->table_element_line, $predef);
+			// Unset extrafield
+			if (is_array($extralabelsline)) {
+				// Get extra fields
+				foreach ($extralabelsline as $key => $value) {
+					unset($_POST["options_".$key]);
+				}
+			}
 
-		$result = $bomline->update($user);
-		if ($result <= 0) {
-			setEventMessages($bomline->error, $bomline->errors, 'errors');
-			$action = '';
-		} else {
-			unset($_POST['idprod']);
-			unset($_POST['qty']);
-			unset($_POST['qty_frozen']);
-			unset($_POST['disable_stock_change']);
+			$result = $object->addLine((int) $idprod, (float) $qty, $qty_frozen, $disable_stock_change, (float) $efficiency, -1, $bom_child_id, null, (int) $fk_unit, $array_options, $fk_default_workstation);
+
+			if ($result <= 0) {
+				setEventMessages($object->error, $object->errors, 'errors');
+				$action = '';
+			} else {
+				unset($_POST['idprod']);
+				unset($_POST['idprodservice']);
+				unset($_POST['qty']);
+				unset($_POST['qty_frozen']);
+				unset($_POST['disable_stock_change']);
+			}
 
 			$object->fetchLines();
 
 			$object->calculateCosts();
 		}
 	}
-}
 
+	// Update line
+	if ($action == 'updateline' && $user->hasRight('bom', 'write')) {
+		$langs->load('errors');
+		$error = 0;
+
+		// Set if we used free entry or predefined product
+		$qty = price2num(GETPOST('qty', 'alpha'), 'MS');
+		$qty_frozen = GETPOSTINT('qty_frozen');
+		$disable_stock_change = GETPOSTINT('disable_stock_change');
+		$efficiency = price2num(GETPOST('efficiency', 'alpha'));
+		$fk_unit = GETPOSTINT('fk_unit');
+
+		if ($qty == '') {
+			setEventMessages($langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('Qty')), null, 'errors');
+			$error++;
+		}
+
+		if (!$error) {
+			// Extrafields
+			$extralabelsline = $extrafields->fetch_name_optionals_label($object->table_element_line);
+			$array_options = $extrafields->getOptionalsFromPost($object->table_element_line);
+			// Unset extrafield
+			if (is_array($extralabelsline)) {
+				// Get extra fields
+				foreach ($extralabelsline as $key => $value) {
+					unset($_POST["options_".$key]);
+				}
+			}
+
+			$bomline = new BOMLine($db);
+			$bomline->fetch($lineid);
+
+			$fk_default_workstation = $bomline->fk_default_workstation;
+			if (isModEnabled('workstation') &&  GETPOSTISSET('idworkstations')) {
+				$fk_default_workstation = GETPOSTINT('idworkstations');
+			}
+
+			$result = $object->updateLine($lineid, (float) $qty, $qty_frozen, (int) $disable_stock_change, (float) $efficiency, $bomline->position, $bomline->import_key, $fk_unit, $array_options, $fk_default_workstation);
+
+			if ($result <= 0) {
+				setEventMessages($object->error, $object->errors, 'errors');
+				$action = '';
+			} else {
+				unset($_POST['idprod']);
+				unset($_POST['idprodservice']);
+				unset($_POST['qty']);
+				unset($_POST['qty_frozen']);
+				unset($_POST['disable_stock_change']);
+			}
+
+			$object->fetchLines();
+
+			$object->calculateCosts();
+		}
+	}
+
+	// Update duration from service lines
+	if ($action == 'updatedurationfromlines' && $permissiontoadd) {
+		$result = $object->updateDuration($user, true);
+		if ($result < 0) {
+			setEventMessages($object->error, $object->errors, 'errors');
+		}
+		$action = '';
+	}
+}
 
 
 /*
@@ -262,16 +336,19 @@ if (empty($reshook)) {
 $form = new Form($db);
 $formfile = new FormFile($db);
 
-
-$title = $langs->trans('BOM');
-$help_url ='EN:Module_BOM';
-llxHeader('', $title, $help_url);
+if ($object->id > 0) {
+	$title = (string) $object->ref;
+} else {
+	$title = $langs->trans('BOM');
+}
+$help_url = 'EN:Module_BOM';
+llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-bom page-card');
 
 // Part to create
 if ($action == 'create') {
 	print load_fiche_titre($langs->trans("NewBOM"), '', 'bom');
 
-	print '<form method="POST" action="'.$_SERVER["PHP_SELF"].'">';
+	print '<form method="POST" action="'.dolBuildUrl($_SERVER["PHP_SELF"]).'">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="action" value="add">';
 	print '<input type="hidden" name="backtopage" value="'.$backtopage.'">';
@@ -299,7 +376,7 @@ if ($action == 'create') {
 if (($id || $ref) && $action == 'edit') {
 	print load_fiche_titre($langs->trans("BillOfMaterials"), '', 'cubes');
 
-	print '<form method="POST" action="'.$_SERVER["PHP_SELF"].'">';
+	print '<form method="POST" action="'.dolBuildUrl($_SERVER["PHP_SELF"]).'">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="action" value="update">';
 	print '<input type="hidden" name="backtopage" value="'.$backtopage.'">';
@@ -321,7 +398,7 @@ if (($id || $ref) && $action == 'edit') {
 
 	print dol_get_fiche_end();
 
-	print $form->buttonsSaveCancel("Create");
+	print $form->buttonsSaveCancel("Update");
 
 	print '</form>';
 }
@@ -329,89 +406,65 @@ if (($id || $ref) && $action == 'edit') {
 // Part to show record
 if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'create'))) {
 	$head = bomPrepareHead($object);
-	print dol_get_fiche_head($head, 'card', $langs->trans("BillOfMaterials"), -1, 'bom');
+	print dol_get_fiche_head($head, 'card', $langs->trans("BillOfMaterials"), -1, $object->picto, 0, '', '', 0, '', 1);
 
 	$formconfirm = '';
 
 	// Confirmation to delete
 	if ($action == 'delete') {
-		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('DeleteBillOfMaterials'), $langs->trans('ConfirmDeleteBillOfMaterials'), 'confirm_delete', '', 0, 1);
+		$formconfirm = $form->formconfirm(dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id]), $langs->trans('DeleteBillOfMaterials'), $langs->trans('ConfirmDeleteBillOfMaterials'), 'confirm_delete', '', 0, 1);
 	}
 	// Confirmation to delete line
 	if ($action == 'deleteline') {
-		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id.'&lineid='.$lineid, $langs->trans('DeleteLine'), $langs->trans('ConfirmDeleteLine'), 'confirm_deleteline', '', 0, 1);
+		$formconfirm = $form->formconfirm(dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id, 'lineid' => $lineid]), $langs->trans('DeleteLine'), $langs->trans('ConfirmDeleteLine'), 'confirm_deleteline', '', 0, 1);
 	}
 
 	// Confirmation of validation
 	if ($action == 'validate') {
+		$error = 0;
+		$numref = '';
 		// We check that object has a temporary ref
 		$ref = substr($object->ref, 1, 4);
 		if ($ref == 'PROV') {
-			$object->fetch_product();
-			$numref = $object->getNextNumRef($object->product);
+			$res = $object->fetch_product();
+			if ($res > 0 && $object->product instanceof Product) {
+				$numref = $object->getNextNumRef($object->product); // @phan-suppress-current-line PhanTypeMismatchArgumentNullable
+			} else {
+				$error++;
+			}
 		} else {
-			$numref = $object->ref;
+			$numref = (string) $object->ref;
 		}
 
 		$text = $langs->trans('ConfirmValidateBom', $numref);
-		/*if (! empty($conf->notification->enabled))
-		{
-			require_once DOL_DOCUMENT_ROOT . '/core/class/notify.class.php';
-			$notify = new Notify($db);
-			$text .= '<br>';
-			$text .= $notify->confirmMessage('BOM_VALIDATE', $object->socid, $object);
-		}*/
+		/*if (isModEnabled('notification')) {
+		 require_once DOL_DOCUMENT_ROOT . '/core/class/notify.class.php';
+		 $notify = new Notify($db);
+		 $text .= '<br>';
+		 $text .= $notify->confirmMessage('BOM_VALIDATE', $object->socid, $object);
+		 }*/
 
 		$formquestion = array();
-		if (!empty($conf->bom->enabled)) {
+		if (isModEnabled('bom')) {
 			$langs->load("mrp");
-			$forcecombo = 0;
-			if ($conf->browser->name == 'ie') {
-				$forcecombo = 1; // There is a bug in IE10 that make combo inside popup crazy
-			}
 			$formquestion = array(
 				// 'text' => $langs->trans("ConfirmClone"),
 				// array('type' => 'checkbox', 'name' => 'clone_content', 'label' => $langs->trans("CloneMainAttributes"), 'value' => 1),
 				// array('type' => 'checkbox', 'name' => 'update_prices', 'label' => $langs->trans("PuttingPricesUpToDate"), 'value' => 1),
 			);
 		}
-
-		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('Validate'), $text, 'confirm_validate', $formquestion, 0, 1, 220);
+		if (!$error) {
+			$formconfirm = $form->formconfirm(dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id]), $langs->trans('Validate'), $text, 'confirm_validate', $formquestion, 0, 1, 220);
+		} else {
+			setEventMessage($langs->trans('Error'), 'errors');
+			$action = '';
+		}
 	}
 
 	// Confirmation of closing
 	if ($action == 'close') {
 		$text = $langs->trans('ConfirmCloseBom', $object->ref);
-		/*if (! empty($conf->notification->enabled))
-		{
-			require_once DOL_DOCUMENT_ROOT . '/core/class/notify.class.php';
-			$notify = new Notify($db);
-			$text .= '<br>';
-			$text .= $notify->confirmMessage('BOM_CLOSE', $object->socid, $object);
-		}*/
-
-		$formquestion = array();
-		if (!empty($conf->bom->enabled)) {
-			$langs->load("mrp");
-			$forcecombo = 0;
-			if ($conf->browser->name == 'ie') {
-				$forcecombo = 1; // There is a bug in IE10 that make combo inside popup crazy
-			}
-			$formquestion = array(
-				// 'text' => $langs->trans("ConfirmClone"),
-				// array('type' => 'checkbox', 'name' => 'clone_content', 'label' => $langs->trans("CloneMainAttributes"), 'value' => 1),
-				// array('type' => 'checkbox', 'name' => 'update_prices', 'label' => $langs->trans("PuttingPricesUpToDate"), 'value' => 1),
-			);
-		}
-
-		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('Close'), $text, 'confirm_close', $formquestion, 0, 1, 220);
-	}
-
-	// Confirmation of reopen
-	if ($action == 'reopen') {
-		$text = $langs->trans('ConfirmReopenBom', $object->ref);
-		/*if (! empty($conf->notification->enabled))
-		 {
+		/*if (isModEnabled('notification')) {
 		 require_once DOL_DOCUMENT_ROOT . '/core/class/notify.class.php';
 		 $notify = new Notify($db);
 		 $text .= '<br>';
@@ -419,13 +472,8 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		 }*/
 
 		$formquestion = array();
-		if (!empty($conf->bom->enabled)) {
+		if (isModEnabled('bom')) {
 			$langs->load("mrp");
-			require_once DOL_DOCUMENT_ROOT.'/product/class/html.formproduct.class.php';
-			$forcecombo = 0;
-			if ($conf->browser->name == 'ie') {
-				$forcecombo = 1; // There is a bug in IE10 that make combo inside popup crazy
-			}
 			$formquestion = array(
 				// 'text' => $langs->trans("ConfirmClone"),
 				// array('type' => 'checkbox', 'name' => 'clone_content', 'label' => $langs->trans("CloneMainAttributes"), 'value' => 1),
@@ -433,22 +481,46 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			);
 		}
 
-		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('ReOpen'), $text, 'confirm_reopen', $formquestion, 0, 1, 220);
+		$formconfirm = $form->formconfirm(dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id]), $langs->trans('Close'), $text, 'confirm_close', $formquestion, 0, 1, 220);
+	}
+
+	// Confirmation of reopen
+	if ($action == 'reopen') {
+		$text = $langs->trans('ConfirmReopenBom', $object->ref);
+		/*if (isModEnabled('notification')) {
+		 require_once DOL_DOCUMENT_ROOT . '/core/class/notify.class.php';
+		 $notify = new Notify($db);
+		 $text .= '<br>';
+		 $text .= $notify->confirmMessage('BOM_CLOSE', $object->socid, $object);
+		 }*/
+
+		$formquestion = array();
+		if (isModEnabled('bom')) {
+			$langs->load("mrp");
+			require_once DOL_DOCUMENT_ROOT.'/product/class/html.formproduct.class.php';
+			$formquestion = array(
+				// 'text' => $langs->trans("ConfirmClone"),
+				// array('type' => 'checkbox', 'name' => 'clone_content', 'label' => $langs->trans("CloneMainAttributes"), 'value' => 1),
+				// array('type' => 'checkbox', 'name' => 'update_prices', 'label' => $langs->trans("PuttingPricesUpToDate"), 'value' => 1),
+			);
+		}
+
+		$formconfirm = $form->formconfirm(dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id]), $langs->trans('ReOpen'), $text, 'confirm_reopen', $formquestion, 0, 1, 220);
 	}
 
 	// Clone confirmation
 	if ($action == 'clone') {
 		// Create an array for form
 		$formquestion = array();
-		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('ToClone'), $langs->trans('ConfirmCloneBillOfMaterials', $object->ref), 'confirm_clone', $formquestion, 'yes', 1);
+		$formconfirm = $form->formconfirm(dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id]), $langs->trans('ToClone'), $langs->trans('ConfirmCloneBillOfMaterials', $object->ref), 'confirm_clone', $formquestion, 'yes', 1);
 	}
 
-	// Confirmation of action xxxx
+	// Confirmation of action setdraft
 	if ($action == 'setdraft') {
 		$text = $langs->trans('ConfirmSetToDraft', $object->ref);
 
 		$formquestion = array();
-		$formconfirm = $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id, $langs->trans('SetToDraft'), $text, 'confirm_setdraft', $formquestion, 0, 1, 220);
+		$formconfirm = $form->formconfirm(dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id]), $langs->trans('SetToDraft'), $text, 'confirm_setdraft', $formquestion, 0, 1, 220);
 	}
 
 	// Call Hook formConfirm
@@ -466,46 +538,44 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 	// Object card
 	// ------------------------------------------------------------
-	$linkback = '<a href="'.DOL_URL_ROOT.'/bom/bom_list.php?restore_lastsearch_values=1'.(!empty($socid) ? '&socid='.$socid : '').'">'.$langs->trans("BackToList").'</a>';
+	$linkback = '<a href="'.DOL_URL_ROOT.'/bom/bom_list.php?restore_lastsearch_values=1">'.$langs->trans("BackToList").'</a>';
 
 	$morehtmlref = '<div class="refidno">';
 	/*
-	// Ref bis
-	$morehtmlref.=$form->editfieldkey("RefBis", 'ref_client', $object->ref_client, $object, $user->rights->bom->creer, 'string', '', 0, 1);
-	$morehtmlref.=$form->editfieldval("RefBis", 'ref_client', $object->ref_client, $object, $user->rights->bom->creer, 'string', '', null, null, '', 1);
-	// Thirdparty
-	$morehtmlref.='<br>'.$langs->trans('ThirdParty') . ' : ' . $soc->getNomUrl(1);
-	// Project
-	if (! empty($conf->project->enabled))
-	{
-		$langs->load("projects");
-		$morehtmlref.='<br>'.$langs->trans('Project') . ' ';
-		if ($permissiontoadd)
-		{
-			if ($action != 'classify')
-				$morehtmlref.='<a class="editfielda" href="' . $_SERVER['PHP_SELF'] . '?action=classify&token='.newToken().'&id=' . $object->id . '">' . img_edit($langs->transnoentitiesnoconv('SetProject')) . '</a> : ';
-			if ($action == 'classify') {
-				//$morehtmlref.=$form->form_project($_SERVER['PHP_SELF'] . '?id=' . $object->id, $object->socid, $object->fk_project, 'projectid', 0, 0, 1, 1);
-				$morehtmlref.='<form method="post" action="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'">';
-				$morehtmlref.='<input type="hidden" name="action" value="classin">';
-				$morehtmlref.='<input type="hidden" name="token" value="'.newToken().'">';
-				$morehtmlref.=$formproject->select_projects($object->socid, $object->fk_project, 'projectid', 0, 0, 1, 0, 1, 0, 0, '', 1);
-				$morehtmlref.='<input type="submit" class="button valignmiddle" value="'.$langs->trans("Modify").'">';
-				$morehtmlref.='</form>';
-			} else {
-				$morehtmlref.=$form->form_project($_SERVER['PHP_SELF'] . '?id=' . $object->id, $object->socid, $object->fk_project, 'none', 0, 0, 0, 1);
-			}
-		} else {
-			if (! empty($object->fk_project)) {
-				$proj = new Project($db);
-				$proj->fetch($object->fk_project);
-				$morehtmlref.=$proj->getNomUrl();
-			} else {
-				$morehtmlref.='';
-			}
-		}
-	}
-	*/
+	 // Ref bis
+	 $morehtmlref.=$form->editfieldkey("RefBis", 'ref_client', $object->ref_client, $object, $user->hasRight('bom', 'creer'), 'string', '', 0, 1);
+	 $morehtmlref.=$form->editfieldval("RefBis", 'ref_client', $object->ref_client, $object, $user->hasRight('bom', 'creer'), 'string', '', null, null, '', 1);
+	 // Thirdparty
+	 $morehtmlref.='<br>'.$langs->trans('ThirdParty') . ' : ' . $soc->getNomUrl(1);
+	 // Project
+	 if (isModEnabled('project')) {
+	 $langs->load("projects");
+	 $morehtmlref.='<br>'.$langs->trans('Project') . ' ';
+	 if ($permissiontoadd) {
+	 if ($action != 'classify')
+	 $morehtmlref.='<a class="editfielda" href="' . dolBuildUrl($_SERVER['PHP_SELF'], ['action' => 'classify', 'id' => $object->id], true) . '">' . img_edit($langs->transnoentitiesnoconv('SetProject')) . '</a> : ';
+	 if ($action == 'classify') {
+	 //$morehtmlref.=$form->form_project($_SERVER['PHP_SELF'] . '?id=' . $object->id, $object->socid, $object->fk_project, 'projectid', 0, 0, 1, 1);
+	 $morehtmlref.='<form method="post" action="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'">';
+	 $morehtmlref.='<input type="hidden" name="action" value="classin">';
+	 $morehtmlref.='<input type="hidden" name="token" value="'.newToken().'">';
+	 $morehtmlref.=$formproject->select_projects($object->socid, $object->fk_project, 'projectid', 0, 0, 1, 0, 1, 0, 0, '', 1);
+	 $morehtmlref.='<input type="submit" class="button valignmiddle" value="'.$langs->trans("Modify").'">';
+	 $morehtmlref.='</form>';
+	 } else {
+	 $morehtmlref.=$form->form_project($_SERVER['PHP_SELF'] . '?id=' . $object->id, $object->socid, $object->fk_project, 'none', 0, 0, 0, 1);
+	 }
+	 } else {
+	 if (! empty($object->fk_project)) {
+	 $proj = new Project($db);
+	 $proj->fetch($object->fk_project);
+	 $morehtmlref.=$proj->getNomUrl();
+	 } else {
+	 $morehtmlref.='';
+	 }
+	 }
+	 }
+	 */
 	$morehtmlref .= '</div>';
 
 
@@ -520,9 +590,24 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	// Common attributes
 	$keyforbreak = 'duration';
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_view.tpl.php';
-	$object->calculateCosts();
-	print '<tr><td>'.$form->textwithpicto($langs->trans("TotalCost"), $langs->trans("BOMTotalCost")).'</td><td><span class="amount">'.price($object->total_cost).'</span></td></tr>';
-	print '<tr><td>'.$langs->trans("UnitCost").'</td><td>'.price($object->unit_cost).'</td></tr>';
+
+	// Manufacturing cost
+	print '<tr><td>'.$form->textwithpicto($langs->trans("ManufacturingCost"), $langs->trans("BOMTotalCost")).'</td><td><span class="amount">';
+	print price($object->total_cost);
+	print '</span>';
+	if ($object->total_cost != $object->unit_cost) {
+		print '&nbsp; &nbsp; <span class="opacitymedium">('.$form->textwithpicto(price($object->unit_cost), $langs->trans("ManufacturingUnitCost"), 1, 'help', '').')</span>';
+	}
+	print '</td></tr>';
+
+	// Find sell price of generated product. We suppose we sell it to a company like ours (same country...).
+	$object->fetch_product();
+	$manufacturedvalued = '';
+	if (!empty($object->product)) {
+		$tmparray = $object->product->getSellPrice($mysoc, $mysoc);
+		$manufacturedvalued = $tmparray['pu_ht'] * $object->qty;
+	}
+	print '<tr><td>'.$langs->trans("ManufacturingGeneratedValue").'</td><td><span class="amount">'.price($manufacturedvalued).'</span></td></tr>';
 
 	// Other attributes
 	include DOL_DOCUMENT_ROOT.'/core/tpl/extrafields_view.tpl.php';
@@ -542,12 +627,19 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	 */
 
 	if (!empty($object->table_element_line)) {
-		print '	<form name="addproduct" id="addproduct" action="'.$_SERVER["PHP_SELF"].'?id='.$object->id.(($action != 'editline') ? '' : '').'" method="POST">
-    	<input type="hidden" name="token" value="' . newToken().'">
-    	<input type="hidden" name="action" value="' . (($action != 'editline') ? 'addline' : 'updateline').'">
+		// Products
+
+		$res = $object->fetchLinesbytypeproduct(0);		// Load all lines products into ->lines
+		$object->calculateCosts();
+
+		print ($res == 0 && $object->status >= $object::STATUS_VALIDATED) ? '' : load_fiche_titre($langs->trans('BOMProductsList'), '', 'product');
+
+		print '	<form name="addproduct" id="listbomproducts" action="' . $_SERVER["PHP_SELF"] . '?id=' . $object->id . '" method="POST">
+    	<input type="hidden" name="token" value="' . newToken() . '">
+    	<input type="hidden" name="action" value="' . (($action != 'editline') ? 'addline' : 'updateline') . '">
     	<input type="hidden" name="mode" value="">
 		<input type="hidden" name="page_y" value="">
-    	<input type="hidden" name="id" value="' . $object->id.'">
+    	<input type="hidden" name="id" value="' . $object->id . '">
     	';
 
 		if (!empty($conf->use_javascript_ajax) && $object->status == 0) {
@@ -556,11 +648,11 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 		print '<div class="div-table-responsive-no-min">';
 		if (!empty($object->lines) || ($object->status == $object::STATUS_DRAFT && $permissiontoadd && $action != 'selectlines' && $action != 'editline')) {
-			print '<table id="tablelines" class="noborder noshadow" width="100%">';
+			print '<table id="tablelines" class="noborder noshadow centpercent">';
 		}
 
 		if (!empty($object->lines)) {
-			$object->printObjectLines($action, $mysoc, null, GETPOST('lineid', 'int'), 1, '/bom/tpl');
+			$object->printObjectLines($action, $mysoc, null, GETPOSTINT('lineid'), 1, '/bom/tpl');
 		}
 
 		// Form to add new line
@@ -571,9 +663,12 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 				$parameters = array();
 				$reshook = $hookmanager->executeHooks('formAddObjectLine', $parameters, $object, $action); // Note that $action and $object may have been modified by hook
-				if ($reshook < 0) setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
-				if (empty($reshook))
+				if ($reshook < 0) {
+					setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
+				}
+				if (empty($reshook)) {
 					$object->formAddObjectLine(1, $mysoc, null, '/bom/tpl');
+				}
 			}
 		}
 
@@ -584,9 +679,64 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 		print "</form>\n";
 
-		mrpCollapseBomManagement();
+
+		// Services
+
+		$filtertype = 1;
+		$res = $object->fetchLinesbytypeproduct($filtertype);		// Load all lines services into ->lines
+		$object->calculateCosts();
+
+		print ($res == 0 && $object->status >= $object::STATUS_VALIDATED) ? '' : load_fiche_titre($langs->trans('BOMServicesList'), '', 'service');
+
+		print '	<form name="addservice" id="listbomservices" action="' . $_SERVER["PHP_SELF"] . '?id=' . $object->id . '" method="POST">
+    	<input type="hidden" name="token" value="' . newToken() . '">
+    	<input type="hidden" name="action" value="' . (($action != 'editline') ? 'addline' : 'updateline') . '">
+    	<input type="hidden" name="mode" value="">
+		<input type="hidden" name="page_y" value="">    		<input type="hidden" name="id" value="' . $object->id . '">
+    	';
+
+		if (!empty($conf->use_javascript_ajax) && $object->status == 0) {
+			$tagidfortablednd = 'tablelinesservice';
+			include DOL_DOCUMENT_ROOT . '/core/tpl/ajaxrow.tpl.php';
+		}
+
+		print '<div class="div-table-responsive-no-min">';
+		if (!empty($object->lines) || ($object->status == $object::STATUS_DRAFT && $permissiontoadd && $action != 'selectlines' && $action != 'editline')) {
+			print '<table id="tablelinesservice" class="noborder noshadow centpercent">';
+		}
+
+		if (!empty($object->lines)) {
+			$object->printObjectLines($action, $mysoc, null, GETPOSTINT('lineid'), 1, '/bom/tpl');
+		}
+
+		// Form to add new line
+		if ($object->status == 0 && $permissiontoadd && $action != 'selectlines') {
+			if ($action != 'editline') {
+				// Add services form
+				$parameters = array();
+				$reshook = $hookmanager->executeHooks('formAddObjectServiceLine', $parameters, $object, $action); // Note that $action and $object may have been modified by hook
+				if ($reshook < 0) {
+					setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
+				}
+				if (empty($reshook)) {
+					$object->formAddObjectLine(1, $mysoc, null, '/bom/tpl');
+				}
+			}
+		}
 	}
 
+	if (!empty($object->lines) || ($object->status == $object::STATUS_DRAFT && $permissiontoadd && $action != 'selectlines' && $action != 'editline')) {
+		print '</table>';
+	}
+	print '</div>';
+
+	print "</form>\n";
+
+
+	mrpCollapseBomManagement();
+
+
+	$res = $object->fetchLines();
 
 	// Buttons for actions
 
@@ -607,14 +757,14 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			// Back to draft
 			if ($object->status == $object::STATUS_VALIDATED) {
 				if ($permissiontoadd) {
-					print '<a class="butAction" href="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'&action=setdraft&token='.newToken().'">'.$langs->trans("SetToDraft").'</a>'."\n";
+					print '<a class="butAction" href="'.dolBuildUrl($_SERVER['PHP_SELF'], ['id' => $object->id, 'action' => 'setdraft'], true).'">'.$langs->trans("SetToDraft").'</a>'."\n";
 				}
 			}
 
 			// Modify
 			if ($object->status == $object::STATUS_DRAFT) {
 				if ($permissiontoadd) {
-					print '<a class="butAction" href="'.$_SERVER["PHP_SELF"].'?id='.$object->id.'&action=edit&token='.newToken().'">'.$langs->trans("Modify").'</a>'."\n";
+					print '<a class="butAction" href="'.dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id, 'action' => 'edit'], true).'">'.$langs->trans("Modify").'</a>'."\n";
 				} else {
 					print '<a class="butActionRefused classfortooltip" href="#" title="'.dol_escape_htmltag($langs->trans("NotEnoughPermissions")).'">'.$langs->trans('Modify').'</a>'."\n";
 				}
@@ -624,55 +774,48 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 			if ($object->status == $object::STATUS_DRAFT) {
 				if ($permissiontoadd) {
 					if (is_array($object->lines) && count($object->lines) > 0) {
-						print '<a class="butAction" href="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'&amp;action=validate&amp;token='.newToken().'">'.$langs->trans("Validate").'</a>'."\n";
+						print '<a class="butAction" href="'.dolBuildUrl($_SERVER['PHP_SELF'], ['id' => $object->id, 'action' => 'validate'], true).'">'.$langs->trans("Validate").'</a>'."\n";
 					} else {
 						$langs->load("errors");
-						print '<a class="butActionRefused" href="" title="'.$langs->trans("ErrorAddAtLeastOneLineFirst").'">'.$langs->trans("Validate").'</a>'."\n";
+						print '<a class="butActionRefused classfortooltip" href="" title="'.$langs->trans("ErrorAddAtLeastOneLineFirst").'">'.$langs->trans("Validate").'</a>'."\n";
 					}
 				}
 			}
 
 			// Re-open
 			if ($permissiontoadd && $object->status == $object::STATUS_CANCELED) {
-				print '<a class="butAction" href="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'&action=reopen&token='.newToken().'">'.$langs->trans("ReOpen").'</a>'."\n";
+				print '<a class="butAction" href="'.dolBuildUrl($_SERVER['PHP_SELF'], ['id' => $object->id, 'action' => 'reopen'], true).'">'.$langs->trans("ReOpen").'</a>'."\n";
 			}
 
 			// Create MO
 			if (isModEnabled('mrp')) {
-				if ($object->status == $object::STATUS_VALIDATED && !empty($user->rights->mrp->write)) {
-					print '<a class="butAction" href="'.DOL_URL_ROOT.'/mrp/mo_card.php?action=create&fk_bom='.$object->id.'&token='.newToken().'&backtopageforcancel='.urlencode($_SERVER["PHP_SELF"].'?id='.$object->id).'">'.$langs->trans("CreateMO").'</a>'."\n";
+				if ($object->status == $object::STATUS_VALIDATED && $user->hasRight('mrp', 'write')) {
+					print '<a class="butAction" href="'.dolBuildUrl(DOL_URL_ROOT.'/mrp/mo_card.php', ['action' => 'create', 'fk_bom' => $object->id], true).'&backtopageforcancel='.urlencode(dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id])).'">'.$langs->trans("CreateMO").'</a>'."\n";
 				}
 			}
 
 			// Clone
 			if ($permissiontoadd) {
-				print '<a class="butAction" href="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'&action=clone&object=bom&token='.newToken().'">'.$langs->trans("ToClone").'</a>'."\n";
+				print dolGetButtonAction($langs->trans("ToClone"), $langs->trans("ToClone"), 'clone', dolBuildUrl($_SERVER['PHP_SELF'], ['id' => $object->id, 'action' => 'clone', 'object' => 'bom'], true), 'clone', $permissiontoadd, array('attr' => array('class' => 'reposition')))."\n";
 			}
 
 			// Close / Cancel
 			if ($permissiontoadd && $object->status == $object::STATUS_VALIDATED) {
-				print '<a class="butActionDelete" href="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'&action=close&token='.newToken().'">'.$langs->trans("Disable").'</a>'."\n";
+				print '<a class="butActionDelete" href="'.dolBuildUrl($_SERVER['PHP_SELF'], ['id' => $object->id, 'action' => 'close'], true).'">'.$langs->trans("Disable").'</a>'."\n";
 			}
 
 			/*
-			if ($user->rights->bom->write)
-			{
-				if ($object->status == 1)
-				 {
-					 print '<a class="butActionDelete" href="'.$_SERVER["PHP_SELF"].'?id='.$object->id.'&action=disable&token='.newToken().'">'.$langs->trans("Disable").'</a>'."\n";
-				 }
-				 else
-				 {
-					 print '<a class="butAction" href="'.$_SERVER["PHP_SELF"].'?id='.$object->id.'&action=enable&token='.newToken().'">'.$langs->trans("Enable").'</a>'."\n";
-				 }
-			}
+			  if ($user->hasRight('bom', 'write')) {
+				  if ($object->status == 1) {
+					  print '<a class="butActionDelete" href="'.dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id, 'action' => 'disenable'], true).'">'.$langs->trans("Disable").'</a>'."\n";
+				  } else {
+					  print '<a class="butAction" href="'.dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id, 'action' => 'enable'], true).'">'.$langs->trans("Enable").'</a>'."\n";
+				  }
+			  }
 			*/
 
-			if ($permissiontodelete) {
-				print '<a class="butActionDelete" href="'.$_SERVER["PHP_SELF"].'?id='.$object->id.'&action=delete&token='.newToken().'">'.$langs->trans('Delete').'</a>'."\n";
-			} else {
-				print '<a class="butActionRefused classfortooltip" href="#" title="'.dol_escape_htmltag($langs->trans("NotEnoughPermissions")).'">'.$langs->trans('Delete').'</a>'."\n";
-			}
+			// Delete
+			print dolGetButtonAction($langs->trans("Delete"), $langs->trans("Delete"), 'delete', dolBuildUrl($_SERVER["PHP_SELF"], ['id' => $object->id, 'action' => 'delete'], true), 'delete', $permissiontodelete, array('attr' => array('class' => 'reposition')))."\n";
 		}
 		print '</div>'."\n";
 	}
@@ -690,14 +833,18 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		// Documents
 		$objref = dol_sanitizeFileName($object->ref);
 		$relativepath = $objref.'/'.$objref.'.pdf';
-		$filedir = $conf->bom->dir_output.'/'.$objref;
+		$filedir = getMultidirOutput($object) . '/'.$objref;
 		$urlsource = $_SERVER["PHP_SELF"]."?id=".$object->id;
-		$genallowed = $user->rights->bom->read; // If you can read, you can build the PDF to read content
-		$delallowed = $user->rights->bom->write; // If you can create/edit, you can remove a file on card
-		print $formfile->showdocuments('bom', $objref, $filedir, $urlsource, $genallowed, $delallowed, $object->model_pdf, 1, 0, 0, 28, 0, '', '', '', $langs->defaultlang);
+		$genallowed = $user->hasRight('bom', 'read'); // If you can read, you can build the PDF to read content
+		$delallowed = $user->hasRight('bom', 'write'); // If you can create/edit, you can remove a file on card
+		print $formfile->showdocuments('bom', $objref, $filedir, $urlsource, $genallowed, $delallowed, $object->model_pdf, 1, 0, 0, 28, 0, '', '', '', $langs->defaultlang, '', $object);
 
 		// Show links to link elements
-		$linktoelem = $form->showLinkToObjectBlock($object, null, array('bom'));
+		$tmparray = $form->showLinkToObjectBlock($object, array(), array('bom'), 1);
+		$linktoelem = $tmparray['linktoelem'];
+		$htmltoenteralink = $tmparray['htmltoenteralink'];
+		print $htmltoenteralink;
+
 		$somethingshown = $form->showLinkedObjectBlock($object, $linktoelem);
 
 
@@ -723,11 +870,12 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	// Presend form
 	$modelmail = 'bom';
 	$defaulttopic = 'InformationMessage';
-	$diroutput = $conf->bom->dir_output;
+	$diroutput = getMultidirOutput($object);
 	$trackid = 'bom'.$object->id;
 
 	include DOL_DOCUMENT_ROOT.'/core/tpl/card_presend.tpl.php';
 }
+
 
 // End of page
 llxFooter();

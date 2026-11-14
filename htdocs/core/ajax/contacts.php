@@ -1,6 +1,8 @@
 <?php
 /* Copyright (C) 2012 Regis Houssin       <regis.houssin@inodbox.com>
  * Copyright (C) 2020 Laurent Destailleur <eldy@users.sourceforge.net>
+ * Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2025		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,7 +20,7 @@
 
 /**
  *       \file       htdocs/core/ajax/contacts.php
- *       \brief      File to load contacts combobox
+ *       \brief      File to load the combobox of contacts
  */
 
 if (!defined('NOTOKENRENEWAL')) {
@@ -31,12 +33,20 @@ if (!defined('NOREQUIREAJAX')) {
 	define('NOREQUIREAJAX', '1');
 }
 
+// Load Dolibarr environment
 require '../../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 
-$id = GETPOST('id', 'int'); // id of thirdparty
+$id = GETPOSTINT('id'); // id of thirdparty
 $action = GETPOST('action', 'aZ09');
 $htmlname = GETPOST('htmlname', 'alpha');
-$showempty = GETPOST('showempty', 'int');
+$showempty = GETPOSTINT('showempty');
 
 // Security check
 $result = restrictedArea($user, 'societe', $id, '&societe', '', 'fk_soc', 'rowid', 0);
@@ -59,7 +69,7 @@ if (!empty($id) && !empty($action) && !empty($htmlname)) {
 		$showempty = 0;
 	}
 
-	$return['value']	= $form->selectcontacts($id, '', $htmlname, $showempty, '', '', 0, '', true);
+	$return['value']	= $form->selectcontacts($id, '', $htmlname, $showempty, '', '', 0, '', 1);
 	$return['num'] = $form->num;
 	$return['error']	= $form->error;
 

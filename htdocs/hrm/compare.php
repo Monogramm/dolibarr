@@ -1,9 +1,12 @@
 <?php
-/* Copyright (C) 2017  Laurent Destailleur <eldy@users.sourceforge.net>
- * Copyright (C) 2021 Gauthier VERDOL <gauthier.verdol@atm-consulting.fr>
- * Copyright (C) 2021 Greg Rastklan <greg.rastklan@atm-consulting.fr>
- * Copyright (C) 2021 Jean-Pascal BOUDET <jean-pascal.boudet@atm-consulting.fr>
- * Copyright (C) 2021 Grégory BLEMAND <gregory.blemand@atm-consulting.fr>
+/* Copyright (C) 2017		Laurent Destailleur			<eldy@users.sourceforge.net>
+ * Copyright (C) 2021		Gauthier VERDOL				<gauthier.verdol@atm-consulting.fr>
+ * Copyright (C) 2021		Greg Rastklan				<greg.rastklan@atm-consulting.fr>
+ * Copyright (C) 2021		Jean-Pascal BOUDET			<jean-pascal.boudet@atm-consulting.fr>
+ * Copyright (C) 2021		Grégory BLEMAND				<gregory.blemand@atm-consulting.fr>
+ * Copyright (C) 2024-2025  Frédéric France             <frederic.france@free.fr>
+ * Copyright (C) 2024-2025	MDW							<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024		Alexandre Spangaro			<alexandre@inovea-conseil.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,58 +21,72 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
 
- * \file        class/compare.php
+ * \file        htdocs/hrm/compare.php
  * \ingroup     hrm
  * \brief       This file compares skills of user groups
  *
  * Displays a table in three parts.
- * 1-  the left part displays the list of users of the selected group 1.
+ * 1- the left part displays the list of users for the selected group 1.
  *
- * 2- the central part displays the skills. display of the maximum score for this group and the number of occurrences.
+ * 2- the central part displays the skills. Display of the maximum score for this group and the number of occurrences.
  *
- * 3-  the right part displays the members of group 2 or the job to be compared
- *
- *
- *
+ * 3- the right part displays the members of group 2 or the job to be compared
  */
 
+
+// Load Dolibarr environment
 require_once '../main.inc.php';
-require_once DOL_DOCUMENT_ROOT.'/core/lib/functions.lib.php';
-require_once DOL_DOCUMENT_ROOT.'/core/lib/functions2.lib.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var Form $form
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
+require_once DOL_DOCUMENT_ROOT . '/core/lib/functions2.lib.php';
 require_once DOL_DOCUMENT_ROOT . '/hrm/class/skill.class.php';
 require_once DOL_DOCUMENT_ROOT . '/hrm/class/job.class.php';
 require_once DOL_DOCUMENT_ROOT . '/hrm/class/evaluation.class.php';
 require_once DOL_DOCUMENT_ROOT . '/hrm/class/position.class.php';
 require_once DOL_DOCUMENT_ROOT . '/hrm/lib/hrm.lib.php';
 
-$permissiontoread = $user->rights->hrm->evaluation->read || $user->rights->hrm->compare_advance->read;
-$permissiontoadd = 0;
-if (empty($conf->hrm->enabled)) accessforbidden();
-if (!$permissiontoread || ($action === 'create' && !$permissiontoadd)) accessforbidden();
+$action = GETPOST('action');
 
+// Load translation files required by the page
 $langs->load('hrm');
 
+$job = new Job($db);
+
+// Permissions
+$permissiontoread = $user->hasRight('hrm', 'evaluation', 'read') || $user->hasRight('hrm', 'compare_advance', 'read');
+$permissiontoadd = 0;
+
+if (!isModEnabled('hrm')) {
+	accessforbidden();
+}
+if (!$permissiontoread || ($action === 'create' && !$permissiontoadd)) {
+	accessforbidden();
+}
 
 
 /*
  * View
  */
 
-$css = array();
-$css[] = '/hrm/css/style.css';
+$css = array('/hrm/css/style.css');
+
 llxHeader('', $langs->trans('SkillComparison'), '', '', 0, 0, '', $css);
 
 $head = array();
 
 $h = 0;
-$head[$h][0] = $_SERVER["PHP_SELF"];
+$head[$h][0] = DOL_URL_ROOT.'/hrm/compare.php';
 $head[$h][1] = $langs->trans("SkillComparison");
 $head[$h][2] = 'compare';
 
 print dol_get_fiche_head($head, 'compare', '', 1);
 
-//$PDOdb = new TPDOdb;
-$form = new Form($db);
 ?>
 	<script type="text/javascript">
 
@@ -84,8 +101,8 @@ $form = new Form($db);
 				}
 
 
-				$userl = $(this).closest('ul');
-				listname = $userl.attr('name');
+				var $userl = $(this).closest('ul');
+				var listname = $userl.attr('name');
 
 				var TId = [];
 
@@ -108,14 +125,14 @@ $form = new Form($db);
 
 
 <?php
-$job = new Job($db);
-$form = new Form($db);
 
 $fk_usergroup2 = 0;
 $fk_job = (int) GETPOST('fk_job');
-if ($fk_job <= 0) $fk_usergroup2 = GETPOST('fk_usergroup2');
+if ($fk_job <= 0) {
+	$fk_usergroup2 = GETPOSTINT('fk_usergroup2');
+}
 
-$fk_usergroup1 = GETPOST('fk_usergroup1');
+$fk_usergroup1 = GETPOSTINT('fk_usergroup1');
 
 ?>
 
@@ -127,27 +144,35 @@ $fk_usergroup1 = GETPOST('fk_usergroup1');
 				<div class="fichehalfleft">
 					<table class="border tableforfield" width="100%">
 						<tr>
-							<td><?php echo $langs->trans('group1ToCompare').'</td><td>'.$form->select_dolgroups($fk_usergroup1, 'fk_usergroup1', 1); ?></td>
+							<td><?php
+							print $langs->trans('group1ToCompare').'</td><td>';
+							print img_picto('', 'group', 'class="pictofixedwidth"');
+							print $form->select_dolgroups($fk_usergroup1, 'fk_usergroup1', 1);
+							?></td>
 						</tr>
-						<tr><td>&nbsp;</td></tr>
+						<tr><td></td><td></td></tr>
 						<tr>
-							<td><?php echo $langs->trans('group2ToCompare').'</td><td>'.$form->select_dolgroups($fk_usergroup2, 'fk_usergroup2', 1); ?></td>
+							<td><?php
+							print $langs->trans('group2ToCompare').'</td><td>';
+							print img_picto('', 'group', 'class="pictofixedwidth"');
+							print $form->select_dolgroups($fk_usergroup2, 'fk_usergroup2', 1);
+							?></td>
 						</tr>
 						<tr>
-							<td><STRONG><?php print $langs->trans('or'); ?></STRONG></td>
+							<td><b><?php print $langs->trans('or'); ?></b></td><td></td>
 						</tr>
 						<tr>
 							<td><?php
-									echo $langs->trans('OrJobToCompare') . '</td><td>';
-									$j = new Job($db);
-									$jobs = $j->fetchAll();
-									$TJobs = array();
+							echo $langs->trans('OrJobToCompare') . '</td><td>';
+							$j = new Job($db);
+							$jobs = $j->fetchAll();
+							$TJobs = array();
 
 							foreach ($jobs as &$j) {
 								$TJobs[$j->id] = $j->label;
 							}
 
-									print $form->selectarray('fk_job', $TJobs, $fk_job, 1);
+							print img_picto('', 'jobprofile', 'class="pictofixedwidth"').$form->selectarray('fk_job', $TJobs, $fk_job, 1);
 							?></td>
 						</tr>
 					</table>
@@ -180,7 +205,7 @@ $fk_usergroup1 = GETPOST('fk_usergroup1');
 
 				</div>
 
-				<div style="clear:both"></div>
+				<div class="clearboth"></div>
 
 			</div>
 
@@ -190,62 +215,63 @@ $fk_usergroup1 = GETPOST('fk_usergroup1');
 			</div>
 			<br><br>
 
-			<div id="compare" width="100%" style="position:relative;">
+			<div id="compare" class="centpercent" style="position:relative;">
 
-				<?php if ($fk_usergroup1 > 0 || $fk_usergroup2 > 0 || $fk_job > 0) { ?>
-					<table width="100%">
+				<?php if ($fk_usergroup1 > 0 || $fk_usergroup2 > 0 || $fk_job > 0) {
+						$TUser1 = $TUser2 = array();
+
+						$userlist1 = displayUsersListWithPicto($TUser1, $fk_usergroup1, 'list1');	// This fill also the $TUser1
+
+						$TSkill1 = getSkillForUsers($TUser1);
+
+					if ($fk_job > 0) {
+						$TSkill2 = getSkillForJob($fk_job);
+
+						$job = new Job($db);
+						$job->fetch($fk_job);
+						$userlist2 = '<ul>
+											<li>
+												<h3>' . $job->label . '</h3>
+												<p>' . $job->description . '</p>
+											</li>
+										</ul>';
+					} else {
+						$userlist2 = displayUsersListWithPicto($TUser2, $fk_usergroup2, 'list2');
+						$TSkill2 = getSkillForUsers($TUser2);
+					}
+
+						$TMergedSkills = mergeSkills($TSkill1, $TSkill2);
+					?>
+					<table class="centpercent">
 						<tr>
-							<th></th>
-							<th><?php print $langs->trans('skill'); ?></th>
-							<th><?php print $langs->trans('rank'); ?></th>
+							<th class="left"><?php print $langs->trans('Employees'); ?></th>
+							<th class="left" style="padding-left: 10px;"><?php print $langs->trans('Skill'); ?></th>
+							<th><?php print $langs->trans('HighestRank'); ?></th>
 							<th><?php print $langs->trans('difference'); ?></th>
-							<th><?php print $langs->trans('rank'); ?></th>
+							<th><?php print $langs->trans($fk_job > 0 ? 'ExpectedRank' : 'HighestRank'); ?></th>
 							<th></th>
 						</tr>
 
 						<?php
-						echo '<tr><td id="list-user-left" style="width:30%" valign="top">';
+						echo '<tr>';
 
-						$TUser1 = $TUser2 = array();
-
-						$userlist1 = displayUsersListWithPicto($TUser1, $fk_usergroup1, 'list1');
-
-
-						$skill = new Skill($db);
-						$TSkill1 = getSkillForUsers($TUser1);
-
-						if ($fk_job > 0) {
-							$TSkill2 = getSkillForJob($fk_job);
-
-							$job = new Job($db);
-							$job->fetch($fk_job);
-							$userlist2 = '<ul>
-											  <li>
-												  <h3>' . $job->label . '</h3>
-												  <p>'  . $job->description . '</p>
-											  </li>
-										  </ul>';
-						} else {
-							$userlist2 = displayUsersListWithPicto($TUser2, $fk_usergroup2, 'list2');
-							$TSkill2 = getSkillForUsers($TUser2);
-						}
-
-						$TMergedSkills = mergeSkills($TSkill1, $TSkill2);
-
+						echo '<td id="list-user-left" style="width:25%; padding-right: 10px; border-right: 1px solid #ccc" class="valigntop">';
 						echo $userlist1;
-
 						echo '</td>';
 
-						echo '<td id="" style="width:20%" valign="top">' . skillList($TMergedSkills) . '</td>';
-						echo '<td id="" style="width:5%" valign="top">' . rate($TMergedSkills, 'rate1') . '</td>';
+						echo '<td id="" style="width:20%; padding-left: 10px;" valign="top">' . skillList($TMergedSkills) . '</td>';
+
+						echo '<td id="" style="width:10%" valign="top">' . rate($TMergedSkills, 'rate1') . '</td>';
+
 						echo '<td id="" style="width:10%" valign="top">' . diff($TMergedSkills) . '</td>';
-						echo '<td id="" style="width:5%" valign="top">' . rate($TMergedSkills, 'rate2') . '</td>';
 
-						echo '<td id="list-user-right" style="width:30%" valign="top">';
+						echo '<td id="" style="width:10%; padding-right: 10px;" valign="top">' . rate($TMergedSkills, 'rate2') . '</td>';
 
+						echo '<td id="list-user-right" style="width:25%; padding-left: 10px; border-left: 1px solid #ccc;" class="valigntop">';
 						echo $userlist2;
+						echo '</td>';
 
-						echo '</td></tr>';
+						echo '</tr>';
 
 						?>
 
@@ -264,29 +290,34 @@ $fk_usergroup1 = GETPOST('fk_usergroup1');
 print dol_get_fiche_end();
 
 llxFooter();
+$db->close();
 
 
 
 /**
- *
  * 	Return a html list element with diff  between required rank  and user rank
  *
- * 		@param array $TMergedSkills skill list with all rate to add good picto
+ * 		@param array<int,stdClass> $TMergedSkills skill list with all rate to add good picto
  * 		@return string
  */
 function diff(&$TMergedSkills)
 {
-
 	$out = '<ul class="diff">';
 
 	foreach ($TMergedSkills as $id => &$sk) {
 		$class = 'diffnote';
 
-		if (empty($sk->rate2)) $class .= ' toohappy';
-		elseif (empty($sk->rate1)) $class .= ' toosad';
-		elseif ($sk->rate1 == $sk->rate2) $class .= ' happy';
-		elseif ($sk->rate2 < $sk->rate1) $class .= ' veryhappy';
-		elseif ($sk->rate2 > $sk->rate1) $class .= ' sad';
+		if (empty($sk->rate2)) {
+			$class .= ' toohappy';
+		} elseif (empty($sk->rate1)) {
+			$class .= ' toosad';
+		} elseif ($sk->rate1 == $sk->rate2) {
+			$class .= ' happy';
+		} elseif ($sk->rate2 < $sk->rate1) {
+			$class .= ' veryhappy';
+		} elseif ($sk->rate2 > $sk->rate1) {
+			$class .= ' sad';
+		}
 
 		$out .= '<li fk_skill="' . $id . '" class="' . $class . '" style="text-align:center;">
 	      <span class="' . $class . '">&nbsp;</span>
@@ -299,10 +330,11 @@ function diff(&$TMergedSkills)
 }
 
 /**
- * 	Return a html list with rank informations
- * 		@param array $TMergedSkills skill list for display
- * 		@param string $field which column of comparison we are working with
- * 		@return string
+ * Return a html list with rank information
+ *
+ * @param 	array<int,stdClass> $TMergedSkills 	Skill list for display
+ * @param 	string 				$field 			Which column of comparison we are working with ('rate1' or 'rate2')
+ * @return 	string								String to show for level
  */
 function rate(&$TMergedSkills, $field)
 {
@@ -313,19 +345,22 @@ function rate(&$TMergedSkills, $field)
 	foreach ($TMergedSkills as $id => &$sk) {
 		$class = "note";
 		$how_many = 0;
-		if (empty($sk->{$field})) {
+		if (empty($sk->$field)) {
 			$note = 'x';
 			$class .= ' none';
 		} else {
-			$note = $sk->{$field};
+			$note = $sk->$field < 0 ? $langs->trans("NA") : $sk->$field;
 			$how_many = ($field === 'rate1') ? $sk->how_many_max1 : $sk->how_many_max2;
 		}
 
-		if ($field === 'rate2' && $fk_job > 0) $trad = $langs->trans('RequiredRank');
-		else $trad = $langs->trans('HighestRank');
+		if ($field === 'rate2' && $fk_job > 0) {
+			$trad = $langs->trans('RequiredRank');
+		} else {
+			$trad = $langs->trans('HighestRank');
+		}
 
-		$out .= '<li fk_skill="' . $id . '" style="text-align:center;">
-	      <p><span class="' . $class . ' classfortooltip" title="' . $trad . '">' . $note . '</span>' . ($how_many > 0 ? '<span class="bubble classfortooltip" title="' . $langs->trans('HowManyUserWithThisMaxNote') . '">' . $how_many . '</span>' : '') . '</p>
+		$out .= '<li fk_skill="' . $id . '" class="center">
+	      <p class="nowraponall"><span class="' . $class . ' classfortooltip" title="' . $trad . '">' . $note . '</span>' . ($how_many > 0 ? '<span class="bubble classfortooltip" title="' . $langs->trans('HowManyUserWithThisMaxNote') . '">' . $how_many . '</span>' : '') . '</p>
 	    </li>';
 	}
 
@@ -335,14 +370,13 @@ function rate(&$TMergedSkills, $field)
 }
 
 /**
- * 	  	return a html ul list of skills
+ * return a html ul list of skills
  *
- * 			@param array $TMergedSkills skill list for display
- * 			@return string (ul list in html )
+ * @param array<int,stdClass> $TMergedSkills skill list for display
+ * @return string (ul list in html )
  */
 function skillList(&$TMergedSkills)
 {
-
 	$out = '<ul class="competence">';
 
 	foreach ($TMergedSkills as $id => &$sk) {
@@ -358,32 +392,37 @@ function skillList(&$TMergedSkills)
 }
 
 /**
- *  create an array of lines [ skillLabel,dscription, maxrank on group1 , minrank needed for this skill ]
+ * Create an array of lines [ skillLabel,description, maxrank on group1 , minrank needed for this skill ]
  *
- * @param array $TSkill1 skill list of first column
- * @param array $TSkill2 skill list of second column
- * @return array
+ * @param array<int,stdClass> $TSkill1 		Skill list of first column
+ * @param array<int,stdClass> $TSkill2 		Skill list of second column
+ * @return array<int,stdClass>
  */
 function mergeSkills($TSkill1, $TSkill2)
 {
-
 	$Tab = array();
 
 	foreach ($TSkill1 as &$sk) {
-			if (empty($Tab[$sk->fk_skill])) $Tab[$sk->fk_skill] = new stdClass;
+		if (empty($Tab[$sk->fk_skill])) {
+			$Tab[$sk->fk_skill] = new stdClass();
+		}
 
-			$Tab[$sk->fk_skill]->rate1 = $sk->rankorder;
-			$Tab[$sk->fk_skill]->how_many_max1 = $sk->how_many_max;
-			$Tab[$sk->fk_skill]->label = $sk->label;
-			$Tab[$sk->fk_skill]->description = $sk->description;
+		$Tab[$sk->fk_skill]->rate1 = $sk->rankorder;
+		$Tab[$sk->fk_skill]->how_many_max1 = $sk->how_many_max;
+
+		$Tab[$sk->fk_skill]->label = $sk->label;
+		$Tab[$sk->fk_skill]->description = $sk->description;
 	}
 
 	foreach ($TSkill2 as &$sk) {
-			if (empty($Tab[$sk->fk_skill])) $Tab[$sk->fk_skill] = new stdClass;
-			$Tab[$sk->fk_skill]->rate2 = $sk->rankorder;
-			$Tab[$sk->fk_skill]->label = $sk->label;
-			$Tab[$sk->fk_skill]->description = $sk->description;
-			$Tab[$sk->fk_skill]->how_many_max2 = $sk->how_many_max;
+		if (empty($Tab[$sk->fk_skill])) {
+			$Tab[$sk->fk_skill] = new stdClass();
+		}
+		$Tab[$sk->fk_skill]->rate2 = $sk->rankorder;
+		$Tab[$sk->fk_skill]->how_many_max2 = $sk->how_many_max;
+
+		$Tab[$sk->fk_skill]->label = $sk->label;
+		$Tab[$sk->fk_skill]->description = $sk->description;
 	}
 
 	return $Tab;
@@ -391,14 +430,15 @@ function mergeSkills($TSkill1, $TSkill2)
 
 /**
  * 	Display a list of User with picto
- * 		@param array $TUser list of users (employees) in selected usergroup of a column
- * 		@param int $fk_usergroup selected usergroup id
- * 		@param string $namelist html name
- * 		@return string
+ *
+ * 	@param 	int[] 	$TUser 			list of users (employees) in selected usergroup of a column
+ * 	@param 	int 	$fk_usergroup 	selected usergroup id
+ * 	@param 	string 	$namelist 		html name
+ * 	@return string
  */
 function displayUsersListWithPicto(&$TUser, $fk_usergroup = 0, $namelist = 'list-user')
 {
-	global $db, $langs, $conf, $form;
+	global $db, $langs, $conf, $form, $user;
 
 	$out = '';
 	if ($fk_usergroup > 0) {
@@ -406,19 +446,24 @@ function displayUsersListWithPicto(&$TUser, $fk_usergroup = 0, $namelist = 'list
 
 		$excludedIdsList = GETPOST($list);
 
-
-		$sql = "SELECT DISTINCT u.rowid FROM " . MAIN_DB_PREFIX . "user u
+		$sql = "SELECT u.rowid FROM " . MAIN_DB_PREFIX . "user u
 		LEFT JOIN " . MAIN_DB_PREFIX . "usergroup_user as ugu ON (u.rowid = ugu.fk_user)
-		WHERE u.statut > 0
-		AND ugu.fk_usergroup=" . ((int) $fk_usergroup);
+		WHERE u.statut > 0 AND ugu.entity = ".((int) $conf->entity);
+		$sql .= " AND ugu.fk_usergroup=" . ((int) $fk_usergroup);
+		// Without the permission to read all the assessments or to compare all the employees, a user only compares
+		// himself and the employees of his hierarchy (same rule as for the assessments).
+		if (!$user->hasRight('hrm', 'evaluation', 'readall') && !$user->hasRight('hrm', 'compare_advance', 'read')) {
+			$sql .= " AND u.rowid IN (".$db->sanitize(implode(',', $user->getAllChildIds(1))).")";
+		}
 
 		$res = $db->query($sql);
 		$out .= '<ul name="' . $namelist . '">';
 
 		$TExcludedId = explode(',', $excludedIdsList);
 
-		$form = new Form($db);
-		$out .= '<input id="'.$list.'" type="HIDDEN" name="'.$list.'" value="'.$excludedIdsList.'"> ';
+		$out .= '<input id="'.$list.'" type="hidden" name="'.$list.'" value="'.$excludedIdsList.'"> ';
+
+		$job = new Job($db);
 
 		while ($obj = $db->fetch_object($res)) {
 			$class = '';
@@ -427,19 +472,22 @@ function displayUsersListWithPicto(&$TUser, $fk_usergroup = 0, $namelist = 'list
 			$user->fetch($obj->rowid);
 
 			$name = $user->getFullName($langs);
-			if (empty($name)) $name = $user->login;
+			if (empty($name)) {
+				$name = $user->login;
+			}
 
 			if (in_array($user->id, $TExcludedId)) {
 				$class .= ' disabled';
 			} else {
-				if (!in_array($user->id, $TUser)) $TUser[] = $user->id;
+				if (!in_array($user->id, $TUser)) {
+					$TUser[] = $user->id;
+				}
 			}
-
 
 			$desc = '';
 
-			$job = Job::getLastJobForUser($user->id);
-			$desc .= $job;
+			$jobstring = $job->getLastJobForUser($user->id);
+			$desc .= $jobstring;
 
 			$static_eval = new Evaluation($db);
 			$evaluation = $static_eval->getLastEvaluationForUser($user->id);
@@ -450,10 +498,12 @@ function displayUsersListWithPicto(&$TUser, $fk_usergroup = 0, $namelist = 'list
 				$desc .= $langs->trans('NoEval');
 			}
 
-			if (!empty($user->array_options['options_DDA'])) $desc .= '<br>' . $langs->trans('Anciennete') . ' : ' . dol_print_date(strtotime($user->array_options['options_DDA']));
+			if (!empty($user->array_options['options_DDA'])) {
+				$desc .= '<br>' . $langs->trans('Seniority') . ' : ' . dol_print_date(strtotime($user->array_options['options_DDA']));
+			}
 
 			$out .= '<li fk_user="' . $user->id . '" class="' . $class . '">
-		      ' . $form->showphoto('userphoto', $user, 0, 0, 0, 'photoref', 'small', 1, 0, 1) . '
+		      ' . $form->showphoto('userphoto', $user, 0, 0, 0, 'photoref', 'small', 1, 0, '', 1) . '
 		      <h3>' . $name . '</h3>
 		      <p>' . $desc . '</p>
 		    </li>';
@@ -467,52 +517,61 @@ function displayUsersListWithPicto(&$TUser, $fk_usergroup = 0, $namelist = 'list
 
 
 /**
- *
  * 		Allow to get skill(s) of a user
  *
- * 		@param array $TUser array of employees we need to get skills
- * 		@return array|int
+ * 		@param int[] 	$TUser 			array of employees we need to get skills
+ * 		@return array<int,stdClass>
  */
 function getSkillForUsers($TUser)
 {
 	global $db;
 
-	//I go back to the user with the highest score in a given group for all the skills assessed in that group
-	if (empty($TUser)) return array();
+	// I go back to the user with the highest score in a given group for all the skills assessed in that group
+	if (empty($TUser)) {
+		return array();
+	}
 
-	$sql = 'SELECT sk.rowid, sk.label, sk.description, sk.skill_type, sr.fk_object, sr.objecttype, sr.fk_skill, ';
-	$sql.= ' MAX(sr.rankorder) as "rankorder"';
-	$sql.= ' FROM '.MAIN_DB_PREFIX.'hrm_skill sk';
-	$sql.= ' LEFT JOIN '.MAIN_DB_PREFIX.'hrm_skillrank sr ON (sk.rowid = sr.fk_skill)';
-	$sql.= " WHERE sr.objecttype = '".SkillRank::SKILLRANK_TYPE_USER."'";
-	$sql.= ' AND sr.fk_object IN ('.$db->sanitize(implode(',', $TUser)).')';
-	$sql.= " GROUP BY sk.rowid, sk.label, sk.description, sk.skill_type, sr.fk_object, sr.objecttype, sr.fk_skill "; // group par competence
+	$sql = 'SELECT sk.rowid, sk.label, sk.description, sk.skill_type,';
+	$sql .= ' MAX(sr.rankorder) as rankorder';
+	$sql .= ' FROM '.MAIN_DB_PREFIX.'hrm_skill sk';
+	$sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'hrm_skillrank sr';
+	$sql .= " WHERE sk.rowid = sr.fk_skill AND sr.objecttype = '".$db->escape(SkillRank::SKILLRANK_TYPE_USER)."'";
+	$sql .= ' AND sr.fk_object IN ('.$db->sanitize(implode(',', $TUser)).')';
+	$sql .= ' AND rankorder >= 0';
+	$sql .= " GROUP BY sk.rowid, sk.label, sk.description, sk.skill_type"; // group by skill
+	$sql .= " ORDER BY sk.rowid ASC";
 
 	$resql = $db->query($sql);
 	$Tab = array();
 
 	if ($resql) {
-		//For each skill, we count the number of times that the max score has been reached within a given group
+		// For each skill, we count the number of times that the max score has been reached within a given group
 		$num = 0;
-		while ($obj = $db->fetch_object($resql) ) {
-			$sql1 = "SELECT count(*) as how_many_max FROM ".MAIN_DB_PREFIX."hrm_skillrank sr";
-			$sql1.=" WHERE sr.rankorder = ".((int) $obj->rankorder);
-			$sql1.=" AND sr.objecttype = '".Skillrank::SKILLRANK_TYPE_USER."'";
-			$sql1.=" AND sr.fk_skill = ".((int) $obj->fk_skill);
-			$sql1.=" AND sr.fk_object IN (".$db->sanitize(implode(',', $TUser)).")";
+		while ($obj = $db->fetch_object($resql)) {
+			$Tab[$num] = new stdClass();
+
+			$Tab[$num]->fk_skill = $obj->rowid;
+			$Tab[$num]->label = $obj->label;
+			$Tab[$num]->description = $obj->description;
+			$Tab[$num]->skill_type = $obj->skill_type;
+			//$Tab[$num]->fk_object = $obj->fk_object;
+			$Tab[$num]->objectType = SkillRank::SKILLRANK_TYPE_USER;
+
+			$Tab[$num]->rankorder = $obj->rankorder;
+
+			// Get how_many_max
+			$sql1 = "SELECT COUNT(rowid) as how_many_max FROM ".MAIN_DB_PREFIX."hrm_skillrank as sr";
+			$sql1 .= " WHERE sr.rankorder = ".((int) $obj->rankorder);
+			$sql1 .= " AND sr.objecttype = '".$db->escape(SkillRank::SKILLRANK_TYPE_USER)."'";
+			$sql1 .= " AND sr.fk_skill = ".((int) $obj->rowid);
+			$sql1 .= " AND sr.fk_object IN (".$db->sanitize(implode(',', $TUser)).")";
 			$resql1 = $db->query($sql1);
 
 			$objMax = $db->fetch_object($resql1);
 
-			$Tab[$num] = new stdClass();
-			$Tab[$num]->fk_skill = $obj->fk_skill;
-			$Tab[$num]->label = $obj->label;
-			$Tab[$num]->description = $obj->description;
-			$Tab[$num]->skill_type = $obj->skill_type;
-			$Tab[$num]->fk_object = $obj->fk_object;
-			$Tab[$num]->objectType = SkillRank::SKILLRANK_TYPE_USER;
-			$Tab[$num]->rankorder = $obj->rankorder;
 			$Tab[$num]->how_many_max = $objMax->how_many_max;
+
+			$db->free($resql1);
 
 			$num++;
 		}
@@ -527,29 +586,30 @@ function getSkillForUsers($TUser)
  * 		Allow to get skill(s) of a job
  *
  * 		@param int $fk_job job we need to get required skills
- * 		@return array|int
+ * 		@return stdClass[]
  */
 function getSkillForJob($fk_job)
 {
 	global $db;
 
-	if (empty($fk_job)) return array();
+	if (empty($fk_job)) {
+		return array();
+	}
 
-	$sql = 'SELECT sk.rowid, sk.label, sk.description, sk.skill_type, sr.fk_object, sr.objecttype, sr.fk_skill, ';
-	$sql.= ' MAX(sr.rankorder) as "rankorder"';
-	$sql.=' FROM '.MAIN_DB_PREFIX.'hrm_skill sk';
-	$sql.='	LEFT JOIN '.MAIN_DB_PREFIX.'hrm_skillrank sr ON (sk.rowid = sr.fk_skill)';
-	$sql.="	WHERE sr.objecttype = '".SkillRank::SKILLRANK_TYPE_JOB."'";
-	$sql.=' AND sr.fk_object = '.((int) $fk_job);
-	$sql.=' GROUP BY sk.rowid, sk.label, sk.description, sk.skill_type, sr.fk_object, sr.objecttype, sr.fk_skill '; // group par competence*/
+	$sql = 'SELECT sk.rowid, sk.label, sk.description, sk.skill_type, sr.fk_object, sr.objecttype, sr.fk_skill,';
+	$sql .= " MAX(sr.rankorder) as rankorder";
+	$sql .= ' FROM '.MAIN_DB_PREFIX.'hrm_skill as sk';
+	$sql .= '	LEFT JOIN '.MAIN_DB_PREFIX.'hrm_skillrank as sr ON (sk.rowid = sr.fk_skill)';
+	$sql .= "	WHERE sr.objecttype = '".SkillRank::SKILLRANK_TYPE_JOB."'";
+	$sql .= ' AND sr.fk_object = '.((int) $fk_job);
+	$sql .= ' GROUP BY sk.rowid, sk.label, sk.description, sk.skill_type, sr.fk_object, sr.objecttype, sr.fk_skill'; // group par competence*/
 
 	$resql = $db->query($sql);
 	$Tab = array();
 
-
 	if ($resql) {
 		$num = 0;
-		while ($obj = $db->fetch_object($resql) ) {
+		while ($obj = $db->fetch_object($resql)) {
 			$Tab[$num] = new stdClass();
 			$Tab[$num]->fk_skill = $obj->fk_skill;
 			$Tab[$num]->label = $obj->label;
@@ -567,7 +627,6 @@ function getSkillForJob($fk_job)
 	} else {
 		dol_print_error($db);
 	}
-
 
 	return $Tab;
 }

@@ -2,6 +2,8 @@
 /* Copyright (C) 2005-2020	Laurent Destailleur		<eldy@users.sourceforge.net>
  * Copyright (C) 2007		Rodolphe Quiedeville	<rodolphe@quiedeville.org>
  * Copyright (C) 2007-2012	Regis Houssin			<regis.houssin@inodbox.com>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France			<frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,15 +24,32 @@
  *  \brief      Page to show Dolibarr information
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Societe $mysoc
+ * @var Translate $langs
+ * @var User $user
+ *
+ * @var string $dolibarr_main_document_root_alt
+ * @var string $dolibarr_main_prod
+ * @var string $conffile
+ */
+'
+@phan-var-force string $dolibarr_main_document_root_alt
+';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/memory.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+require_once DOL_DOCUMENT_ROOT.'/blockedlog/lib/blockedlog.lib.php';
 
 // Load translation files required by the page
-$langs->loadLangs(array("install", "other", "admin"));
+$langs->loadLangs(array("blockedlog", "install", "other", "admin"));
 
 $action = GETPOST('action', 'aZ09');
 
@@ -41,6 +60,15 @@ if (!$user->admin) {
 $sfurl = '';
 $version = '0.0';
 
+// Version blockedlog
+$versionbadge = '<span class="badge-text badge-secondary">'.getBlockedLogVersionToShow();
+if ($mysoc->country_code == 'FR') {
+	$islne = isALNEQualifiedVersion(1, 1);
+	if (!$islne) {
+		$versionbadge .= ' - '.$langs->trans("NotCertified");
+	}
+}
+$versionbadge .= '</span>';
 
 
 /*
@@ -49,9 +77,15 @@ $version = '0.0';
 
 if ($action == 'getlastversion') {
 	$result = getURLContent('https://sourceforge.net/projects/dolibarr/rss');
-	//var_dump($result['content']);
 	if (function_exists('simplexml_load_string')) {
-		$sfurl = simplexml_load_string($result['content'], 'SimpleXMLElement', LIBXML_NOCDATA|LIBXML_NONET);
+		if (LIBXML_VERSION < 20900) {
+			// Avoid load of external entities (security problem).
+			// Required only if LIBXML_VERSION < 20900
+			// @phan-suppress-next-line PhanDeprecatedFunctionInternal
+			libxml_disable_entity_loader(true);
+		}
+
+		$sfurl = simplexml_load_string($result['content'], 'SimpleXMLElement', LIBXML_NOCDATA | LIBXML_NONET);
 	} else {
 		setEventMessages($langs->trans("ErrorPHPDoesNotSupport", "xml"), null, 'errors');
 	}
@@ -67,25 +101,26 @@ $form = new Form($db);
 $help_url = '';
 $title = $langs->trans("InfoDolibarr");
 
-llxHeader('', $title, $help_url);
+llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-admin page-system_dolibarr');
 
 print load_fiche_titre($title, '', 'title_setup');
 
 // Version
 print '<div class="div-table-responsive-no-min">';
 print '<table class="noborder centpercent">';
-print '<tr class="liste_titre"><td class="titlefieldcreate">'.$langs->trans("Version").'</td><td>'.$langs->trans("Value").'</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("CurrentVersion").' ('.$langs->trans("Programs").')</td><td>'.DOL_VERSION;
+print '<tr class="liste_titre"><td class="titlefieldcreate">'.$langs->trans("Version").'</td><td></td></tr>'."\n";
+print '<tr class="oddeven"><td>'.$langs->trans("CurrentVersion").'<br><span class="opacitymedium">('.$langs->trans("Programs").')</span></td><td>';
+print '<span class="badge-text badge-secondary">'.DOL_VERSION.'</span>';
 // If current version differs from last upgrade
-if (empty($conf->global->MAIN_VERSION_LAST_UPGRADE)) {
-	// Compare version with last install database version (upgrades never occured)
-	if (DOL_VERSION != $conf->global->MAIN_VERSION_LAST_INSTALL) {
-		print ' '.img_warning($langs->trans("RunningUpdateProcessMayBeRequired", DOL_VERSION, $conf->global->MAIN_VERSION_LAST_INSTALL));
+if (!getDolGlobalString('MAIN_VERSION_LAST_UPGRADE')) {
+	// Compare version with last install database version (upgrades never occurred)
+	if (DOL_VERSION != getDolGlobalString('MAIN_VERSION_LAST_INSTALL')) {
+		print ' '.img_warning($langs->trans("RunningUpdateProcessMayBeRequired", DOL_VERSION, getDolGlobalString('MAIN_VERSION_LAST_INSTALL')));
 	}
 } else {
 	// Compare version with last upgrade database version
-	if (DOL_VERSION != $conf->global->MAIN_VERSION_LAST_UPGRADE) {
-		print ' '.img_warning($langs->trans("RunningUpdateProcessMayBeRequired", DOL_VERSION, $conf->global->MAIN_VERSION_LAST_UPGRADE));
+	if (DOL_VERSION != getDolGlobalString('MAIN_VERSION_LAST_UPGRADE')) {
+		print ' '.img_warning($langs->trans("RunningUpdateProcessMayBeRequired", DOL_VERSION, getDolGlobalString('MAIN_VERSION_LAST_UPGRADE')));
 	}
 }
 
@@ -93,14 +128,21 @@ $version = DOL_VERSION;
 if (preg_match('/[a-z]+/i', $version)) {
 	$version = 'develop'; // If version contains text, it is not an official tagged version, so we use the full change log.
 }
-print ' &nbsp; <a href="https://raw.githubusercontent.com/Dolibarr/dolibarr/'.$version.'/ChangeLog" target="_blank" rel="noopener noreferrer external">'.$langs->trans("SeeChangeLog").'</a>';
+
+$urlofchangelog = 'https://raw.githubusercontent.com/Dolibarr/dolibarr/'.$version.'/ChangeLog';
+
+print ' &nbsp; ';
+//print dolButtonToOpenUrlInDialogPopup('changelogpopup', $langs->trans("SeeChangeLog"), $langs->trans("SeeChangeLog"), $urlofchangelog);
+print '<a href="'.$urlofchangelog.'" target="_blank" rel="noopener noreferrer external">'.img_picto('', 'url', 'class="paddingright"').$langs->trans("SeeChangeLog").'</a>';
 
 $newversion = '';
 if (function_exists('curl_init')) {
 	$conf->global->MAIN_USE_RESPONSE_TIMEOUT = 10;
-	print ' &nbsp; &nbsp; - &nbsp; &nbsp; ';
+	print($action == 'getlastversion' ? '<br>' : ' &nbsp; &nbsp; - &nbsp; &nbsp; ');
 	if ($action == 'getlastversion') {
 		if ($sfurl) {
+			$currentversionarray = explode('.', DOL_VERSION);
+			$branchversion = '';	// Latest version of the branch currently running
 			$i = 0;
 			while (!empty($sfurl->channel[0]->item[$i]->title) && $i < 10000) {
 				$title = $sfurl->channel[0]->item[$i]->title;
@@ -113,20 +155,35 @@ if (function_exists('curl_init')) {
 					if (versioncompare($newversionarray, $versionarray) > 0) {
 						$version = $newversion;
 					}
+					if (count($newversionarray) >= 2 && $newversionarray[0] == $currentversionarray[0] && $newversionarray[1] == $currentversionarray[1]
+						&& ($branchversion == '' || versioncompare($newversionarray, explode('.', $branchversion)) > 0)) {
+						$branchversion = $newversion;
+					}
 				}
 				$i++;
+			}
+
+			// Show first the latest version of the running branch, when it is not the latest stable one
+			$currentbranch = $currentversionarray[0].'.'.(isset($currentversionarray[1]) ? $currentversionarray[1] : '');
+			$versionarray = explode('.', $version);
+			if (!preg_match('/[a-z]+/i', DOL_VERSION) && $currentbranch != $versionarray[0].'.'.(isset($versionarray[1]) ? $versionarray[1] : '')) {
+				print $langs->trans("LastVersionOfBranch", $currentbranch).' : <b>'.($branchversion != '' ? $branchversion : $langs->trans("Unknown")).'</b>';
+				if ($branchversion != '') {
+					print ' &nbsp; <a href="https://raw.githubusercontent.com/Dolibarr/dolibarr/'.$branchversion.'/ChangeLog" target="_blank" rel="noopener noreferrer external">'.img_picto('', 'url', 'class="paddingright"').$langs->trans("SeeChangeLog").'</a>';
+				}
+				print '<br>';
 			}
 
 			// Show version
 			print $langs->trans("LastStableVersion").' : <b>'.(($version != '0.0') ? $version : $langs->trans("Unknown")).'</b>';
 			if ($version != '0.0') {
-				print ' &nbsp; <a href="https://raw.githubusercontent.com/Dolibarr/dolibarr/'.$version.'/ChangeLog" target="_blank" rel="noopener noreferrer external">'.$langs->trans("SeeChangeLog").'</a>';
+				print ' &nbsp; <a href="https://raw.githubusercontent.com/Dolibarr/dolibarr/'.$version.'/ChangeLog" target="_blank" rel="noopener noreferrer external">'.img_picto('', 'url', 'class="paddingright"').$langs->trans("SeeChangeLog").'</a>';
 			}
 		} else {
 			print $langs->trans("LastStableVersion").' : <b>'.$langs->trans("UpdateServerOffline").'</b>';
 		}
 	} else {
-		print $langs->trans("LastStableVersion").' : <a href="'.$_SERVER["PHP_SELF"].'?action=getlastversion" class="butAction smallpaddingimp">'.$langs->trans("Check").'</a>';
+		print $langs->trans("LastStableVersion").' : <a href="'.$_SERVER["PHP_SELF"].'?action=getlastversion&token='.newToken().'" class="butAction smallpaddingimp">'.$langs->trans("Check").'</a>';
 	}
 }
 
@@ -139,34 +196,82 @@ if (preg_match('/[a-z]+/i', $version)) {
 }
 
 print '</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("VersionLastUpgrade").' ('.$langs->trans("Database").')</td><td>'.getDolGlobalString('MAIN_VERSION_LAST_UPGRADE').'</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("VersionLastInstall").'</td><td>'.getDolGlobalString('MAIN_VERSION_LAST_INSTALL').'</td></tr>'."\n";
+print '<tr class="oddeven"><td>'.$langs->trans("VersionLastUpgrade").'<br><span class="opacitymedium">('.$langs->trans("Database").')</span></td><td>';
+if (getDolGlobalString('MAIN_VERSION_LAST_UPGRADE')) {
+	print '<span class="badge-text badge-secondary">'.getDolGlobalString('MAIN_VERSION_LAST_UPGRADE').'</span>';
+}
+if (getDolGlobalString('MAIN_VERSION_LAST_INSTALL')) {
+	print ' &nbsp; <span class="opacitymedium">'.$langs->trans("VersionLastInstall").': <span class="">'.getDolGlobalString('MAIN_VERSION_LAST_INSTALL').'</span></span>';
+}
+print '</td></tr>'."\n";
+
+$showblockedlogversion = 0;
+if ($mysoc->country_code == 'FR') {
+	$showblockedlogversion = 1;
+}
+if (isALNERunningVersion()) {
+	$showblockedlogversion = 1;
+}
+if ($showblockedlogversion) {
+	print '<tr class="oddeven nohover">';
+	print '<td width="300">'.$langs->trans("VersionOfModule", $langs->transnoentitiesnoconv("BlockedLog")).'</td><td>';
+	print $versionbadge;
+
+	print ' &nbsp; <a href="'.DOL_URL_ROOT.'/blockedlog/admin/filecheck.php">'.img_picto('', 'url', 'class="pictofixedwidth"').$langs->trans("FileCheck").'</a>';
+
+	print '</td>';
+	print '</tr>';
+}
+
 print '</table>';
 print '</div>';
+
+// Add a complementary optional information
+$infotoshow = '';
+if ($mysoc->country_code == 'FR') {
+	$islne = isALNEQualifiedVersion(1, 1);
+	if ($islne) {
+		if (preg_match('/\-/', getBlockedLogVersionToShow())) {
+			// This is an alpha or beta version
+			$infotoshow = $langs->trans("LNECandidateVersionForCertificationFR", getBlockedLogVersionToShow());
+		} else {
+			$infotoshow = $langs->trans("LNECertifiedVersionFR", getBlockedLogVersionToShow());
+		}
+	} else {
+		$infotoshow = $langs->trans("NotCertifiedVersionFR", getBlockedLogVersionToShow());
+	}
+}
+if ($infotoshow) {
+	print info_admin($infotoshow, 0, 0, 'info', 'hideonsmartphone', '', '', 'CERTIF_LNE = '.(defined('CERTIF_LNE') ? (int) constant('CERTIF_LNE') : 0));
+}
+
 print '<br>';
 
 // Session
 print '<div class="div-table-responsive-no-min">';
 print '<table class="noborder centpercent">';
-print '<tr class="liste_titre"><td class="titlefieldcreate">'.$langs->trans("Session").'</td><td colspan="2">'.$langs->trans("Value").'</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("SessionSavePath").'</td><td colspan="2">'.session_save_path().'</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("SessionName").'</td><td colspan="2">'.session_name().'</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("SessionId").'</td><td colspan="2">'.session_id().'</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("CurrentSessionTimeOut").' (session.gc_maxlifetime)</td><td>'.ini_get('session.gc_maxlifetime').' '.$langs->trans("seconds");
-print '</td><td class="right">';
+print '<tr class="liste_titre"><td class="titlefieldcreate">'.$langs->trans("Session").'</td><td></td></tr>'."\n";
+print '<tr class="oddeven"><td>'.$langs->trans("SessionSavePath").'</td><td>'.session_save_path().'</td></tr>'."\n";
+print '<tr class="oddeven"><td>'.$langs->trans("SessionName").'</td><td>'.session_name().'</td></tr>'."\n";
+print '<tr class="oddeven"><td>'.$langs->trans("SessionId").'</td><td>'.session_id().'</td></tr>'."\n";
+print '<tr class="oddeven"><td>';
+print $langs->trans("CurrentSessionTimeOut");
+print '</td>';
+print '<td>';
+print ini_get('session.gc_maxlifetime').' '.$langs->trans("seconds");
 print '<!-- session.gc_maxlifetime = '.ini_get("session.gc_maxlifetime").' -->'."\n";
 print '<!-- session.gc_probability = '.ini_get("session.gc_probability").' -->'."\n";
 print '<!-- session.gc_divisor = '.ini_get("session.gc_divisor").' -->'."\n";
-print $form->textwithpicto('', $langs->trans("SessionExplanation", ini_get("session.gc_probability"), ini_get("session.gc_divisor")));
+print $form->textwithpicto('', $langs->trans("Parameter").' <b>php.ini</b>: <b>session.gc_maxlifetime</b><br>'.$langs->trans("SessionExplanation", ini_get("session.gc_probability"), ini_get("session.gc_divisor")));
 print "</td></tr>\n";
-print '<tr class="oddeven"><td>'.$langs->trans("CurrentTheme").'</td><td colspan="2">'.$conf->theme.'</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("CurrentMenuHandler").'</td><td colspan="2">';
+print '<tr class="oddeven"><td>'.$langs->trans("CurrentTheme").'</td><td>'.$conf->theme.'</td></tr>'."\n";
+print '<tr class="oddeven"><td>'.$langs->trans("CurrentMenuHandler").'</td><td>';
 print $conf->standard_menu;
 print '</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("Screen").'</td><td colspan="2">';
+print '<tr class="oddeven"><td>'.$langs->trans("Screen").'</td><td>';
 print $_SESSION['dol_screenwidth'].' x '.$_SESSION['dol_screenheight'];
 print '</td></tr>'."\n";
-print '<tr class="oddeven"><td>'.$langs->trans("Session").'</td><td colspan="2">';
+print '<tr class="oddeven"><td>'.$langs->trans("Session").'</td><td class="wordbreak">';
 $i = 0;
 foreach ($_SESSION as $key => $val) {
 	if ($i > 0) {
@@ -186,7 +291,7 @@ print '<br>';
 
 
 // Shmop
-if (isset($conf->global->MAIN_OPTIMIZE_SPEED) && ($conf->global->MAIN_OPTIMIZE_SPEED & 0x02)) {
+if (getDolGlobalInt('MAIN_OPTIMIZE_SPEED') & 0x02) {
 	$shmoparray = dol_listshmop();
 
 	print '<div class="div-table-responsive-no-min">';
@@ -213,7 +318,7 @@ if (isset($conf->global->MAIN_OPTIMIZE_SPEED) && ($conf->global->MAIN_OPTIMIZE_S
 // Localisation
 print '<div class="div-table-responsive-no-min">';
 print '<table class="noborder centpercent">';
-print '<tr class="liste_titre"><td class="titlefieldcreate">'.$langs->trans("LocalisationDolibarrParameters").'</td><td>'.$langs->trans("Value").'</td></tr>'."\n";
+print '<tr class="liste_titre"><td class="titlefieldcreate">'.$langs->trans("LocalisationDolibarrParameters").'</td><td></td></tr>'."\n";
 print '<tr class="oddeven"><td>'.$langs->trans("LanguageBrowserParameter", "HTTP_ACCEPT_LANGUAGE").'</td><td>'.$_SERVER["HTTP_ACCEPT_LANGUAGE"].'</td></tr>'."\n";
 print '<tr class="oddeven"><td>'.$langs->trans("CurrentUserLanguage").'</td><td>'.$langs->getDefaultLang().'</td></tr>'."\n";
 // Thousands
@@ -229,10 +334,10 @@ print '<tr class="oddeven"><td>'.$langs->trans("CurrentValueSeparatorThousand").
 $dec = $langs->transnoentitiesnoconv("SeparatorDecimal");
 print '<tr class="oddeven"><td>'.$langs->trans("CurrentValueSeparatorDecimal").'</td><td>'.$dec.'</td></tr>'."\n";
 // Show results of functions to see if everything works
-print '<tr class="oddeven"><td>&nbsp; => price2num(1233.56+1)</td><td>'.price2num(1233.56 + 1, '2').'</td></tr>'."\n";
-print '<tr class="oddeven"><td>&nbsp; => price2num('."'1".$thousand."234".$dec."56')</td><td>".price2num("1".$thousand."234".$dec."56", '2')."</td></tr>\n";
+print '<tr class="oddeven"><td>&nbsp; => price2num(1233.56+1)</td><td>'.price2num(1233.56 + 1, 2).'</td></tr>'."\n";
+print '<tr class="oddeven"><td>&nbsp; => price2num('."'1".$thousand."234".$dec."56')</td><td>".price2num("1".$thousand."234".$dec."56", 2)."</td></tr>\n";
 if (($thousand != ',' && $thousand != '.') || ($thousand != ' ')) {
-	print '<tr class="oddeven"><td>&nbsp; => price2num('."'1 234.56')</td><td>".price2num("1 234.56", '2')."</td>";
+	print '<tr class="oddeven"><td>&nbsp; => price2num('."'1 234.56')</td><td>".price2num("1 234.56", 2)."</td>";
 	print "</tr>\n";
 }
 print '<tr class="oddeven"><td>&nbsp; => price(1234.56)</td><td>'.price(1234.56).'</td></tr>'."\n";
@@ -252,7 +357,7 @@ if ($conf->db->type == 'mysql' || $conf->db->type == 'mysqli') {
 }
 $txt = $langs->trans("OSTZ").' (variable system TZ): '.(!empty($_ENV["TZ"]) ? $_ENV["TZ"] : $langs->trans("NotDefined")).'<br>'."\n";
 $txt .= $langs->trans("PHPTZ").' (date_default_timezone_get() / php.ini date.timezone): '.(getServerTimeZoneString()." / ".(ini_get("date.timezone") ? ini_get("date.timezone") : $langs->trans("NotDefined")))."<br>\n"; // date.timezone must be in valued defined in http://fr3.php.net/manual/en/timezones.europe.php
-$txt .= $langs->trans("Dolibarr constant MAIN_SERVER_TZ").': '.(empty($conf->global->MAIN_SERVER_TZ) ? $langs->trans("NotDefined") : $conf->global->MAIN_SERVER_TZ);
+$txt .= $langs->trans("Dolibarr constant MAIN_SERVER_TZ").': '.getDolGlobalString('MAIN_SERVER_TZ', $langs->trans("NotDefined"));
 print '<tr class="oddeven"><td>'.$langs->trans("CurrentTimeZone").'</td><td>'; // Timezone server PHP
 $a = getServerTimeZoneInt('now');
 $b = getServerTimeZoneInt('winter');
@@ -262,7 +367,7 @@ $daylight = round($c - $b);
 $val = ($a >= 0 ? '+' : '').$a;
 $val .= ' ('.($a == 'unknown' ? 'unknown' : ($a >= 0 ? '+' : '').($a * 3600)).')';
 $val .= ' &nbsp; &nbsp; &nbsp; '.getServerTimeZoneString();
-$val .= ' &nbsp; &nbsp; &nbsp; '.$langs->trans("DaylingSavingTime").': '.($daylight === 'unknown' ? 'unknown' : ($a == $c ?yn($daylight) : yn(0).($daylight ? '  &nbsp; &nbsp; ('.$langs->trans('YesInSummer').')' : '')));
+$val .= ' &nbsp; &nbsp; &nbsp; '.$langs->trans("DaylingSavingTime").': '.((is_null($b) || is_null($c)) ? 'unknown' : ($a == $c ? yn((int) $daylight) : yn(0).($daylight ? '  &nbsp; &nbsp; ('.$langs->trans('YesInSummer').')' : '')));
 print $form->textwithtooltip($val, $txt, 2, 1, img_info(''));
 print '</td></tr>'."\n"; // value defined in http://fr3.php.net/manual/en/timezones.europe.php
 print '<tr class="oddeven"><td>&nbsp; => '.$langs->trans("CurrentHour").'</td><td>'.dol_print_date(dol_now('gmt'), 'dayhour', 'tzserver').'</td></tr>'."\n";
@@ -286,18 +391,18 @@ print '</td></tr>'."\n";
 print '</td></tr>'."\n";
 print '<tr class="oddeven"><td>&nbsp; => '.$langs->trans("ClientHour").'</td><td>'.dol_print_date(dol_now('gmt'), 'dayhour', 'tzuser').'</td></tr>'."\n";
 
-$filesystemencoding = ini_get("unicode.filesystem_encoding"); // Disponible avec PHP 6.0
+$filesystemencoding = ini_get("unicode.filesystem_encoding"); // Available with PHP 6.0
 print '<tr class="oddeven"><td>'.$langs->trans("File encoding").' (php.ini unicode.filesystem_encoding)</td><td>'.$filesystemencoding.'</td></tr>'."\n";
 
-$tmp = ini_get("unicode.filesystem_encoding"); // Disponible avec PHP 6.0
+$tmp = ini_get("unicode.filesystem_encoding"); // Available with PHP 6.0
 if (empty($tmp) && !empty($_SERVER["WINDIR"])) {
 	$tmp = 'iso-8859-1'; // By default for windows
 }
 if (empty($tmp)) {
 	$tmp = 'utf-8'; // By default for other
 }
-if (!empty($conf->global->MAIN_FILESYSTEM_ENCODING)) {
-	$tmp = $conf->global->MAIN_FILESYSTEM_ENCODING;
+if (getDolGlobalString('MAIN_FILESYSTEM_ENCODING')) {
+	$tmp = getDolGlobalString('MAIN_FILESYSTEM_ENCODING');
 }
 print '<tr class="oddeven"><td>&nbsp; => '.$langs->trans("File encoding").'</td><td>'.$tmp.'</td></tr>'."\n"; // date.timezone must be in valued defined in http://fr3.php.net/manual/en/timezones.europe.php
 
@@ -314,7 +419,7 @@ $configfileparameters = array(
 	'separator0' => '',
 	'dolibarr_main_url_root' => $langs->trans("URLRoot"),
 	'?dolibarr_main_url_root_alt' => $langs->trans("URLRoot").' (alt)',
-	'dolibarr_main_document_root'=> $langs->trans("DocumentRootServer"),
+	'dolibarr_main_document_root' => $langs->trans("DocumentRootServer"),
 	'?dolibarr_main_document_root_alt' => $langs->trans("DocumentRootServer").' (alt)',
 	'dolibarr_main_data_root' => $langs->trans("DataRootServer"),
 	'separator1' => '',
@@ -330,8 +435,8 @@ $configfileparameters = array(
 	'dolibarr_main_db_readonly' => $langs->trans("ReadOnlyMode"),
 	'separator2' => '',
 	'dolibarr_main_authentication' => $langs->trans("AuthenticationMode"),
-	'?multicompany_transverse_mode'=>  $langs->trans("MultiCompanyMode"),
-	'separator'=> '',
+	'?multicompany_transverse_mode' =>  $langs->trans("MultiCompanyMode"),
+	'separator' => '',
 	'?dolibarr_main_auth_ldap_login_attribute' => 'dolibarr_main_auth_ldap_login_attribute',
 	'?dolibarr_main_auth_ldap_host' => 'dolibarr_main_auth_ldap_host',
 	'?dolibarr_main_auth_ldap_port' => 'dolibarr_main_auth_ldap_port',
@@ -341,7 +446,6 @@ $configfileparameters = array(
 	'?dolibarr_main_auth_ldap_admin_pass' => 'dolibarr_main_auth_ldap_admin_pass',
 	'?dolibarr_main_auth_ldap_debug' => 'dolibarr_main_auth_ldap_debug',
 	'separator3' => '',
-	'?dolibarr_lib_ADODB_PATH' => 'dolibarr_lib_ADODB_PATH',
 	'?dolibarr_lib_FPDF_PATH' => 'dolibarr_lib_FPDF_PATH',
 	'?dolibarr_lib_TCPDF_PATH' => 'dolibarr_lib_TCPDF_PATH',
 	'?dolibarr_lib_FPDI_PATH' => 'dolibarr_lib_FPDI_PATH',
@@ -357,22 +461,30 @@ $configfileparameters = array(
 	'?dolibarr_font_DOL_DEFAULT_TTF_BOLD' => 'dolibarr_font_DOL_DEFAULT_TTF_BOLD',
 	'separator4' => '',
 	'dolibarr_main_restrict_os_commands' => 'Restrict CLI commands for backups',
+	'dolibarr_main_restrict_eval_methods' => 'Restrict php commands for dol_eval',
 	'dolibarr_main_restrict_ip' => 'Restrict access to some IPs only',
+	'?dolibarr_website_allow_custom_php' => 'Allow custom php code in website pages',
 	'?dolibarr_mailing_limit_sendbyweb' => 'Limit nb of email sent by page',
 	'?dolibarr_mailing_limit_sendbycli' => 'Limit nb of email sent by cli',
-	'?dolibarr_strict_mode' => 'Strict mode is on/off',
-	'?dolibarr_nocsrfcheck' => 'Disable CSRF security checks'
+	'?dolibarr_mailing_limit_sendbyday' => 'Limit nb of email sent per day',
+	'?dolibarr_mail_allow_unrestricted_smtp_target' => 'Allow unrestricted SMTP target for emails',
+	'?dolibarr_strict_mode' => 'Strict mode for php syntax is on/off',
+	'?dolibarr_nocsrfcheck' => 'Disable CSRF security checks',
+	'?dolibarr_main_disable_totp' => 'Disable two-factor authentication (TOTP)'
 );
 
 print '<div class="div-table-responsive-no-min">';
 print '<table class="noborder centpercent">';
 print '<tr class="liste_titre">';
 print '<td class="titlefieldcreate">'.$langs->trans("Parameters").' ';
-print $langs->trans("ConfigurationFile").' ('.$conffiletoshowshort.')';
+print $langs->trans("ConfigurationFile").' ('.basename($conffile).')';
 print '</td>';
-print '<td>'.$langs->trans("Parameter").'</td>';
-print '<td>'.$langs->trans("Value").'</td>';
+print '<td>'.$langs->trans("Name").'</td>';
+print '<td></td>';
 print '</tr>'."\n";
+
+
+$lastkeyshown = null;
 
 foreach ($configfileparameters as $key => $value) {
 	$ignore = 0;
@@ -381,7 +493,7 @@ foreach ($configfileparameters as $key => $value) {
 		$newkey = preg_replace('/^\?/', '', $key);
 
 		if (preg_match('/^\?/', $key) && empty(${$newkey})) {
-			if ($newkey != 'multicompany_transverse_mode' || empty($conf->multicompany->enabled)) {
+			if ($newkey != 'multicompany_transverse_mode' || !isModEnabled('multicompany')) {
 				continue; // We discard parameters starting with ?
 			}
 		}
@@ -409,7 +521,7 @@ foreach ($configfileparameters as $key => $value) {
 			} elseif ($newkey == 'dolibarr_main_url_root' && preg_match('/__auto__/', ${$newkey})) {
 				print ${$newkey}.' => '.constant('DOL_MAIN_URL_ROOT');
 			} elseif ($newkey == 'dolibarr_main_document_root_alt') {
-				$tmparray = explode(',', ${$newkey});
+				$tmparray = explode(',', $dolibarr_main_document_root_alt);
 				$i = 0;
 				foreach ($tmparray as $value2) {
 					if ($i > 0) {
@@ -423,20 +535,27 @@ foreach ($configfileparameters as $key => $value) {
 					++$i;
 				}
 			} elseif ($newkey == 'dolibarr_main_instance_unique_id') {
-				//print $conf->file->instance_unique_id;
-				global $dolibarr_main_cookie_cryptkey, $dolibarr_main_instance_unique_id;
-				$valuetoshow = $dolibarr_main_instance_unique_id ? $dolibarr_main_instance_unique_id : $dolibarr_main_cookie_cryptkey; // Use $dolibarr_main_instance_unique_id first then $dolibarr_main_cookie_cryptkey
+				$valuetoshow = $conf->file->instance_unique_id;
+				// $conf->file->instance_unique_id is defined into master.inc.php with:
+				// empty($dolibarr_main_instance_unique_id) ? (empty($dolibarr_main_cookie_cryptkey) ? '' : $dolibarr_main_cookie_cryptkey) : $dolibarr_main_instance_unique_id
+
 				if (empty($dolibarr_main_prod)) {
-					print '<!-- '.${$newkey}.' -->';
+					print '<!-- '.$valuetoshow.' (this will not be visible if $dolibarr_main_prod = 1 -->';
 					print showValueWithClipboardCPButton($valuetoshow, 0, '********');
+					print ' &nbsp; &nbsp; <span class="opacitymedium">'.$langs->trans("ThisValueCanBeReadBecauseInstanceIsNotInProductionMode").'</span>';
 				} else {
 					print '**********';
+					print ' &nbsp; &nbsp; <span class="opacitymedium">'.$langs->trans("SeeConfFile").'</span>';
 				}
 				if (empty($valuetoshow)) {
 					print img_warning("EditConfigFileToAddEntry", 'dolibarr_main_instance_unique_id');
 				}
 				print '</td></tr>';
-				print '<tr class="oddeven"><td></td><td>&nbsp; => '.$langs->trans("HashForPing").'</td><td>'.md5('dolibarr'.$valuetoshow).'</td></tr>'."\n";
+
+				$algo = 'sha256';
+				$hash_unique_id = getHashUniqueIdOfRegistration($algo);
+
+				print '<tr class="oddeven"><td></td><td>&nbsp;<span title="Hash calculated with dol_hash(dolibarr.$dolibarr_main_instance_unique_id[.entity], sha256)"> => '.$langs->trans("HashForPing").'</span></td><td>'.$hash_unique_id.'</td></tr>'."\n";
 			} elseif ($newkey == 'dolibarr_main_prod') {
 				print ${$newkey};
 
@@ -444,7 +563,7 @@ foreach ($configfileparameters as $key => $value) {
 				if (empty($valuetoshow)) {
 					print img_warning($langs->trans('SwitchThisForABetterSecurity', 1));
 				}
-			} elseif ($newkey == 'dolibarr_nocsrfcheck') {
+			} elseif ($newkey == 'dolibarr_nocsrfcheck' || $newkey == 'dolibarr_main_disable_totp') {
 				print ${$newkey};
 
 				$valuetoshow = ${$newkey};
@@ -459,7 +578,7 @@ foreach ($configfileparameters as $key => $value) {
 					print img_warning($langs->trans('ReadOnlyMode', 1));
 				}
 			} else {
-				print (empty(${$newkey}) ? '' : ${$newkey});
+				print(empty(${$newkey}) ? '' : ${$newkey});
 			}
 			if ($newkey == 'dolibarr_main_url_root' && ${$newkey} != DOL_MAIN_URL_ROOT) {
 				print ' (currently overwritten by autodetected value: '.DOL_MAIN_URL_ROOT.')';
@@ -481,8 +600,9 @@ print '<div class="div-table-responsive-no-min">';
 print '<table class="noborder">';
 print '<tr class="liste_titre">';
 print '<td class="titlefield">'.$langs->trans("Parameters").' '.$langs->trans("Database").'</td>';
-print '<td>'.$langs->trans("Value").'</td>';
-if (empty($conf->multicompany->enabled) || !$user->entity) {
+print '<td></td>';
+print '<td class="center width="120px"">'.$langs->trans("DateModificationShort").'</td>';
+if (!isModEnabled('multicompany') || !$user->entity) {
 	print '<td class="center width="80px"">'.$langs->trans("Entity").'</td>'; // If superadmin or multicompany disabled
 }
 print "</tr>\n";
@@ -493,15 +613,16 @@ $sql .= ", ".$db->decrypt('name')." as name";
 $sql .= ", ".$db->decrypt('value')." as value";
 $sql .= ", type";
 $sql .= ", note";
+$sql .= ", tms";
 $sql .= ", entity";
 $sql .= " FROM ".MAIN_DB_PREFIX."const";
-if (empty($conf->multicompany->enabled)) {
+if (!isModEnabled('multicompany')) {
 	// If no multicompany mode, admins can see global and their constantes
-	$sql .= " WHERE entity IN (0,".$conf->entity.")";
+	$sql .= " WHERE entity IN (0,".((int) $conf->entity).")";
 } else {
 	// If multicompany mode, superadmin (user->entity=0) can see everything, admin are limited to their entities.
 	if ($user->entity) {
-		$sql .= " WHERE entity IN (".$db->sanitize($user->entity.",".$conf->entity).")";
+		$sql .= " WHERE entity IN (".$db->sanitize($user->entity.",".((int) $conf->entity)).")";
 	}
 }
 $sql .= " ORDER BY entity, name ASC";
@@ -525,7 +646,8 @@ if ($resql) {
 			print dol_escape_htmltag($obj->value);
 		}
 		print '</td>'."\n";
-		if (empty($conf->multicompany->enabled) || !$user->entity) {
+		print '<td class="nowraponall center">'.dol_print_date($db->jdate($obj->tms), 'dayhour').'</td>'."\n";
+		if (!isModEnabled('multicompany') || !$user->entity) {
 			print '<td class="center" width="80px">'.$obj->entity.'</td>'."\n"; // If superadmin or multicompany disabled
 		}
 		print "</tr>\n";

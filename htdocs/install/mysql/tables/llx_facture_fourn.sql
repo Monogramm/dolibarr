@@ -3,7 +3,7 @@
 -- Copyright (C) 2007-2017  Laurent Destailleur     <eldy@users.sourceforge.net>
 -- Copyright (C) 2007-2012  Regis Houssin           <regis.houssin@inodbox.com>
 -- Copyright (C) 2010       Juanjo Menent           <jmenent@2byte.es>
--- Copyright (C) 2021       Alexandre Spangaro      <aspangaro@open-dsi.fr>
+-- Copyright (C) 2021-2023  Alexandre Spangaro      <aspangaro@open-dsi.fr>
 --
 -- This program is free software; you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -30,8 +30,9 @@ create table llx_facture_fourn
   ref_ext				varchar(255),                  -- reference into an external system (not used by dolibarr)
 
   type					smallint DEFAULT 0 NOT NULL,
+  subtype				smallint DEFAULT NULL,					-- subtype of invoice (some countries need a subtype to classify invoices)
   fk_soc				integer NOT NULL,
-  
+
   datec					datetime,                      -- date de creation de la facture
   datef					date,                          -- date invoice
   date_pointoftax		date DEFAULT NULL,			   -- date point of tax (for GB)
@@ -44,14 +45,18 @@ create table llx_facture_fourn
   remise				double(24,8)     DEFAULT 0,
 
   close_code			varchar(16),		              -- Code motif cloture sans paiement complet
+  close_missing_amount	double(24,8),					  -- TODO Amount missing when closing with a not complete payment
   close_note			varchar(128),		              -- Commentaire cloture sans paiement complet
 
-  tva					double(24,8)     DEFAULT 0,
+  vat_reverse_charge    tinyint          DEFAULT 0,	      -- By default, supplier invoice not concerned by vat reverse charge
+
+  tva					double(24,8)     DEFAULT 0,				-- deprecated
+
+  total_tva				double(24,8)     DEFAULT 0,
   localtax1				double(24,8)     DEFAULT 0,
   localtax2				double(24,8)     DEFAULT 0,
-  total					double(24,8)     DEFAULT 0,
+  revenuestamp          double(24,8)     DEFAULT 0,				-- amount total revenuestamp
   total_ht				double(24,8)     DEFAULT 0,
-  total_tva				double(24,8)     DEFAULT 0,
   total_ttc				double(24,8)     DEFAULT 0,
 
   fk_statut				smallint DEFAULT 0 NOT NULL,
@@ -70,6 +75,10 @@ create table llx_facture_fourn
   fk_mode_reglement		integer,                	   -- mode de reglement (CHQ, VIR, ...)
   date_lim_reglement 	date,                          -- date limite de reglement
 
+  payment_reference     varchar(35),                    -- SEPA and any other national or custom payment id (use case for this field is not clear)
+  fk_thirdparty_rib_id	integer NULL,					-- ID of thirdparty payment mode in llx_societe_rib
+  dispute_status		integer DEFAULT 0,				-- set to 1 if a dispute on a payment of invoice is open
+
   note_private			text,
   note_public			text,
   fk_incoterms          integer,						-- for incoterms
@@ -82,7 +91,7 @@ create table llx_facture_fourn
 
   import_key			varchar(14),
   extraparams			varchar(255),					-- for stock other parameters with json format
-  
+
   fk_multicurrency		integer,
   multicurrency_code			varchar(3),
   multicurrency_tx			double(24,8) DEFAULT 1,

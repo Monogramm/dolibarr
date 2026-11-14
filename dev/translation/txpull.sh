@@ -7,8 +7,11 @@
 # Usage: txpull.sh (all|xx_XX) [-r dolibarr.file] [-f]
 #------------------------------------------------------
 
+# shellcheck disable=2006,2044,2086,2164,2268
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-cd $DIR/../..
+ROOT="$( cd $DIR/../.. >/dev/null 2>&1 && pwd )"
+cd $ROOT
 
 # Syntax
 if [ "x$1" = "x" ]
@@ -33,24 +36,24 @@ if [ "x$1" = "xall" ]
 then
 	if [ "x$2" = "x" ]
 	then
-	    echo "tx pull -a"
-	    tx pull -a
-	    
-	    echo "Remove some language directories (not enough translated)"
-	    rm -fr htdocs/langs/ach
-	    rm -fr htdocs/langs/br_FR
-	    rm -fr htdocs/langs/en
-	    rm -fr htdocs/langs/frp
-	    rm -fr htdocs/langs/fy_NL
-	    
+		echo "tx pull -a"
+		tx pull -a
+
+		echo "Remove some language directories (not enough translated) like ach, br_FR, en, frp, fy_NL, ..."
+		rm -fr htdocs/langs/ach
+		rm -fr htdocs/langs/br_FR
+		rm -fr htdocs/langs/en
+		rm -fr htdocs/langs/frp
+		rm -fr htdocs/langs/fy_NL
+
 	else
 		for dir in `find htdocs/langs/* -type d`
 		do
-		    fic=`basename $dir`
-		    if [ $fic != "en_US" ]
-		    then
-			    echo "tx pull -l $fic $2 $3"
-			    tx pull -l $fic $2 $3
+			fic=`basename $dir`
+			if [ $fic != "en_US" ]
+			then
+				echo "tx pull -l $fic $2 $3"
+				tx pull -l $fic $2 $3
 			fi
 		done
 	fi
@@ -60,7 +63,26 @@ else
 	tx pull -l $1 $2 $3 $4 $5
 fi
 
-echo Think to launch also: 
-echo "> dev/tools/fixaltlanguages.sh fix all"
-echo "For v11: Replace also regex \(.*(sponge|cornas|eratosthene|cyan).*\) with '' on *.lang files"
+# Remove the entries a translator broke by translating the content of a 'notranslate' tag.
+# Such an entry makes the test LangTest::testLang fail, so better drop it now than push it and
+# redden every open pull request. The key then falls back to its en_US value until the
+# translation is fixed into Transifex, and the link to fix it is printed for each entry.
+# The language and the file are the ones that were just pulled: -r dolibarr.other means other.lang.
+langtoreview="$1"
+filetoreview="all"
+previous=""
+for arg in "$@"
+do
+	if [ "x$previous" = "x-r" ]
+	then
+		filetoreview="${arg#dolibarr.}.lang"
+	fi
+	previous="$arg"
+done
 
+cd $ROOT
+php dev/translation/fix_notranslate.php $langtoreview $filetoreview
+
+echo Think to launch also:
+echo "> dev/tools/fixaltlanguages.sh fix all"
+#echo "For v11: Replace also regex \(.*(sponge|cornas|eratosthene|cyan).*\) with '' on *.lang files"

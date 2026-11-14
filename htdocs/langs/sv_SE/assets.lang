@@ -1,67 +1,150 @@
-# Copyright (C) 2018      Alexandre Spangaro   <aspangaro@open-dsi.fr>
+# Copyright (C) 2018-2022  Alexandre Spangaro   <aspangaro@open-dsi.fr>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#
 # Generic
-#
-Assets = Tillgångar
-NewAsset = Ny tillgång
-AccountancyCodeAsset = Redovisningskod (tillgång)
-AccountancyCodeDepreciationAsset = Redovisningskod (avskrivningstillgångskonto)
-AccountancyCodeDepreciationExpense = Redovisningskod (avskrivningskostnadskonto)
-NewAssetType=Ny tillgångstyp
-AssetsTypeSetup=Inställning av tillgångstyp
-AssetTypeModified=Asset typ modifierad
-AssetType=Tillgångstyp
-AssetsLines=Tillgångar
-DeleteType=Radera
-DeleteAnAssetType=Ta bort en tillgångstyp
-ConfirmDeleteAssetType=Är du säker på att du vill ta bort denna tillgångstyp?
-ShowTypeCard=Visa typ '%s'
-
-# Module label 'ModuleAssetsName'
-ModuleAssetsName = Tillgångar
-# Module description 'ModuleAssetsDesc'
-ModuleAssetsDesc = Tillgångsbeskrivning
-
-#
-# Admin page
-#
-AssetsSetup = Inställning av tillgångar
-Settings = inställningar
-AssetsSetupPage = Inställningssidan för tillgångar
-ExtraFieldsAssetsType = Kompletterande attribut (tillgångstyp)
-AssetsType=Tillgångstyp
-AssetsTypeId=Tillgångstyp id
-AssetsTypeLabel=Typ av tillgångstyp
-AssetsTypes=Tillgångstyper
-
-#
-# Menu
-#
-MenuAssets = Tillgångar
-MenuNewAsset = Ny tillgång
-MenuTypeAssets = Skriv tillgångar
-MenuListAssets = Lista
-MenuNewTypeAssets = Ny
-MenuListTypeAssets = Lista
-
-#
-# Module
-#
-Asset=Tillgång
-NewAssetType=Ny tillgångstyp
 NewAsset=Ny tillgång
-ConfirmDeleteAsset=Är du säker på att du vill ta bort denna tillgång?
+AccountancyCodeAsset=Redovisningskod (tillgång)
+AccountancyCodeDepreciationAsset=Redovisningskod (avskrivningstillgångskonto)
+AccountancyCodeDepreciationExpense=Redovisningskod (avskrivningskostnadskonto)
+AssetsLines=Tillgångar
+ConfirmValidateAsset=Är du säker på att du vill validera den här tillgången med referensen <b>%s</b>?
+DeleteAnAssetType=Ta bort en tillgångsmodell
+ConfirmDeleteAssetType=Är du säker på att du vill ta bort den här tillgångsmodellen?
+# Module label 'ModuleAssetsName'
+ModuleAssetsName=Tillgångar
+# Module description 'ModuleAssetsDesc'
+ModuleAssetsDesc=Tillgångsbeskrivning
+# Admin page
+AssetSetup=Inställning av tillgångar
+AssetSetupPage=Inställningssida för tillgångar
+ExtraFieldsAssetModel=Additionnal fields (Asset's model)
+AssetsType=Tillgångsmodell
+AssetsTypeId=Tillgångsmodell-id
+AssetsTypeLabel=Tillgångsmodelletikett
+AssetsTypes=Tillgångsmodeller
+ASSET_ACCOUNTANCY_CATEGORY=Redovisningsgrupp för anläggningstillgångar
+ASSET_DEPRECIATION_DURATION_PER_YEAR=Proportionell period i dagar för beräkning av amortering över ett år
+ASSET_DEPRECIATION_DAY_COUNT_CONVENTION=Day count convention of the prorata temporis
+ASSET_DEPRECIATION_DAY_COUNT_CONVENTIONTooltip=How the depreciation of a <b>partial</b> period is computed, which means the first and the last year of an asset. A full annuity is always the value divided by the duration and is never impacted by this setting.<br><br>A convention defines <b>both</b> how the days of the period are counted <b>and</b> by how many days a full year is divided. The two must always match: counting real calendar days and dividing them by 360 overestimates every partial period by about 1.39 percent.<br><br><b>30/360</b>: every month counts 30 days and every year 360 days. The convention applied by most accounting firms in France.<br><b>Real days / 365</b>: real calendar days of the period, divided by 365.<br><b>Real days / real year</b>: real calendar days, each year divided by its own real length, 365 or 366. The most accurate on a period covering a leap day.<br><br>Example on an asset of 13000 depreciated over 5 years, put in service on March 10th and sold on February 23rd of the fourth year, fiscal years running from August to July. Cumulated depreciation at the disposal: 7684.44 with 30/360, 7700.27 with real days / 365, 7697.29 with real days / real year.<br><br><b>Warning</b>: changing this setting does not recompute the plans already generated. Save the depreciation options of an asset again to regenerate its plan.
+AssetDayCountConventionThirty360=30/360 - every month counts 30 days, every year 360 days (usual in France)
+AssetDayCountConventionAct365=Real days / 365 - real calendar days divided by 365
+AssetDayCountConventionActAct=Real days / real year - real calendar days, each year divided by its own length (365 or 366)
+# Menu
+MenuAssets=Tillgångar
+MenuNewAsset=Ny tillgång
+MenuAssetModels=Modelltillgångar
+MenuListAssets=Lista
+MenuNewAssetModel=Ny tillgångsmodell
+MenuListAssetModels=Lista
+# Module
+ConfirmDeleteAsset=Vill du verkligen ta bort den här tillgången?
+# Tab
+AssetDepreciationOptions=Avskrivningsmöjligheter
+AssetAccountancyCodes=Redovisningskonton
+AssetDepreciation=Avskrivning
+# Asset
+Asset=Tillgång
+Assets=Tillgångar
+AssetReversalAmountHT=Återföringsbelopp (utan skatter)
+AssetAcquisitionValueHT=Förvärvsbelopp (utan skatter)
+AssetRecoveredVAT=Återförd moms
+AssetReversalDate=Återföringsdatum
+AssetDateAcquisition=Förvärvsdatum
+AssetDateStart=Datum för uppstart
+AssetAcquisitionType=Typ av förvärv
+AssetAcquisitionTypeNew=Ny
+AssetAcquisitionTypeOccasion=Använd
+AssetType=Typ av tillgång
+AssetTypeIntangible=Immateriella
+AssetTypeTangible=Materiella
+AssetTypeInProgress=Pågående
+AssetTypeFinancial=Finansiell
+AssetNotDepreciated=Ej avskriven
+AssetDisposal=Förfogande
+AssetConfirmDisposalAsk=Är du säker på att du vill göra dig av med tillgången <b> %s </b>?
+AssetConfirmReOpenAsk=Är du säker på att du vill öppna tillgången <b> %s </b> igen?
+# Asset status
+AssetInDraft=Utkast
+AssetInProgress=Pågående
+AssetDisposed=Avyttrad
+AssetRecorded=Redovisad
+# Asset disposal
+AssetDisposalDate=Datum för avyttring
+AssetDisposalAmount=Avyttringsvärde
+AssetDisposalType=Typ av avyttring
+AssetDisposalDepreciated=Skriv av överföringsåret
+AssetDisposalSubjectToVat=Avyttring för moms
+# Asset model
+AssetModel=Tillgångens modell
+AssetModels=Tillgångens modeller
+# Asset depreciation options
+AssetDepreciationOptionEconomic=Ekonomisk avskrivning
+AssetDepreciationOptionAcceleratedDepreciation=Accelererad avskrivning (skatt)
+AssetDepreciationOptionDepreciationType=Typ av avskrivning
+AssetDepreciationOptionDepreciationTypeLinear=Linjär
+AssetDepreciationOptionDepreciationTypeDegressive=Degressiv
+AssetDepreciationOptionDepreciationTypeExceptional=Exceptionell
+AssetDepreciationOptionDegressiveRate=Degressiv takt
+AssetDepreciationOptionDuration=Längd
+AssetDepreciationOptionDurationType=Typ varaktighet
+AssetDepreciationOptionDurationTypeAnnual=Årlig
+AssetDepreciationOptionDurationTypeMonthly=Månatlig
+AssetDepreciationOptionDurationTypeDaily=Daglig
+AssetDepreciationOptionRate=Takt (%%)
+AssetDepreciationOptionAmountBaseDepreciationHT=Avskrivningsunderlag (exkl. moms)
+AssetDepreciationOptionAmountBaseDeductibleHT=Avdragsgill bas (exkl. moms)
+AssetDepreciationOptionTotalAmountLastDepreciationHT=Totalt belopp senaste avskrivning (exkl. moms)
+# Asset accountancy codes
+AssetAccountancyCodeDepreciationEconomic=Ekonomisk avskrivning
+AssetAccountancyCodeAsset=Tillgång
+AssetAccountancyCodeDepreciationAsset=Avskrivning
+AssetAccountancyCodeDepreciationExpense=Avskrivningar
+AssetAccountancyCodeValueAssetSold=Värdet på avyttrad tillgång
+AssetAccountancyCodeReceivableOnAssignment=Fordran vid avyttring
+AssetAccountancyCodeProceedsFromSales=Intäkter från avyttring
+AssetAccountancyCodeVatCollected=Insamlad moms
+AssetAccountancyCodeVatDeductible=Återförd moms på tillgångar
+AssetAccountancyCodeDepreciationAcceleratedDepreciation=Accelererad avskrivning (skatt)
+AssetAccountancyCodeAcceleratedDepreciation=Konto
+AssetAccountancyCodeEndowmentAcceleratedDepreciation=Avskrivningar
+AssetAccountancyCodeProvisionAcceleratedDepreciation=Återtagande/provision
+# Asset depreciation
+AssetBaseDepreciationHT=Avskrivningsunderlag (exkl. moms)
+AssetDepreciationBeginDate=Start av avskrivning den
+AssetDepreciationDuration=Längd
+AssetDepreciationRate=Takt (%%)
+AssetDepreciationDate=Avskrivningsdatum
+AssetDepreciationHT=Avskrivning (exkl. moms)
+AssetCumulativeDepreciationHT=Kumulativa avskrivningar (exkl. moms)
+AssetResidualHT=Restvärde (exkl. moms)
+AssetDispatchedInBookkeeping=Bokförda avskrivningar
+AssetFutureDepreciationLine=Framtida avskrivningar
+AssetDepreciationReversal=Återföring
+# Errors
+AssetErrorAssetOrAssetModelIDNotProvide=Id för tillgången eller den hittade modellen har inte angetts
+AssetErrorFetchAccountancyCodesForMode=Fel vid hämtning av bokföringskontona för avskrivningsläget '%s'
+AssetErrorDeleteAccountancyCodesForMode=Fel vid radering av redovisningskonton från avskrivningsläget '%s'
+AssetErrorInsertAccountancyCodesForMode=Fel vid infogning av bokföringskontona för avskrivningsläget '%s'
+AssetErrorFetchDepreciationOptionsForMode=Fel vid hämtning av alternativ för avskrivningsläget '%s'
+AssetErrorDeleteDepreciationOptionsForMode=Fel vid borttagning av "%s" alternativ för avskrivningsläge
+AssetErrorInsertDepreciationOptionsForMode=Fel vid insättning av alternativen för '%s' avskrivningsläge
+AssetErrorFetchDepreciationLines=Fel vid hämtning av registrerade avskrivningsrader
+AssetErrorClearDepreciationLines=Fel vid rensning av registrerade avskrivningsrader (återföring och framtida)
+AssetErrorAddDepreciationLine=Fel när en avskrivningsrad lades till
+AssetErrorCalculationDepreciationLines=Fel vid beräkning av avskrivningsraderna (återföring och framtid)
+AssetErrorReversalDateNotProvidedForMode=Återföringsdatumet anges inte för avskrivningsmetoden '%s'
+AssetErrorReversalDateNotGreaterThanCurrentBeginFiscalDateForMode=Återföringsdatumet måste vara senare eller från början av innevarande räkenskapsår för avskrivningsmetoden '%s'
+AssetErrorReversalAmountNotProvidedForMode=Återföringsbeloppet anges inte för avskrivningsläget '%s'.
+AssetErrorDegressiveDailyDurationForMode=A degressive depreciation needs a duration in years or in months for the depreciation mode '%s'.
+AssetErrorFetchCumulativeDepreciation=Fel vid hämtning av det ackumulerade avskrivningsbeloppet från avskrivningsraden
+AssetErrorSetLastCumulativeDepreciation=Fel vid registrering av det senaste ackumulerade avskrivningsbeloppet

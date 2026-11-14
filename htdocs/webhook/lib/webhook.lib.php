@@ -1,5 +1,7 @@
 <?php
-/* Copyright (C) 2022 SuperAdmin <test@dolibarr.com>
+/* Copyright (C) 2017 Laurent Destailleur  <eldy@users.sourceforge.net>
+ * Copyright (C) 2024-2026  Frédéric France             <frederic.france@free.fr>
+ * Copyright (C) 2024		MDW							<mdeweerd@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,7 +18,7 @@
  */
 
 /**
- * \file    webhook/lib/webhook.lib.php
+ * \file    htdocs/webhook/lib/webhook.lib.php
  * \ingroup webhook
  * \brief   Library files with common functions for Webhook
  */
@@ -24,26 +26,28 @@
 /**
  * Prepare admin pages header
  *
- * @return array
+ * @return	array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function webhookAdminPrepareHead()
 {
-	global $langs, $conf;
-
-	$langs->load("webhook@webhook");
+	global $langs, $conf, $form;
 
 	$h = 0;
 	$head = array();
-	$head[$h][0] = dol_buildpath("/admin/webhook.php", 1);
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT . '/admin/webhook.php');
 	$head[$h][1] = $langs->trans("Miscellaneous");
 	$head[$h][2] = 'settings';
 	$h++;
 
-	$head[$h][0] = dol_buildpath("/webhook/target_list.php?mode=modulesetup", 1);
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT . '/webhook/target_list.php', ['mode' => 'modulesetup']);
 	$head[$h][1] = $langs->trans("Targets");
 	$head[$h][2] = 'targets';
 	$h++;
 
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT . '/webhook/triggerhistory_list.php', ['mode' => 'modulesetup']);
+	$head[$h][1] = $form->textwithpicto($langs->trans("TriggerHistory"), $langs->trans("TriggerHistoryAltWithLog"));
+	$head[$h][2] = 'triggerhistory';
+	$h++;
 
 	/*
 	$head[$h][0] = dol_buildpath("/webhook/admin/myobject_extrafields.php", 1);
@@ -51,7 +55,6 @@ function webhookAdminPrepareHead()
 	$head[$h][2] = 'myobject_extrafields';
 	$h++;
 	*/
-
 
 
 	// Show more tabs from modules
@@ -62,9 +65,9 @@ function webhookAdminPrepareHead()
 	//$this->tabs = array(
 	//	'entity:-tabname:Title:@webhook:/webhook/mypage.php?id=__ID__'
 	//); // to remove a tab
-	complete_head_from_modules($conf, $langs, null, $head, $h, 'webhook@webhook');
+	complete_head_from_modules($conf, $langs, null, $head, $h, 'webhook');
 
-	complete_head_from_modules($conf, $langs, null, $head, $h, 'webhook@webhook', 'remove');
+	complete_head_from_modules($conf, $langs, null, $head, $h, 'webhook', 'remove');
 
 	return $head;
 }

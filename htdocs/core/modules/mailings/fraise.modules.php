@@ -1,7 +1,8 @@
 <?php
 /* Copyright (C) 2005       Laurent Destailleur     <eldy@users.sourceforge.net>
  * Copyright (C) 2005-2009  Regis Houssin           <regis.houssin@inodbox.com>
- * Copyright (C) 2018       Frédéric France         <frederic.france@netlogic.fr>
+ * Copyright (C) 2018-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,7 +22,7 @@
 /**
  * \file       htdocs/core/modules/mailings/fraise.modules.php
  * \ingroup    mailing
- * \brief      File of class to generate target according to rule Fraise
+ * \brief      Class file to generate targets according to the Fraise rule
  */
 
 include_once DOL_DOCUMENT_ROOT.'/core/modules/mailings/modules_mailings.php';
@@ -29,29 +30,34 @@ include_once DOL_DOCUMENT_ROOT.'/core/class/html.form.class.php';
 
 
 /**
- *    Class to generate target according to rule Fraise
+ *   Class to generate targets according to the Fraise rule
  */
 class mailing_fraise extends MailingTargets
 {
 	public $name = 'FundationMembers'; // Identifiant du module mailing
 	// This label is used if no translation is found for key XXX neither MailingModuleDescXXX where XXX=name is found
 	public $desc = 'Foundation members with emails';
-	// Set to 1 if selector is available for admin users only
+
+	/**
+	 * @var int <0,1> Set to 1 if selector is available for admin users only
+	 */
 	public $require_admin = 0;
 
+	/**
+	 * @var string[] This module allows to select by categories must be also enabled if category module is not activated
+	 */
 	public $require_module = array('adherent');
 
-	public $enabled = '$conf->adherent->enabled';
+	/**
+	 * @var string condition to enable module
+	 */
+	public $enabled = 'isModEnabled("member")';
 
 	/**
 	 * @var string String with name of icon for myobject. Must be the part after the 'object_' into object_myobject.png
 	 */
 	public $picto = 'user';
 
-	/**
-	 * @var DoliDB Database handler.
-	 */
-	public $db;
 
 	/**
 	 *    Constructor
@@ -65,9 +71,9 @@ class mailing_fraise extends MailingTargets
 
 
 	/**
-	 *    On the main mailing area, there is a box with statistics.
-	 *    If you want to add a line in this report you must provide an
-	 *    array of SQL request that returns two field:
+	 *    In the main mailing area, there is a box with statistics.
+	 *    If you want to add a line in this report, you must provide an
+	 *    array of SQL requests that return two fields:
 	 *    One called "label", One called "nb".
 	 *
 	 *    @return        string[]        Array with SQL requests
@@ -89,28 +95,29 @@ class mailing_fraise extends MailingTargets
 
 
 	/**
-	 *    Return here number of distinct emails returned by your selector.
+	 *    Returns the number of distinct emails returned by your selector.
 	 *    For example if this selector is used to extract 500 different
 	 *    emails from a text file, this function must return 500.
 	 *
-	 *    @param      string    	$sql        Requete sql de comptage
-	 *    @return     int|string      			Nb of recipient, or <0 if error, or '' if NA
+	 *    @param      string    	$sql        SQL query for counting
+	 *    @return     int|string      			Number of recipients, or <0 if error, or '' if N/A
 	 */
 	public function getNbOfRecipients($sql = '')
 	{
 		$sql  = "SELECT count(distinct(a.email)) as nb";
 		$sql .= " FROM ".MAIN_DB_PREFIX."adherent as a";
 		$sql .= " WHERE (a.email IS NOT NULL AND a.email != '') AND a.entity IN (".getEntity('member').")";
+		$sql .= $this->getSqlToExcludeUnsubscribed('a.email');
 
-		// La requete doit retourner un champ "nb" pour etre comprise par parent::getNbOfRecipients
+		// The query must return a field "nb" to be understood by parent::getNbOfRecipients
 		return parent::getNbOfRecipients($sql);
 	}
 
 
 	/**
-	 *   Affiche formulaire de filtre qui apparait dans page de selection des destinataires de mailings
+	 *   Displays the filter form that appears on the mailing recipient selection page
 	 *
-	 *   @return     string      Retourne zone select
+	 *   @return     string      Returns the select area
 	 */
 	public function formFilter()
 	{
@@ -127,6 +134,7 @@ class mailing_fraise extends MailingTargets
 		$s .= '<select id="filter_fraise" name="filter" class="flat">';
 		$s .= '<option value="-1">'.$langs->trans("Status").'</option>';
 		$s .= '<option value="draft">'.$langs->trans("MemberStatusDraft").'</option>';
+		$s .= '<option value="pending">'.$langs->trans("MemberStatusActiveShort").' ('.$langs->trans("WaitingSubscription").')</option>';
 		$s .= '<option value="1a">'.$langs->trans("MemberStatusActiveShort").' ('.$langs->trans("MemberStatusPaidShort").')</option>';
 		$s .= '<option value="1b">'.$langs->trans("MemberStatusActiveShort").' ('.$langs->trans("MemberStatusActiveLateShort").')</option>';
 		$s .= '<option value="0">'.$langs->trans("MemberStatusResiliatedShort").'</option>';
@@ -172,7 +180,7 @@ class mailing_fraise extends MailingTargets
 		$sql .= " FROM ".MAIN_DB_PREFIX."categorie";
 		$sql .= " WHERE type = 3"; // We keep only categories for members
 		// $sql.= " AND visible > 0";	// We ignore the property visible because member's categories does not use this property (only products categories use it).
-		$sql .= " AND entity = ".$conf->entity;
+		$sql .= " AND entity = ".((int) $conf->entity);
 		$sql .= " ORDER BY label";
 
 		//print $sql;
@@ -201,21 +209,21 @@ class mailing_fraise extends MailingTargets
 		$s .= '</select>';
 
 
-		$s .= '<br>';
+		$s .= '<br><span class="opacitymedium">';
 		$s .= $langs->trans("DateEndSubscription").': &nbsp;';
-		$s .= $langs->trans("After").' > '.$form->selectDate(-1, 'subscriptionafter', 0, 0, 1, 'fraise', 1, 0, 0);
+		$s .= $langs->trans("After").' > </span>'.$form->selectDate(-1, 'subscriptionafter', 0, 0, 1, 'fraise', 1, 0, 0);
 		$s .= ' &nbsp; ';
-		$s .= $langs->trans("Before").' < '.$form->selectDate(-1, 'subscriptionbefore', 0, 0, 1, 'fraise', 1, 0, 0);
+		$s .= '<span class="opacitymedium">'.$langs->trans("Before").' < </span>'.$form->selectDate(-1, 'subscriptionbefore', 0, 0, 1, 'fraise', 1, 0, 0);
 
 		return $s;
 	}
 
 
 	/**
-	 *  Renvoie url lien vers fiche de la source du destinataire du mailing
+	 *  Provides the URL to the card of the source information of the recipient for the mailing
 	 *
-	 *  @param    int        $id        ID
-	 *  @return     string      Url lien
+	 *  @param	int		$id		ID
+	 *  @return string      	URL link
 	 */
 	public function url($id)
 	{
@@ -225,15 +233,15 @@ class mailing_fraise extends MailingTargets
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
 	/**
-	 *  Ajoute destinataires dans table des cibles
+	 *  Adds recipients to the targets table
 	 *
 	 *  @param    int        $mailing_id        Id of emailing
-	 *  @return int                       < 0 si erreur, nb ajout si ok
+	 *  @return int                       Returns integer < 0 if error, number added if successful
 	 */
 	public function add_to_target($mailing_id)
 	{
 		// phpcs:enable
-		global $langs, $_POST;
+		global $langs;
 
 		// Load translation files required by the page
 		$langs->loadLangs(array("members", "companies"));
@@ -241,17 +249,17 @@ class mailing_fraise extends MailingTargets
 		$cibles = array();
 		$now = dol_now();
 
-		$dateendsubscriptionafter = dol_mktime(GETPOST('subscriptionafterhour', 'int'), GETPOST('subscriptionaftermin', 'int'), GETPOST('subscriptionaftersec', 'int'), GETPOST('subscriptionaftermonth', 'int'), GETPOST('subscriptionafterday', 'int'), GETPOST('subscriptionafteryear', 'int'));
-		$dateendsubscriptionbefore = dol_mktime(GETPOST('subscriptionbeforehour', 'int'), GETPOST('subscriptionbeforemin', 'int'), GETPOST('subscriptionbeforesec', 'int'), GETPOST('subscriptionbeforemonth', 'int'), GETPOST('subscriptionbeforeday', 'int'), GETPOST('subscriptionbeforeyear', 'int'));
+		$dateendsubscriptionafter = dol_mktime(GETPOSTINT('subscriptionafterhour'), GETPOSTINT('subscriptionaftermin'), GETPOSTINT('subscriptionaftersec'), GETPOSTINT('subscriptionaftermonth'), GETPOSTINT('subscriptionafterday'), GETPOSTINT('subscriptionafteryear'));
+		$dateendsubscriptionbefore = dol_mktime(GETPOSTINT('subscriptionbeforehour'), GETPOSTINT('subscriptionbeforemin'), GETPOSTINT('subscriptionbeforesec'), GETPOSTINT('subscriptionbeforemonth'), GETPOSTINT('subscriptionbeforeday'), GETPOSTINT('subscriptionbeforeyear'));
 
-		// La requete doit retourner: id, email, fk_contact, name, firstname
+		// The query must return: id, email, fk_contact, name, firstname
 		$sql = "SELECT a.rowid as id, a.email as email, null as fk_contact, ";
 		$sql .= " a.lastname, a.firstname,";
 		$sql .= " a.datefin, a.civility as civility_id, a.login, a.societe"; // Other fields
 		$sql .= " FROM ".MAIN_DB_PREFIX."adherent as a";
-		if (GETPOST('filter_category', 'int') > 0) {
+		if (GETPOSTINT('filter_category') > 0) {
 			$sql .= " INNER JOIN ".MAIN_DB_PREFIX."categorie_member as cm ON cm.fk_member = a.rowid";
-			$sql .= " INNER JOIN ".MAIN_DB_PREFIX."categorie as c ON c.rowid = cm.fk_categorie AND c.rowid = ".((int) GETPOST('filter_category', 'int'));
+			$sql .= " INNER JOIN ".MAIN_DB_PREFIX."categorie as c ON c.rowid = cm.fk_categorie AND c.rowid = ".(GETPOSTINT('filter_category'));
 		}
 		$sql .= " , ".MAIN_DB_PREFIX."adherent_type as ta";
 		$sql .= " WHERE a.entity IN (".getEntity('member').") AND a.email <> ''"; // Note that null != '' is false
@@ -259,10 +267,13 @@ class mailing_fraise extends MailingTargets
 		// Filter on status
 		if (GETPOST("filter", 'aZ09') == 'draft') {
 			$sql .= " AND a.statut = -1";
+		} elseif (GETPOST("filter", 'aZ09') == 'pending') {
+			// Validated member whose type requires a subscription, but none was ever recorded
+			$sql .= " AND a.statut = 1 AND a.datefin IS NULL AND ta.subscription = 1";
 		} elseif (GETPOST("filter", 'aZ09') == '1a') {
 			$sql .= " AND a.statut=1 AND (a.datefin >= '".$this->db->idate($now)."' OR ta.subscription = 0)";
 		} elseif (GETPOST("filter", 'aZ09') == '1b') {
-			$sql .= " AND a.statut=1 AND ((a.datefin IS NULL or a.datefin < '".$this->db->idate($now)."') AND ta.subscription = 1)";
+			$sql .= " AND a.statut=1 AND a.datefin IS NOT NULL AND a.datefin < '".$this->db->idate($now)."' AND ta.subscription = 1";
 		} elseif (GETPOST("filter", 'aZ09') === '0') {
 			$sql .= " AND a.statut=0";
 		}
@@ -275,9 +286,10 @@ class mailing_fraise extends MailingTargets
 		}
 		$sql .= " AND a.fk_adherent_type = ta.rowid";
 		// Filter on type
-		if (GETPOST('filter_type', 'int') > 0) {
-			$sql .= " AND ta.rowid = ".((int) GETPOST('filter_type', 'int'));
+		if (GETPOSTINT('filter_type') > 0) {
+			$sql .= " AND ta.rowid = ".(GETPOSTINT('filter_type'));
 		}
+		$sql .= $this->getSqlToExcludeUnsubscribed('a.email');
 		$sql .= " ORDER BY a.email";
 		//print $sql;
 
@@ -294,10 +306,10 @@ class mailing_fraise extends MailingTargets
 			$old = '';
 			while ($i < $num) {
 				$obj = $this->db->fetch_object($result);
-				if ($old <> $obj->email) {
+				if ($old != $obj->email) {
 					$cibles[$j] = array(
 								'email' => $obj->email,
-								'fk_contact' => $obj->fk_contact,
+								'fk_contact' => (int) $obj->fk_contact,
 								'lastname' => $obj->lastname,
 								'firstname' => $obj->firstname,
 								'other' =>
@@ -306,7 +318,7 @@ class mailing_fraise extends MailingTargets
 								($langs->transnoentities("DateEnd").'='.dol_print_date($this->db->jdate($obj->datefin), 'day')).';'.
 								($langs->transnoentities("Company").'='.$obj->societe),
 								'source_url' => $this->url($obj->id),
-								'source_id' => $obj->id,
+								'source_id' => (int) $obj->id,
 								'source_type' => 'member'
 					);
 					$old = $obj->email;

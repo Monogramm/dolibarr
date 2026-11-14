@@ -1,5 +1,6 @@
 <?php
 /* Copyright (C) 2019-2020 AXeL-dev <contact.axel.dev@gmail.com>
+ * Copyright (C) 2026       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,7 +32,6 @@ include_once DOL_DOCUMENT_ROOT.'/core/modules/DolibarrModules.class.php';
  */
 class modDebugBar extends DolibarrModules
 {
-
 	/**
 	 *   Constructor. Define names, constants, directories, boxes, permissions
 	 *
@@ -50,7 +50,7 @@ class modDebugBar extends DolibarrModules
 
 		// Module label (no space allowed), used if translation string 'ModuleXXXName' not found (where XXX is value of numeric property 'numero' of module)
 		$this->name = preg_replace('/^mod/i', '', get_class($this));
-		$this->description = "A tool for developper adding a debug bar in your browser.";
+		$this->description = "A tool for developer adding a debug bar in your browser.";
 		// Possible values for version are: 'development', 'experimental', 'dolibarr' or version
 		$this->version = 'dolibarr';
 		$this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
@@ -79,10 +79,10 @@ class modDebugBar extends DolibarrModules
 		// Permissions
 		$this->rights = array();
 
-		$this->rights[1][0] = 431; // id de la permission
-		$this->rights[1][1] = 'Use Debug Bar'; // libelle de la permission
-		$this->rights[1][2] = 'u'; // type de la permission (deprecie a ce jour)
-		$this->rights[1][3] = 1; // La permission est-elle une permission par defaut
+		$this->rights[1][0] = 431; // Permission id (must not be already used)
+		$this->rights[1][1] = 'Use Debug Bar'; // Permission label
+		$this->rights[1][2] = 'u'; // Permission type (deprecated)
+		$this->rights[1][3] = 0; // Permission by default for new user (0/1)
 		$this->rights[1][4] = 'read';
 	}
 

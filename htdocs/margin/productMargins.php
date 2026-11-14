@@ -2,6 +2,8 @@
 /* Copyright (C) 2012-2013	Christophe Battarel	<christophe.battarel@altairis.fr>
  * Copyright (C) 2014		Ferran Marcet		<fmarcet@2byte.es>
  * Copyright (C) 2020		Alexandre Spangaro	<aspangaro@open-dsi.fr>
+ * Copyright (C) 2024-2025  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2025-2026	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,39 +25,38 @@
  *	\brief      Page des marges par produit
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 require_once DOL_DOCUMENT_ROOT.'/margin/lib/margins.lib.php';
 
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
+
 // Load translation files required by the page
 $langs->loadLangs(array('companies', 'bills', 'products', 'margins'));
 
-$id = GETPOST('id', 'int');
+$id = GETPOSTINT('id');
 $ref = GETPOST('ref', 'alpha');
 $action = GETPOST('action', 'aZ09');
 $confirm = GETPOST('confirm', 'alpha');
-$TSelectedCats = GETPOST('categories', 'array');
-
-// Security check
-$fieldvalue = (!empty($id) ? $id : (!empty($ref) ? $ref : ''));
-$fieldtype = (!empty($ref) ? 'ref' : 'rowid');
-if (!empty($user->socid)) {
-	$socid = $user->socid;
-}
-$result = restrictedArea($user, 'produit|service', $fieldvalue, 'product&product', '', '', $fieldtype);
-if (empty($user->rights->margins->liretous)) {
-	accessforbidden();
-}
+$TSelectedCats = GETPOST('categories', 'array:int');
+$socid = 0;
 
 $mesg = '';
 
 // Load variable for pagination
-$limit = GETPOST('limit', 'int') ?GETPOST('limit', 'int') : $conf->liste_limit;
+$limit = GETPOSTINT('limit') ? GETPOSTINT('limit') : $conf->liste_limit;
 $sortfield = GETPOST('sortfield', 'aZ09comma');
 $sortorder = GETPOST('sortorder', 'aZ09comma');
-$page = GETPOSTISSET('pageplusone') ? (GETPOST('pageplusone') - 1) : GETPOST("page", 'int');
+$page = GETPOSTISSET('pageplusone') ? (GETPOSTINT('pageplusone') - 1) : GETPOSTINT("page");
 if (empty($page) || $page == -1) {
 	$page = 0;
 }     // If $page is not defined, or '' or -1
@@ -73,17 +74,28 @@ if (!$sortfield) {
 }
 
 $startdate = $enddate = '';
-
-if (!empty($_POST['startdatemonth'])) {
-	$startdate = dol_mktime(0, 0, 0, $_POST['startdatemonth'], $_POST['startdateday'], $_POST['startdateyear']);
+if (GETPOST('startdatemonth')) {
+	$startdate = dol_mktime(0, 0, 0, GETPOSTINT('startdatemonth'), GETPOSTINT('startdateday'), GETPOSTINT('startdateyear'));
 }
-if (!empty($_POST['enddatemonth'])) {
-	$enddate = dol_mktime(23, 59, 59, $_POST['enddatemonth'], $_POST['enddateday'], $_POST['enddateyear']);
+if (GETPOST('enddatemonth')) {
+	$enddate = dol_mktime(23, 59, 59, GETPOSTINT('enddatemonth'), GETPOSTINT('enddateday'), GETPOSTINT('enddateyear'));
 }
 
-// Initialize technical object to manage hooks of page. Note that conf->hooks_modules contains array of hook context
+// Initialize a technical object to manage hooks of page. Note that conf->hooks_modules contains an array of hook context
 $object = new Product($db);
 $hookmanager->initHooks(array('marginproductlist'));
+
+// Security check
+$fieldvalue = (!empty($id) ? $id : (!empty($ref) ? $ref : ''));
+$fieldtype = (!empty($ref) ? 'ref' : 'rowid');
+if (!empty($user->socid)) {
+	$socid = $user->socid;
+}
+$result = restrictedArea($user, 'produit|service', $fieldvalue, 'product&product', '', '', $fieldtype);
+if (!$user->hasRight('margins', 'liretous')) {
+	accessforbidden();
+}
+
 
 /*
  * View
@@ -94,13 +106,14 @@ $invoicestatic = new Facture($db);
 
 $form = new Form($db);
 
-llxHeader('', $langs->trans("Margins").' - '.$langs->trans("Products"));
+llxHeader('', $langs->trans("Margins").' - '.$langs->trans("Products"), '', '', 0, 0, '', '', '', 'mod-margin page-productmargins');
 
 $text = $langs->trans("Margins");
 //print load_fiche_titre($text);
 
 // Show tabs
-$head = marges_prepare_head($user);
+$head = marges_prepare_head();
+
 $titre = $langs->trans("Margins");
 $picto = 'margin';
 
@@ -114,16 +127,16 @@ print '<table class="border centpercent">';
 // Product
 print '<tr><td class="titlefield">'.$langs->trans('ProductOrService').'</td>';
 print '<td class="maxwidthonsmartphone" colspan="4">';
-print img_picto('', 'product').$form->select_produits(($id > 0 ? $id : ''), 'id', '', 20, 0, 1, 2, '', 1, array(), 0, 'All', 0, '', 0, '', null, 1);
+print img_picto('', 'product', 'class="pictofixedwidth"').$form->select_produits(($id > 0 ? $id : ''), 'id', '', 20, 0, 1, 2, '', 1, array(), 0, 1, 0, '', 0, '', null, 1);
 print '</td></tr>';
 
 // Categories
-$TCats = $form->select_all_categories(0, array(), '', 64, 0, 1);
+$TCats = $form->select_all_categories('product', 0, '', 64, 0, 3);
 
 print '<tr>';
 print '<td class="titlefield">'.$langs->trans('Category').'</td>';
 print '<td class="maxwidthonsmartphone" colspan="4">';
-print img_picto('', 'category').$form->multiselectarray('categories', $TCats, $TSelectedCats, 0, 0, 'quatrevingtpercent widthcentpercentminusx');
+print img_picto('', 'category', 'class="pictofixedwidth"').$form->multiselectarray('categories', $TCats, $TSelectedCats, 0, 0, 'quatrevingtpercent widthcentpercentminusx');
 print '</td>';
 print '</tr>';
 
@@ -131,11 +144,11 @@ print '</tr>';
 print '<tr>';
 print '<td class="titlefield">'.$langs->trans('DateStart').' ('.$langs->trans("DateValidation").')</td>';
 print '<td>';
-print $form->selectDate($startdate, 'startdate', '', '', 1, "sel", 1, 1);
+print img_picto('', 'agenda', 'class="pictofixedwidth"').$form->selectDate($startdate, 'startdate', 0, 0, 1, "sel", 1, 1);
 print '</td>';
 print '<td>'.$langs->trans('DateEnd').' ('.$langs->trans("DateValidation").')</td>';
 print '<td>';
-print $form->selectDate($enddate, 'enddate', '', '', 1, "sel", 1, 1);
+print img_picto('', 'agenda', 'class="pictofixedwidth"').$form->selectDate($enddate, 'enddate', 0, 0, 1, "sel", 1, 1);
 print '</td>';
 print '<td style="text-align: center;">';
 print '<input type="submit" class="button" value="'.dol_escape_htmltag($langs->trans('Refresh')).'" />';
@@ -149,18 +162,18 @@ print '<table class="border centpercent">';
 
 // Total Margin
 print '<tr><td class="titlefield">'.$langs->trans("TotalMargin").'</td><td colspan="4">';
-print '<span id="totalMargin"></span>'; // set by jquery (see below)
+print '<span id="totalMargin" class="amount"></span> <span class="amount">'.$langs->getCurrencySymbol(getDolCurrency()).'</span>'; // set by jquery (see below)
 print '</td></tr>';
 
 // Margin Rate
-if (!empty($conf->global->DISPLAY_MARGIN_RATES)) {
+if (getDolGlobalString('DISPLAY_MARGIN_RATES')) {
 	print '<tr><td>'.$langs->trans("MarginRate").'</td><td colspan="4">';
 	print '<span id="marginRate"></span>'; // set by jquery (see below)
 	print '</td></tr>';
 }
 
 // Mark Rate
-if (!empty($conf->global->DISPLAY_MARK_RATES)) {
+if (getDolGlobalString('DISPLAY_MARK_RATES')) {
 	print '<tr><td>'.$langs->trans("MarkRate").'</td><td colspan="4">';
 	print '<span id="markRate"></span>'; // set by jquery (see below)
 	print '</td></tr>';
@@ -181,15 +194,30 @@ if ($id > 0) {
 if ($id > 0) {
 	$sql .= " f.rowid as facid, f.ref, f.total_ht, f.datef, f.paye, f.fk_statut as statut,";
 }
-$sql .= " SUM(d.total_ht) as selling_price,";
-// Note: qty and buy_price_ht is always positive (if not your database may be corrupted, you can update this)
-$sql .= " SUM(d.qty) as product_qty,";
-$sql .= " SUM(".$db->ifsql('d.total_ht < 0', 'd.qty * d.buy_price_ht * -1 * (d.situation_percent / 100)', 'd.qty * d.buy_price_ht * (d.situation_percent / 100)').") as buying_price,";
-$sql .= " SUM(".$db->ifsql('d.total_ht < 0', '-1 * (abs(d.total_ht) - (d.buy_price_ht * d.qty * (d.situation_percent / 100)))', 'd.total_ht - (d.buy_price_ht * d.qty * (d.situation_percent / 100))').") as marge";
+// Special case for old situation mode: total_ht is stored cumulatively, use delta percent to avoid cumulating margins
+if (getDolGlobalInt('INVOICE_USE_SITUATION') == 1) {
+	$sql_delta_pct = 'CASE WHEN f.type = '.Facture::TYPE_SITUATION.' AND d.situation_percent > 0 THEN (d.situation_percent - COALESCE(prev_d.situation_percent, 0)) ELSE d.situation_percent END';
+	$sql_delta_ht = 'CASE WHEN f.type = '.Facture::TYPE_SITUATION.' AND d.situation_percent > 0 THEN d.total_ht * ((d.situation_percent - COALESCE(prev_d.situation_percent, 0)) / d.situation_percent) ELSE d.total_ht END';
+	$sql .= " SUM($sql_delta_ht) as selling_price,";
+	$sql .= " SUM(d.qty) as product_qty,";
+	// Note: qty and buy_price_ht is always positive (if not your database may be corrupted, you can update this)
+	$sql .= " SUM(".$db->ifsql('(d.total_ht < 0 OR (d.total_ht = 0 AND f.type = 2))', "-1 * d.qty * d.buy_price_ht * ($sql_delta_pct / 100)", "d.qty * d.buy_price_ht * ($sql_delta_pct / 100)").") as buying_price,";
+	$sql .= " SUM(".$db->ifsql('(d.total_ht < 0 OR (d.total_ht = 0 AND f.type = 2))', "-1 * (abs($sql_delta_ht) - (d.buy_price_ht * d.qty * ($sql_delta_pct / 100)))", "$sql_delta_ht - (d.buy_price_ht * d.qty * ($sql_delta_pct / 100))").") as marge";
+} else {
+	$sql .= " SUM(d.total_ht) as selling_price,";
+	$sql .= " SUM(d.qty) as product_qty,";
+	// Note: qty and buy_price_ht is always positive (if not your database may be corrupted, you can update this)
+	$sql .= " SUM(".$db->ifsql('(d.total_ht < 0 OR (d.total_ht = 0 AND f.type = 2))', '-1 * d.qty * d.buy_price_ht * (d.situation_percent / 100)', 'd.qty * d.buy_price_ht * (d.situation_percent / 100)').") as buying_price,";
+	$sql .= " SUM(".$db->ifsql('(d.total_ht < 0 OR (d.total_ht = 0 AND f.type = 2))', '-1 * (abs(d.total_ht) - (d.buy_price_ht * d.qty * (d.situation_percent / 100)))', 'd.total_ht - (d.buy_price_ht * d.qty * (d.situation_percent / 100))').") as marge";
+}
+
 $sql .= " FROM ".MAIN_DB_PREFIX."societe as s";
 $sql .= ", ".MAIN_DB_PREFIX."facture as f";
 $sql .= ", ".MAIN_DB_PREFIX."facturedet as d";
 $sql .= " LEFT JOIN ".MAIN_DB_PREFIX."product as p ON p.rowid = d.fk_product";
+if (getDolGlobalInt('INVOICE_USE_SITUATION') == 1) {
+	$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."facturedet AS prev_d ON prev_d.rowid = d.fk_prev_id";
+}
 if (!empty($TSelectedCats)) {
 	$sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'categorie_product as cp ON cp.fk_product=p.rowid';
 }
@@ -211,8 +239,8 @@ if (!empty($enddate)) {
 }
 $sql .= " AND d.buy_price_ht IS NOT NULL";
 // We should not use this here. Option ForceBuyingPriceIfNull should have effect only when inserting data. Once data is recorded, it must be used as it is for report.
-// We keep it with value ForceBuyingPriceIfNull = 2 for retroactive effect but results are unpredicable.
-if (isset($conf->global->ForceBuyingPriceIfNull) && $conf->global->ForceBuyingPriceIfNull == 2) {
+// We keep it with value ForceBuyingPriceIfNull = 2 for retroactive effect but results are unpredictable.
+if (getDolGlobalInt('ForceBuyingPriceIfNull') == 2) {
 	$sql .= " AND d.buy_price_ht <> 0";
 }
 if ($id > 0) {
@@ -224,16 +252,38 @@ $sql .= $db->order($sortfield, $sortorder);
 // TODO: calculate total to display then restore pagination
 //$sql.= $db->plimit($conf->liste_limit +1, $offset);
 
+$param = '&id='.((int) $id);
+if (GETPOSTINT('startdatemonth')) {
+	$param .= '&startdateyear='.GETPOSTINT('startdateyear');
+	$param .= '&startdatemonth='.GETPOSTINT('startdatemonth');
+	$param .= '&startdateday='.GETPOSTINT('startdateday');
+}
+if (GETPOSTINT('enddatemonth')) {
+	$param .= '&enddateyear='.GETPOSTINT('enddateyear');
+	$param .= '&enddatemonth='.GETPOSTINT('enddatemonth');
+	$param .= '&enddateday='.GETPOSTINT('enddateday');
+}
+$listofcateg = GETPOST('categories', 'array:int');
+if (is_array($listofcateg)) {
+	foreach ($listofcateg as $val) {
+		$param .= '&categories[]='.$val;
+	}
+}
+
+$totalMargin = 0;
+$marginRate = '';
+$markRate = '';
 dol_syslog('margin::productMargins.php', LOG_DEBUG);
 $result = $db->query($sql);
 if ($result) {
 	$num = $db->num_rows($result);
 
 	print '<br>';
-	print_barre_liste($langs->trans("MarginDetails"), $page, $_SERVER["PHP_SELF"], "&amp;id=".$id, $sortfield, $sortorder, '', $num, $num, '', 0, '', '', 0, 1);
+	// @phan-suppress-next-line PhanPluginSuspiciousParamPosition, PhanPluginSuspiciousParamOrder
+	print_barre_liste($langs->trans("MarginDetails"), $page, $_SERVER["PHP_SELF"], $param, $sortfield, $sortorder, '', $num, $num, '', 0, '', '', 0, 1);
 
 	//var_dump($conf->global->MARGIN_TYPE);
-	if ($conf->global->MARGIN_TYPE == "1") {
+	if (getDolGlobalString('MARGIN_TYPE') == "1") {
 		$labelcostprice = 'BuyingPrice';
 	} else { // value is 'costprice' or 'pmp'
 		$labelcostprice = 'CostPrice';
@@ -243,24 +293,24 @@ if ($result) {
 
 	$i = 0;
 	print '<div class="div-table-responsive">';
-	print '<table class="tagtable liste'.($moreforfilter ? " listwithfilterbefore" : "").'">'."\n";
+	print '<table class="tagtable noborder nobottomiftotal liste'.($moreforfilter ? " listwithfilterbefore" : "").'">'."\n";
 
 	print '<tr class="liste_titre">';
 	if ($id > 0) {
-		print_liste_field_titre("Invoice", $_SERVER["PHP_SELF"], "f.ref", "", "&amp;id=".$id, '', $sortfield, $sortorder);
-		print_liste_field_titre("DateInvoice", $_SERVER["PHP_SELF"], "f.datef", "", "&amp;id=".$id, '', $sortfield, $sortorder, 'center ');
+		print_liste_field_titre("Invoice", $_SERVER["PHP_SELF"], "f.ref", "", $param, '', $sortfield, $sortorder);
+		print_liste_field_titre("DateInvoice", $_SERVER["PHP_SELF"], "f.datef", "", $param, '', $sortfield, $sortorder, 'center ');
 	} else {
-		print_liste_field_titre("ProductService", $_SERVER["PHP_SELF"], "p.ref", "", "&amp;id=".$id, '', $sortfield, $sortorder);
+		print_liste_field_titre("ProductService", $_SERVER["PHP_SELF"], "p.ref", "", $param, '', $sortfield, $sortorder);
 	}
-	print_liste_field_titre("Qty", $_SERVER["PHP_SELF"], "product_qty", "", "&amp;id=".$id, '', $sortfield, $sortorder, 'center ');
-	print_liste_field_titre("SellingPrice", $_SERVER["PHP_SELF"], "selling_price", "", "&amp;id=".$id, '', $sortfield, $sortorder, 'right ');
-	print_liste_field_titre($labelcostprice, $_SERVER["PHP_SELF"], "buying_price", "", "&amp;id=".$id, '', $sortfield, $sortorder, 'right ');
-	print_liste_field_titre("Margin", $_SERVER["PHP_SELF"], "marge", "", "&amp;id=".$id, '', $sortfield, $sortorder, 'right ');
-	if (!empty($conf->global->DISPLAY_MARGIN_RATES)) {
-		print_liste_field_titre("MarginRate", $_SERVER["PHP_SELF"], "", "", "&amp;id=".$id, '', $sortfield, $sortorder, 'right ');
+	print_liste_field_titre("Qty", $_SERVER["PHP_SELF"], "product_qty", "", $param, '', $sortfield, $sortorder, 'center ');
+	print_liste_field_titre("SellingPrice", $_SERVER["PHP_SELF"], "selling_price", "", $param, '', $sortfield, $sortorder, 'right ');
+	print_liste_field_titre($labelcostprice, $_SERVER["PHP_SELF"], "buying_price", "", $param, '', $sortfield, $sortorder, 'right ');
+	print_liste_field_titre("Margin", $_SERVER["PHP_SELF"], "marge", "", $param, '', $sortfield, $sortorder, 'right ');
+	if (getDolGlobalString('DISPLAY_MARGIN_RATES')) {
+		print_liste_field_titre("MarginRate", $_SERVER["PHP_SELF"], "", "", $param, '', $sortfield, $sortorder, 'right ');
 	}
-	if (!empty($conf->global->DISPLAY_MARK_RATES)) {
-		print_liste_field_titre("MarkRate", $_SERVER["PHP_SELF"], "", "", "&amp;id=".$id, '', $sortfield, $sortorder, 'right ');
+	if (getDolGlobalString('DISPLAY_MARK_RATES')) {
+		print_liste_field_titre("MarkRate", $_SERVER["PHP_SELF"], "", "", $param, '', $sortfield, $sortorder, 'right ');
 	}
 	print "</tr>\n";
 
@@ -276,12 +326,24 @@ if ($result) {
 			$pv = $objp->selling_price;
 			$marge = $objp->marge;
 
-			if ($marge < 0) {
-				$marginRate = ($pa != 0) ?-1 * (100 * $marge / $pa) : '';
-				$markRate = ($pv != 0) ?-1 * (100 * $marge / $pv) : '';
+			if ($pa != 0) {
+				$marginRate = (100 * $marge / $pa);
+				// We invert the sign if the margin is negative, regardless of the sign of the purchase price
+				if ($marge < 0) {
+					$marginRate = -$marginRate;
+				}
 			} else {
-				$marginRate = ($pa != 0) ? (100 * $marge / $pa) : '';
-				$markRate = ($pv != 0) ? (100 * $marge / $pv) : '';
+				$marginRate = '';
+			}
+
+			if ($pv != 0) {
+				$markRate = (100 * $marge / $pv);
+				// We invert the sign if the margin is negative, as in the original logic
+				if ($marge < 0) {
+					$markRate = -$markRate;
+				}
+			} else {
+				$markRate = '';
 			}
 
 			print '<tr class="oddeven">';
@@ -313,10 +375,10 @@ if ($result) {
 			print '<td class="nowrap right"><span class="amount">'.price(price2num($pv, 'MT')).'</span></td>';
 			print '<td class="nowrap right"><span class="amount">'.price(price2num($pa, 'MT')).'</span></td>';
 			print '<td class="nowrap right"><span class="amount">'.price(price2num($marge, 'MT')).'</span></td>';
-			if (!empty($conf->global->DISPLAY_MARGIN_RATES)) {
+			if (getDolGlobalString('DISPLAY_MARGIN_RATES')) {
 				print '<td class="nowrap right">'.(($marginRate === '') ? 'n/a' : price(price2num($marginRate, 'MT'))."%").'</td>';
 			}
-			if (!empty($conf->global->DISPLAY_MARK_RATES)) {
+			if (getDolGlobalString('DISPLAY_MARK_RATES')) {
 				print '<td class="nowrap right">'.(($markRate === '') ? 'n/a' : price(price2num($markRate, 'MT'))."%").'</td>';
 			}
 			print "</tr>\n";
@@ -346,10 +408,10 @@ if ($result) {
 	print '<td class="nowrap right">'.price(price2num($cumul_vente, 'MT')).'</td>';
 	print '<td class="nowrap right">'.price(price2num($cumul_achat, 'MT')).'</td>';
 	print '<td class="nowrap right">'.price(price2num($totalMargin, 'MT')).'</td>';
-	if (!empty($conf->global->DISPLAY_MARGIN_RATES)) {
+	if (getDolGlobalString('DISPLAY_MARGIN_RATES')) {
 		print '<td class="nowrap right">'.(($marginRate === '') ? 'n/a' : price(price2num($marginRate, 'MT'))."%").'</td>';
 	}
-	if (!empty($conf->global->DISPLAY_MARK_RATES)) {
+	if (getDolGlobalString('DISPLAY_MARK_RATES')) {
 		print '<td class="nowrap right">'.(($markRate === '') ? 'n/a' : price(price2num($markRate, 'MT'))."%").'</td>';
 	}
 	print "</tr>\n";

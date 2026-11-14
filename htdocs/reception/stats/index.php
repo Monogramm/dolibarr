@@ -3,6 +3,8 @@
  * Copyright (C) 2004-2016 Laurent Destailleur  <eldy@users.sourceforge.net>
  * Copyright (C) 2005-2009 Regis Houssin        <regis.houssin@capnetworks.com>
  * Copyright (C) 2018	   Quentin Vial-Gouteyron    <quentin.vial-gouteyron@atm-consulting.fr>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2025  Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,7 +26,15 @@
  *     \brief      Page with reception statistics
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/reception/class/reception.class.php';
 require_once DOL_DOCUMENT_ROOT.'/reception/class/receptionstats.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/dolgraph.class.php';
@@ -32,15 +42,30 @@ require_once DOL_DOCUMENT_ROOT.'/core/class/dolgraph.class.php';
 $WIDTH = DolGraph::getDefaultGraphSizeForStats('width');
 $HEIGHT = DolGraph::getDefaultGraphSizeForStats('height');
 
-$userid = GETPOST('userid', 'int');
-$socid = GETPOST('socid', 'int');
+$tabfamily = GETPOST('tabfamily', 'aZ09');	// 'receptionstats' to show the tab with the custom reports tool
 
-$nowyear = strftime("%Y", dol_now());
-$year = GETPOST('year') > 0 ?GETPOST('year') : $nowyear;
-$startyear = $year - (empty($conf->global->MAIN_STATS_GRAPHS_SHOW_N_YEARS) ? 2 : max(1, min(10, $conf->global->MAIN_STATS_GRAPHS_SHOW_N_YEARS)));
+$hookmanager->initHooks(array('receptionstats', 'globalcard'));
+
+$action = '';
+
+$userid = GETPOSTINT('userid');
+$socid = GETPOSTINT('socid');
+
+$object = new Reception($db);
+
+$parameters = array();
+$reshook = $hookmanager->executeHooks('doActions', $parameters, $object, $action); // Note that $action and $object may have been modified by some hooks
+if ($reshook < 0) {
+	setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
+}
+
+$nowyear = (int) dol_print_date(dol_now(), "%Y");
+;
+$year = GETPOSTINT('year') > 0 ? GETPOSTINT('year') : $nowyear;
+$startyear = $year - (!getDolGlobalInt('MAIN_STATS_GRAPHS_SHOW_N_YEARS') ? 2 : max(1, min(10, getDolGlobalString('MAIN_STATS_GRAPHS_SHOW_N_YEARS'))));
 $endyear = $year;
 
-$langs->loadLangs(array("reception", "other", "companies"));
+$langs->loadLangs(array("receptions", "other", "companies"));
 
 // Security check
 if ($user->socid) {
@@ -55,11 +80,67 @@ $result = restrictedArea($user, 'reception', 0, '');
 
 $form = new Form($db);
 
-llxHeader();
+$title = $langs->trans("Receptions");
 
-print load_fiche_titre($langs->trans("StatisticsOfReceptions"), '', 'dollyrevert');
+llxHeader('', '', '', '', 0, 0, '', '', '', 'mod-reception page-stats_index');
 
-$dir = (!empty($conf->reception->multidir_temp[$conf->entity]) ? $conf->reception->multidir_temp[$conf->entity] : $conf->service->multidir_temp[$conf->entity]);
+$page = 0;
+$param = '';
+$sortfield = '';
+$sortorder = '';
+$massactionbutton = '';
+$num = 0;
+$nbtotalofrecords = $langs->trans("Statistics");
+$picto = $object->picto;
+$limit = 0;
+$mode = '';
+
+$newcardbutton  = '';
+$newcardbutton .= dolGetButtonTitle($langs->trans('ViewList'), '', 'fa fa-bars imgforviewmode', DOL_URL_ROOT.'/reception/list.php?mode=common'.preg_replace('/(&|\?)*mode=[^&]+/', '', $param), '', ($mode == 'common' ? 2 : 1), array('morecss' => 'reposition'));  // @phpstan-ignore-line booleanNot.alwaysFalse
+$newcardbutton .= dolGetButtonTitle($langs->trans('ViewKanban'), '', 'fa fa-th-list imgforviewmode', DOL_URL_ROOT.'/reception/list.php?mode=kanban'.preg_replace('/(&|\?)*mode=[^&]+/', '', $param), '', ($mode == 'kanban' ? 2 : 1), array('morecss' => 'reposition')); // @phpstan-ignore-line booleanNot.alwaysFalse
+$newcardbutton .= dolGetButtonTitle($langs->trans('Statistics'), '', 'fa fa-chart-bar imgforviewmode', DOL_URL_ROOT.'/reception/stats/index.php?mode=statistics'.preg_replace('/(&|\?)*(mode|groupby)=[^&]+/', '', $param), '', 2, array('morecss' => 'reposition'));
+$newcardbutton .= dolGetButtonTitleSeparator();
+$newcardbutton .= dolGetButtonTitle($langs->trans('NewSending'), '', 'fa fa-plus-circle', DOL_URL_ROOT.'/reception/card.php?action=create', '', $user->hasRight('reception', 'creer'));
+
+print_barre_liste($title, $page, $_SERVER["PHP_SELF"], $param, $sortfield, $sortorder, $massactionbutton, $num, $nbtotalofrecords, $picto, 0, $newcardbutton, '', $limit, 0, 0, 1);
+
+// The custom reports tool is not available to external users
+$showtabcustomreports = empty($user->socid);
+
+$h = 0;
+$head = array();
+$head[$h][0] = DOL_URL_ROOT.'/reception/stats/index.php';
+$head[$h][1] = $langs->trans("ByMonthYear");
+$head[$h][2] = 'byyear';
+$h++;
+
+if ($showtabcustomreports) {
+	$head[$h][0] = DOL_URL_ROOT.'/reception/stats/index.php?tabfamily=receptionstats';
+	$head[$h][1] = $langs->trans("Custom");
+	$head[$h][2] = 'customreports';
+	$h++;
+}
+
+$type = 'reception_stats';
+
+complete_head_from_modules($conf, $langs, null, $head, $h, $type);
+
+// Show the tab with the custom reports tool
+if ($showtabcustomreports && $tabfamily == 'receptionstats') {
+	print dol_get_fiche_head($head, 'customreports', '', -1);
+
+	define('USE_CUSTOM_REPORT_AS_TAB', 1);
+	$customreportobjecttype = 'reception';
+	include DOL_DOCUMENT_ROOT.'/core/customreports.php';
+
+	print dol_get_fiche_end();
+
+	llxFooter();
+	$db->close();
+	exit;
+}
+
+$dir =(!empty($conf->reception->multidir_temp[$conf->entity]) ? $conf->reception->multidir_temp[$conf->entity] : $conf->service->multidir_temp[$conf->entity]);
 dol_mkdir($dir);
 
 $stats = new ReceptionStats($db, $socid, '', ($userid > 0 ? $userid : 0));
@@ -70,7 +151,7 @@ $data = $stats->getNbByMonthWithPrevYear($endyear, $startyear);
 // $data = array(array('Lib',val1,val2,val3),...)
 
 
-if (empty($user->rights->societe->client->voir) || $user->socid) {
+if (!$user->hasRight('societe', 'client', 'voir')) {
 	$filenamenb = $dir.'/receptionsnbinyear-'.$user->id.'-'.$year.'.png';
 } else {
 	$filenamenb = $dir.'/receptionsnbinyear-'.$year.'.png';
@@ -81,7 +162,8 @@ $mesg = $px1->isGraphKo();
 $fileurlnb = '';
 if (!$mesg) {
 	$px1->SetData($data);
-	$i = $startyear; $legend = array();
+	$i = $startyear;
+	$legend = array();
 	while ($i <= $endyear) {
 		$legend[] = $i;
 		$i++;
@@ -192,25 +274,14 @@ if (!count($arrayyears)) {
 	$arrayyears[$nowyear] = $nowyear;
 }
 
-$h = 0;
-$head = array();
-$head[$h][0] = DOL_URL_ROOT.'/reception/stats/index.php';
-$head[$h][1] = $langs->trans("ByMonthYear");
-$head[$h][2] = 'byyear';
-$h++;
-
-$type = 'reception_stats';
-
-complete_head_from_modules($conf, $langs, null, $head, $h, $type);
-
-print dol_get_fiche_head($head, 'byyear', $langs->trans("Statistics"), -1);
+print dol_get_fiche_head($head, 'byyear', '', -1);
 
 
 print '<div class="fichecenter"><div class="fichethirdleft">';
 
 
 // Show filter box
-print '<form name="stats" method="POST" action="'.$_SERVER["PHP_SELF"].'">';
+print '<form name="stats" method="POST" action="'.dolBuildUrl($_SERVER["PHP_SELF"]).'">';
 print '<input type="hidden" name="token" value="'.newToken().'">';
 
 print '<table class="noborder centpercent">';
@@ -223,7 +294,7 @@ print '</td></tr>';
 // User
 print '<tr><td>'.$langs->trans("CreatedBy").'</td><td>';
 print img_picto('', 'user', 'class="pictofixedwidth"');
-print $form->select_dolusers($userid, 'userid', 1, '', 0, '', '', 0, 0, 0, '', 0, '', 'widthcentpercentminusx maxwidth300');
+print $form->select_dolusers($userid, 'userid', 1, null, 0, '', '', '0', 0, 0, '', 0, '', 'widthcentpercentminusx maxwidth300');
 print '</td></tr>';
 // Year
 print '<tr><td>'.$langs->trans("Year").'</td><td>';
@@ -234,6 +305,7 @@ if (!in_array($nowyear, $arrayyears)) {
 	$arrayyears[$nowyear] = $nowyear;
 }
 arsort($arrayyears);
+print img_picto('', 'calendar', 'class="pictofixedwidth"');
 print $form->selectarray('year', $arrayyears, $year, 0, 0, 0, '', 0, 0, 0, '', 'width75');
 print '</td></tr>';
 print '<tr><td class="center" colspan="2"><input type="submit" name="submit" class="button small" value="'.$langs->trans("Refresh").'"></td></tr>';
@@ -241,6 +313,7 @@ print '</table>';
 print '</form>';
 print '<br><br>';
 
+print '<div class="div-table-responsive-no-min">';
 print '<table class="noborder centpercent">';
 print '<tr class="liste_titre" height="24">';
 print '<td class="center">'.$langs->trans("Year").'</td>';
@@ -249,14 +322,20 @@ print '<td class="right">'.$langs->trans("NbOfReceptions").'</td>';
 print '<td class="center">'.$langs->trans("AmountAverage").'</td>';*/
 print '</tr>';
 
+$cssline = '';
+$MAXLINES = 5;
+$nbline = 0;
 $oldyear = 0;
 foreach ($data as $val) {
 	$year = $val['year'];
-	while (!empty($year) && $oldyear > $year + 1) { // If we have empty year
+	while (!empty($year) && $oldyear > (int) $year + 1) { // If we have empty year
 		$oldyear--;
+		$nbline++;
+		if ($nbline > $MAXLINES) {
+			$cssline = ' hidden';
+		}
 
-
-		print '<tr class="oddeven" height="24">';
+		print '<tr class="oddeven'.$cssline.'" height="24">';
 		print '<td class="center"><a href="'.$_SERVER["PHP_SELF"].'?year='.$oldyear.'">'.$oldyear.'</a></td>';
 
 		print '<td class="right">0</td>';
@@ -265,7 +344,7 @@ foreach ($data as $val) {
 		print '</tr>';
 	}
 
-	print '<tr class="oddeven" height="24">';
+	print '<tr class="oddeven'.$cssline.'" height="24">';
 	print '<td class="center">';
 	if ($year) {
 		print '<a href="'.$_SERVER["PHP_SELF"].'?year='.$year.'">'.$year.'</a>';
@@ -278,16 +357,26 @@ foreach ($data as $val) {
 	print '<td class="right">'.price(price2num($val['avg'],'MT'),1).'</td>';*/
 	print '</tr>';
 	$oldyear = $year;
+	$nbline++;
+	if ($nbline > $MAXLINES) {
+		$cssline = ' hidden';
+	}
+}
+
+if ($nbline > $MAXLINES) {
+	print '<tr class="liste_total"><td colspan="4" class="center">';
+	print '<a href="#" class="showmoreoptions" onclick="javascript:$(\'.hidden\').toggle();$(this).toggle();">'.img_picto('', 'chevron-down', 'class="paddingright"').$langs->trans("More").'...</a>';
+	print '</td></tr>';
 }
 
 print '</table>';
-
+print '</div>';
 
 print '</div><div class="fichetwothirdright">';
 
 
 // Show graphs
-print '<table class="border centpercent"><tr valign="top"><td class="center">';
+print '<table class="border centpercent"><tr class="pair nohover"><td class="center">';
 if ($mesg) {
 	print $mesg;
 } else {
@@ -301,7 +390,7 @@ print '</td></tr></table>';
 
 
 print '</div></div>';
-print '<div style="clear:both"></div>';
+print '<div class="clearboth"></div>';
 
 print dol_get_fiche_end();
 
@@ -316,7 +405,7 @@ print '<td width="40%" class="center">'.$langs->trans("NbOfReceptions").'</td></
 $sql = "SELECT count(*) as nb, date_format(date_reception,'%Y') as dm";
 $sql.= " FROM ".MAIN_DB_PREFIX."reception";
 $sql.= " WHERE fk_statut > 0";
-$sql.= " AND entity = ".$conf->entity;
+$sql.= " AND entity = ".((int) $conf->entity);
 $sql.= " GROUP BY dm DESC";
 
 $resql=$db->query($sql);
@@ -342,6 +431,7 @@ print '</table>';
 print '<br>';
 print '<i class="opacitymedium">'.$langs->trans("StatsOnReceptionsOnlyValidated").'</i>';
 
+// End of page
 llxFooter();
 
 $db->close();

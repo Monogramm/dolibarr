@@ -1,21 +1,26 @@
 <?php
-/* Copyright (C) 2002-2004 Rodolphe Quiedeville		<rodolphe@quiedeville.org>
- * Copyright (C) 2004      Eric Seigne				<eric.seigne@ryxeo.com>
- * Copyright (C) 2004-2011 Laurent Destailleur		<eldy@users.sourceforge.net>
- * Copyright (C) 2005      Marc Barilley			<marc@ocebo.com>
- * Copyright (C) 2005-2013 Regis Houssin			<regis.houssin@inodbox.com>
- * Copyright (C) 2006      Andre Cianfarani			<acianfa@free.fr>
- * Copyright (C) 2008      Raphael Bertrand			<raphael.bertrand@resultic.fr>
- * Copyright (C) 2010-2020 Juanjo Menent			<jmenent@2byte.es>
- * Copyright (C) 2010-2018 Philippe Grand			<philippe.grand@atoo-net.com>
- * Copyright (C) 2012-2014 Christophe Battarel  	<christophe.battarel@altairis.fr>
- * Copyright (C) 2013      Florian Henry		  	<florian.henry@open-concept.pro>
- * Copyright (C) 2014      Marcos García            <marcosgdf@gmail.com>
- * Copyright (C) 2016      Ferran Marcet            <fmarcet@2byte.es>
- * Copyright (C) 2018      Nicolas ZABOURI			<info@inovea-conseil.com>
- * Copyright (C) 2019-2022  Frédéric France         <frederic.france@netlogic.fr>
+/* Copyright (C) 2002-2004  Rodolphe Quiedeville	<rodolphe@quiedeville.org>
+ * Copyright (C) 2004       Eric Seigne				<eric.seigne@ryxeo.com>
+ * Copyright (C) 2004-2011  Laurent Destailleur		<eldy@users.sourceforge.net>
+ * Copyright (C) 2005       Marc Barilley			<marc@ocebo.com>
+ * Copyright (C) 2005-2013  Regis Houssin			<regis.houssin@inodbox.com>
+ * Copyright (C) 2006       Andre Cianfarani		<acianfa@free.fr>
+ * Copyright (C) 2008       Raphael Bertrand		<raphael.bertrand@resultic.fr>
+ * Copyright (C) 2010-2020  Juanjo Menent			<jmenent@2byte.es>
+ * Copyright (C) 2010-2018  Philippe Grand			<philippe.grand@atoo-net.com>
+ * Copyright (C) 2012-2014  Christophe Battarel  	<christophe.battarel@altairis.fr>
+ * Copyright (C) 2013       Florian Henry		  	<florian.henry@open-concept.pro>
+ * Copyright (C) 2014       Marcos García           <marcosgdf@gmail.com>
+ * Copyright (C) 2016       Ferran Marcet           <fmarcet@2byte.es>
+ * Copyright (C) 2018       Nicolas ZABOURI			<info@inovea-conseil.com>
+ * Copyright (C) 2019-2026  Frédéric France         <frederic.france@free.fr>
  * Copyright (C) 2020		Tobias Sekan			<tobias.sekan@startmail.com>
- * Copyright (C) 2022      Gauthier VERDOL     		<gauthier.verdol@atm-consulting.fr>
+ * Copyright (C) 2022       Gauthier VERDOL     	<gauthier.verdol@atm-consulting.fr>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2026		Vincent de Grandpré		<vincent@de-grandpre.quebec>
+ * Copyright (C) 2026		Lionel Vessiller		<lvessiller@open-dsi.fr>
+ * Copyright (C) 2026		Jose Martinez			<jose.martinez@pichinov.com>
+ * Copyright (C) 2026		Nick Fragoulis
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,13 +48,14 @@ require_once DOL_DOCUMENT_ROOT.'/contact/class/contact.class.php';
 require_once DOL_DOCUMENT_ROOT.'/margin/lib/margins.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/multicurrency/class/multicurrency.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonincoterm.class.php';
-
+require_once DOL_DOCUMENT_ROOT.'/subtotals/class/commonsubtotal.class.php';
 /**
  *	Class to manage price ask supplier
  */
 class SupplierProposal extends CommonObject
 {
 	use CommonIncoterm;
+	use CommonSubtotal;
 
 	/**
 	 * @var string ID to identify managed object
@@ -67,6 +73,10 @@ class SupplierProposal extends CommonObject
 	public $table_element_line = 'supplier_proposaldet';
 
 	/**
+	 * @var string Name of class line
+	 */
+	public $class_element_line = 'SupplierProposalLine';
+	/**
 	 * @var string Field with ID of parent key if this field has a parent
 	 */
 	public $fk_element = 'fk_supplier_proposal';
@@ -75,12 +85,6 @@ class SupplierProposal extends CommonObject
 	 * @var string String with name of icon for myobject. Must be the part after the 'object_' into object_myobject.png
 	 */
 	public $picto = 'supplier_proposal';
-
-	/**
-	 * 0=No test on entity, 1=Test with field entity, 2=Test with link by societe
-	 * @var int
-	 */
-	public $ismultientitymanaged = 1;
 
 	/**
 	 * 0=Default, 1=View may be restricted to sales representative only if no permission to see all or to company of external user if external user
@@ -93,93 +97,139 @@ class SupplierProposal extends CommonObject
 	 */
 	protected $table_ref_field = 'ref';
 
+	/**
+	 * @var int
+	 */
 	public $socid; // Id client
 
 	/**
-	 * @deprecated
+	 * @deprecated Use $user_author_id
 	 * @see $user_author_id
+	 * @var int
 	 */
 	public $author;
 
-	public $ref_fourn; //Reference saisie lors de l'ajout d'une ligne à la demande
-	public $ref_supplier; //Reference saisie lors de l'ajout d'une ligne à la demande
+	/**
+	 * @var string Reference entered when adding a line to the request
+	 */
+	public $ref_fourn;
+	/**
+	 * @var string Reference entered when adding a line to the request
+	 */
+	public $ref_supplier;
+
+	/**
+	 * @var int
+	 * @deprecated
+	 */
 	public $statut; // 0 (draft), 1 (validated), 2 (signed), 3 (not signed), 4 (processed/billed)
 
 	/**
-	 * @var integer|string Date of proposal
+	 * @var int|string Date of proposal
 	 */
 	public $date;
 
 	/**
-	 * @var integer|string date_livraison
-	 * @deprecated
-	 */
-	public $date_livraison;
-
-	/**
-	 * @var integer|string date_livraison
+	 * @var null|int|'' date_livraison
 	 */
 	public $delivery_date;
 
 	/**
-	 * @deprecated
+	 * @deprecated Use $date_creation
 	 * @see $date_creation
+	 * @var int|string
 	 */
 	public $datec;
 
 	/**
-	 * @var integer|string date_creation
-	 */
-	public $date_creation;
-
-	/**
-	 * @deprecated
+	 * @deprecated Use $date_validation
 	 * @see $date_validation
+	 * @var int|string
 	 */
 	public $datev;
 
 	/**
-	 * @var integer|string date_validation
+	 * @var int
 	 */
-	public $date_validation;
-
-
 	public $user_author_id;
-	public $user_valid_id;
-	public $user_close_id;
 
 	/**
-	 * @deprecated
+	 * @deprecated Use $price_ht
 	 * @see $price_ht
+	 * @var float
 	 */
 	public $price;
 
 	/**
-	 * @deprecated
+	 * @deprecated Use $total_tva
 	 * @see $total_tva
+	 * @var float
 	 */
 	public $tva;
 
 	/**
-	 * @deprecated
+	 * @deprecated Use $total_ttc
 	 * @see $total_ttc
+	 * @var float
 	 */
 	public $total;
 
+	/**
+	 * @var string
+	 */
 	public $cond_reglement_code;
-	public $mode_reglement_code;
-	public $remise = 0;
-	public $remise_percent = 0;
-	public $remise_absolue = 0;
+	/**
+	 * @var string
+	 */
+	public $cond_reglement_doc;		// label doc
+	/**
+	 * @var string 	Label of the payment terms, used when there is no label for documents
+	 */
+	public $cond_reglement_label;
 
+	/**
+	 * @var string
+	 */
+	public $mode_reglement_code;
+	/**
+	 * @deprecated 	Use $mode_reglement_code
+	 * @var string	Mode reglement
+	 */
+	public $mode_reglement;
+
+	/**
+	 * @var float|string	Deposit percent for payment terms.
+	 *						Populated by $CommonObject->setPaymentTerms().
+	 * @see setPaymentTerms()
+	 */
+	public $deposit_percent;
+
+
+	/**
+	 * @var array<string,string>  (Encoded as JSON in database)
+	 */
 	public $extraparams = array();
+
+	/**
+	 * @var SupplierProposalLine[]
+	 */
 	public $lines = array();
+
+	/**
+	 * @var SupplierProposalLine
+	 */
 	public $line;
 
 	public $labelStatus = array();
 	public $labelStatusShort = array();
 
+	/**
+	 * @var int
+	 */
 	public $nbtodo;
+	/**
+	 * @var int
+	 */
 	public $nbtodolate;
 
 	// Multicurrency
@@ -188,11 +238,69 @@ class SupplierProposal extends CommonObject
 	 */
 	public $fk_multicurrency;
 
+	/**
+	 * @var string
+	 */
 	public $multicurrency_code;
+	/**
+	 * @var ?float
+	 */
 	public $multicurrency_tx;
+	/**
+	 * @var float
+	 */
 	public $multicurrency_total_ht;
+	/**
+	 * @var float
+	 */
 	public $multicurrency_total_tva;
+	/**
+	 * @var float
+	 */
 	public $multicurrency_total_ttc;
+
+	public $fields = array(
+		'rowid' => array('type' => 'integer', 'label' => 'TechnicalID', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 10),
+		'entity' => array('type' => 'integer', 'label' => 'Entity', 'default' => '1', 'enabled' => 1, 'visible' => -2, 'notnull' => 1, 'position' => 15, 'index' => 1),
+		'ref' => array('type' => 'varchar(255)', 'label' => 'Ref', 'enabled' => 1, 'visible' => 1, 'showoncombobox' => 1, 'position' => 25, 'searchall' => 1),
+		'ref_ext' => array('type' => 'varchar(255)', 'label' => 'RefExt', 'enabled' => 1, 'visible' => 0, 'position' => 40),
+		'fk_soc' => array('type' => 'integer:Societe:societe/class/societe.class.php', 'label' => 'ThirdParty', 'enabled' => 'isModEnabled("societe")', 'visible' => -1, 'position' => 45),
+		'fk_projet' => array('type' => 'integer:Project:projet/class/project.class.php:1:(fk_statut:=:1)', 'label' => 'Project', 'enabled' => "isModEnabled('project')", 'visible' => -1, 'position' => 50),
+		'tms' => array('type' => 'timestamp', 'label' => 'DateModification', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 52),
+		'datec' => array('type' => 'datetime', 'label' => 'DateCreation', 'enabled' => 1, 'visible' => -1, 'position' => 55),
+		'date_valid' => array('type' => 'datetime', 'label' => 'DateValidation', 'enabled' => 1, 'visible' => -1, 'position' => 70),
+		'date_cloture' => array('type' => 'datetime', 'label' => 'DateClosing', 'enabled' => 1, 'visible' => -1, 'position' => 75),
+		'fk_user_author' => array('type' => 'integer:User:user/class/user.class.php', 'label' => 'UserAuthor', 'enabled' => 1, 'visible' => -1, 'position' => 80),
+		'fk_user_modif' => array('type' => 'integer:User:user/class/user.class.php', 'label' => 'UserModif', 'enabled' => 1, 'visible' => -2, 'notnull' => -1, 'position' => 85),
+		'fk_user_valid' => array('type' => 'integer:User:user/class/user.class.php', 'label' => 'UserValidation', 'enabled' => 1, 'visible' => -1, 'position' => 90),
+		'fk_user_cloture' => array('type' => 'integer:User:user/class/user.class.php', 'label' => 'UserClosing', 'enabled' => 1, 'visible' => -1, 'position' => 95),
+		'price' => array('type' => 'double', 'label' => 'Price', 'enabled' => 1, 'visible' => -1, 'position' => 105),
+		'total_ht' => array('type' => 'double(24,8)', 'label' => 'TotalHT', 'enabled' => 1, 'visible' => -1, 'position' => 125, 'isameasure' => 1),
+		'total_tva' => array('type' => 'double(24,8)', 'label' => 'VAT', 'enabled' => 1, 'visible' => -1, 'position' => 130, 'isameasure' => 1),
+		'localtax1' => array('type' => 'double(24,8)', 'label' => 'LocalTax1', 'enabled' => 1, 'visible' => -1, 'position' => 135, 'isameasure' => 1),
+		'localtax2' => array('type' => 'double(24,8)', 'label' => 'LocalTax2', 'enabled' => 1, 'visible' => -1, 'position' => 140, 'isameasure' => 1),
+		'total_ttc' => array('type' => 'double(24,8)', 'label' => 'TotalTTC', 'enabled' => 1, 'visible' => -1, 'position' => 145, 'isameasure' => 1),
+		'fk_account' => array('type' => 'integer', 'label' => 'BankAccount', 'enabled' => 'isModEnabled("bank")', 'visible' => -1, 'position' => 150),
+		'fk_currency' => array('type' => 'varchar(3)', 'label' => 'Currency', 'enabled' => 1, 'visible' => -1, 'position' => 155),
+		'fk_cond_reglement' => array('type' => 'integer', 'label' => 'PaymentTerm', 'enabled' => 1, 'visible' => -1, 'position' => 160),
+		'deposit_percent' => array('type' => 'varchar(63)', 'label' => 'DepositPercent', 'enabled' => 1, 'visible' => -1, 'position' => 161),
+		'fk_mode_reglement' => array('type' => 'integer', 'label' => 'PaymentMode', 'enabled' => 1, 'visible' => -1, 'position' => 165),
+		'note_private' => array('type' => 'html', 'label' => 'NotePrivate', 'enabled' => 1, 'visible' => 0, 'position' => 170),
+		'model_pdf' => array('type' => 'varchar(255)', 'label' => 'PDFTemplate', 'enabled' => 1, 'visible' => 0, 'position' => 180),
+		'date_livraison' => array('type' => 'date', 'label' => 'DateDeliveryPlanned', 'enabled' => 1, 'visible' => -1, 'position' => 185),
+		'fk_shipping_method' => array('type' => 'integer', 'label' => 'ShippingMethod', 'enabled' => 1, 'visible' => -1, 'position' => 190),
+		'extraparams' => array('type' => 'varchar(255)', 'label' => 'Extraparams', 'enabled' => 1, 'visible' => -1, 'position' => 215),
+		'fk_multicurrency' => array('type' => 'integer', 'label' => 'MulticurrencyID', 'enabled' => 1, 'visible' => -1, 'position' => 230),
+		'multicurrency_code' => array('type' => 'varchar(255)', 'label' => 'MulticurrencyCurrency', 'enabled' => 'isModEnabled("multicurrency")', 'visible' => -1, 'position' => 235),
+		'multicurrency_tx' => array('type' => 'double(24,8)', 'label' => 'MulticurrencyRate', 'enabled' => 'isModEnabled("multicurrency")', 'visible' => -1, 'position' => 240, 'isameasure' => 1),
+		'multicurrency_total_ht' => array('type' => 'double(24,8)', 'label' => 'MulticurrencyAmountHT', 'enabled' => 'isModEnabled("multicurrency")', 'visible' => -1, 'position' => 245, 'isameasure' => 1),
+		'multicurrency_total_tva' => array('type' => 'double(24,8)', 'label' => 'MulticurrencyAmountVAT', 'enabled' => 'isModEnabled("multicurrency")', 'visible' => -1, 'position' => 250, 'isameasure' => 1),
+		'multicurrency_total_ttc' => array('type' => 'double(24,8)', 'label' => 'MulticurrencyAmountTTC', 'enabled' => 'isModEnabled("multicurrency")', 'visible' => -1, 'position' => 255, 'isameasure' => 1),
+		'last_main_doc' => array('type' => 'varchar(255)', 'label' => 'LastMainDoc', 'enabled' => 1, 'visible' => -1, 'position' => 260),
+		'fk_statut' => array('type' => 'smallint(6)', 'label' => 'Status', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 500),
+		'note_public' => array('type' => 'html', 'label' => 'NotePublic', 'enabled' => 1, 'visible' => 0, 'position' => 750, 'searchall' => 1),
+		'import_key' => array('type' => 'varchar(14)', 'label' => 'ImportId', 'enabled' => 1, 'visible' => -2, 'position' => 900),
+	);
 
 	/**
 	 * Draft status
@@ -228,12 +336,11 @@ class SupplierProposal extends CommonObject
 	 *	@param      int		$socid		Id third party
 	 *	@param      int		$supplier_proposalid   Id supplier_proposal
 	 */
-	public function __construct($db, $socid = "", $supplier_proposalid = 0)
+	public function __construct($db, $socid = 0, $supplier_proposalid = 0)
 	{
-		global $conf, $langs;
-
 		$this->db = $db;
 
+		$this->ismultientitymanaged = 1;
 		$this->socid = $socid;
 		$this->id = $supplier_proposalid;
 	}
@@ -244,16 +351,16 @@ class SupplierProposal extends CommonObject
 	 * 	Add line into array ->lines
 	 *
 	 * 	@param  int		$idproduct       	Product Id to add
-	 * 	@param  int		$qty             	Quantity
+	 * 	@param  float	$qty             	Quantity
 	 * 	@param  int		$remise_percent  	Discount effected on Product
-	 *  @return	int							<0 if KO, >0 if OK
+	 *  @return	int							Return integer <0 if KO, >0 if OK
 	 *
-	 *	TODO	Remplacer les appels a cette fonction par generation objet Ligne
+	 *	TODO Replace call to this function by using the SupplierProposalLine object.
 	 */
 	public function add_product($idproduct, $qty, $remise_percent = 0)
 	{
 		// phpcs:enable
-		global $conf, $mysoc;
+		global $mysoc;
 
 		if (!$qty) {
 			$qty = 1;
@@ -275,7 +382,7 @@ class SupplierProposal extends CommonObject
 			$localtax2_tx = get_localtax($tva_tx, 2, $mysoc, $this->thirdparty, $tva_npr);
 
 			// multiprix
-			if ($conf->global->PRODUIT_MULTIPRICES && $this->thirdparty->price_level) {
+			if (getDolGlobalString('PRODUIT_MULTIPRICES') && $this->thirdparty->price_level) {
 				$price = $prod->multiprices[$this->thirdparty->price_level];
 			} else {
 				$price = $prod->price;
@@ -326,18 +433,24 @@ class SupplierProposal extends CommonObject
 			$supplier_proposalligne = new SupplierProposalLine($this->db);
 			$supplier_proposalligne->fk_supplier_proposal = $this->id;
 			$supplier_proposalligne->fk_remise_except = $remise->id;
-			$supplier_proposalligne->desc = $remise->description; // Description ligne
+			$supplier_proposalligne->desc = $remise->description; // Description of the proposal line
 			$supplier_proposalligne->tva_tx = $remise->tva_tx;
-			$supplier_proposalligne->subprice = -$remise->amount_ht;
-			$supplier_proposalligne->fk_product = 0; // Id produit predefini
+			$supplier_proposalligne->localtax1_tx = $remise->localtax1_tx;
+			$supplier_proposalligne->localtax1_type = $remise->localtax1_type;
+			$supplier_proposalligne->localtax2_tx = $remise->localtax1_tx;
+			$supplier_proposalligne->localtax2_type = $remise->localtax1_type;
+			$supplier_proposalligne->subprice = -(float) $remise->amount_ht;
+			$supplier_proposalligne->fk_product = 0; // Predefined Product ID
 			$supplier_proposalligne->qty = 1;
 			$supplier_proposalligne->remise_percent = 0;
 			$supplier_proposalligne->rang = -1;
 			$supplier_proposalligne->info_bits = 2;
 
-			$supplier_proposalligne->total_ht  = -$remise->amount_ht;
-			$supplier_proposalligne->total_tva = -$remise->amount_tva;
-			$supplier_proposalligne->total_ttc = -$remise->amount_ttc;
+			$supplier_proposalligne->total_ht  = -(float) $remise->amount_ht;
+			$supplier_proposalligne->total_tva = -(float) $remise->amount_tva;
+			$supplier_proposalligne->total_ttc = -(float) $remise->amount_ttc;
+			$supplier_proposalligne->total_localtax1 = -(float) $remise->total_localtax1;
+			$supplier_proposalligne->total_localtax2 = -(float) $remise->total_localtax2;
 
 			$result = $supplier_proposalligne->insert();
 			if ($result > 0) {
@@ -350,7 +463,7 @@ class SupplierProposal extends CommonObject
 					return -1;
 				}
 			} else {
-				$this->error = $supplier_proposalligne->error;
+				$this->setErrorsFromObject($supplier_proposalligne);
 				$this->db->rollback();
 				return -2;
 			}
@@ -362,44 +475,43 @@ class SupplierProposal extends CommonObject
 
 	/**
 	 *    	Add a proposal line into database (linked to product/service or not)
-	 * 		Les parametres sont deja cense etre juste et avec valeurs finales a l'appel
-	 *		de cette methode. Aussi, pour le taux tva, il doit deja avoir ete defini
-	 *		par l'appelant par la methode get_default_tva(societe_vendeuse,societe_acheteuse,'',produit)
-	 *		et le desc doit deja avoir la bonne valeur (a l'appelant de gerer le multilangue)
+	 * 		The parameters are already supposed to be correct and with final values upon calling this method.
+	 *      Also, for the VAT rate, it must have already been defined by the caller using the method get_default_tva(societe_vendeuse, societe_acheteuse, produit)
+	 *      and the description (desc) must already have the correct value (it's up to the caller to manage multilanguage)
 	 *
-	 * 		@param    	string		$desc				Description de la ligne
-	 * 		@param    	double		$pu_ht				Prix unitaire
-	 * 		@param    	double		$qty             	Quantite
-	 * 		@param    	double		$txtva           	Taux de tva
-	 * 		@param		double		$txlocaltax1		Local tax 1 rate
-	 *  	@param		double		$txlocaltax2		Local tax 2 rate
-	 *		@param    	int			$fk_product      	Product/Service ID predefined
-	 * 		@param    	double		$remise_percent  	Percentage discount of the line
-	 * 		@param    	string		$price_base_type	HT or TTC
-	 * 		@param    	double		$pu_ttc             Prix unitaire TTC
-	 * 		@param    	int			$info_bits			Bits of type of lines
-	 *      @param      int			$type               Type of line (product, service)
-	 *      @param      int			$rang               Position of line
-	 *      @param		int			$special_code		Special code (also used by externals modules!)
-	 *      @param		int			$fk_parent_line		Id of parent line
-	 *      @param		int			$fk_fournprice		Id supplier price. If 0, we will take best price. If -1 we keep it empty.
-	 *      @param		int			$pa_ht				Buying price without tax
-	 *      @param		string		$label				???
-	 *      @param		array		$array_options		extrafields array
-	 * 		@param		string		$ref_supplier			Supplier price reference
-	 * 		@param		int			$fk_unit			Id of the unit to use.
-	 * 		@param		string		$origin				'order', 'supplier_proposal', ...
-	 * 		@param		int			$origin_id			Id of origin line
-	 * 		@param		double		$pu_ht_devise		Amount in currency
-	 * 		@param		int			$date_start			Date start
-	 * 		@param		int			$date_end			Date end
-	 *    	@return    	int         	    			>0 if OK, <0 if KO
+	 * 		@param    	string			$desc				Description of line
+	 * 		@param    	float			$pu_ht				Unit price
+	 * 		@param    	float			$qty             	Quantite
+	 * 		@param    	float|string	$txtva           	VAT rate. Can be '19.6' or '19.6 (CODE)'
+	 * 		@param		float			$txlocaltax1		Local tax 1 rate
+	 *  	@param		float			$txlocaltax2		Local tax 2 rate
+	 *		@param    	int				$fk_product      	Product/Service ID predefined
+	 * 		@param    	float			$remise_percent  	Percentage discount of the line
+	 * 		@param    	string			$price_base_type	HT or TTC
+	 * 		@param    	float			$pu_ttc             Prix unitaire TTC
+	 * 		@param    	int				$info_bits			Bits of type of lines
+	 *      @param      int				$type               Type of line (product, service)
+	 *      @param      int				$rang               Position of line
+	 *      @param		int				$special_code		Special code (also used by externals modules!)
+	 *      @param		int				$fk_parent_line		Id of parent line
+	 *      @param		int|string		$fk_fournprice		Id supplier price or string. If 0, we will take best price. If -1 we keep it empty.
+	 *      @param		float|string	$pa_ht				Buying price without tax (Can be '' to keep AWP unchanged or a float value)
+	 *      @param		string			$label				???
+	 *      @param		array<string,mixed>		$array_options		extrafields array
+	 * 		@param		string			$ref_supplier		Supplier price reference
+	 * 		@param		int				$fk_unit			Id of the unit to use.
+	 * 		@param		string			$origin				'order', 'supplier_proposal', ...
+	 * 		@param		int				$origin_id			Id of origin line
+	 * 		@param		float			$pu_ht_devise		Amount in currency
+	 * 		@param		int				$date_start			Date start
+	 * 		@param		int				$date_end			Date end
+	 *    	@return    	int         		    			Return >0 if OK, <0 if KO
 	 *
 	 *    	@see       	add_product()
 	 */
-	public function addline($desc, $pu_ht, $qty, $txtva, $txlocaltax1 = 0, $txlocaltax2 = 0, $fk_product = 0, $remise_percent = 0, $price_base_type = 'HT', $pu_ttc = 0, $info_bits = 0, $type = 0, $rang = -1, $special_code = 0, $fk_parent_line = 0, $fk_fournprice = 0, $pa_ht = 0, $label = '', $array_options = 0, $ref_supplier = '', $fk_unit = '', $origin = '', $origin_id = 0, $pu_ht_devise = 0, $date_start = 0, $date_end = 0)
+	public function addline($desc, $pu_ht, $qty, $txtva, $txlocaltax1 = 0, $txlocaltax2 = 0, $fk_product = 0, $remise_percent = 0, $price_base_type = 'HT', $pu_ttc = 0, $info_bits = 0, $type = 0, $rang = -1, $special_code = 0, $fk_parent_line = 0, $fk_fournprice = 0, $pa_ht = 0, $label = '', $array_options = [], $ref_supplier = '', $fk_unit = 0, $origin = '', $origin_id = 0, $pu_ht_devise = 0, $date_start = 0, $date_end = 0)
 	{
-		global $mysoc, $conf, $langs;
+		global $mysoc, $langs;
 
 		dol_syslog(get_class($this)."::addline supplier_proposalid=$this->id, desc=$desc, pu_ht=$pu_ht, qty=$qty, txtva=$txtva, fk_product=$fk_product, remise_except=$remise_percent, price_base_type=$price_base_type, pu_ttc=$pu_ttc, info_bits=$info_bits, type=$type");
 		include_once DOL_DOCUMENT_ROOT.'/core/lib/price.lib.php';
@@ -425,10 +537,10 @@ class SupplierProposal extends CommonObject
 		}
 
 		$remise_percent = price2num($remise_percent);
-		$qty = price2num($qty);
+		$qty = (float) price2num($qty);
 		$pu_ht = price2num($pu_ht);
 		$pu_ttc = price2num($pu_ttc);
-		if (!preg_match('/\((.*)\)/', $txtva)) {
+		if (!preg_match('/\((.*)\)/', (string) $txtva)) {
 			$txtva = price2num($txtva); // $txtva can have format '5.0(XXX)' or '5'
 		}
 		$txlocaltax1 = price2num($txlocaltax1);
@@ -445,68 +557,91 @@ class SupplierProposal extends CommonObject
 			return -1;
 		}
 
-		if ($this->statut == self::STATUS_DRAFT) {
+		if ($this->status == self::STATUS_DRAFT) {
 			$this->db->begin();
 
 			if ($fk_product > 0) {
-				if (!empty($conf->global->SUPPLIER_PROPOSAL_WITH_PREDEFINED_PRICES_ONLY)) {
+				if (getDolGlobalInt('SUPPLIER_PROPOSAL_WITH_PREDEFINED_PRICES_ONLY') == 1) {	// Not the common case
 					// Check quantity is enough
 					dol_syslog(get_class($this)."::addline we check supplier prices fk_product=".$fk_product." fk_fournprice=".$fk_fournprice." qty=".$qty." ref_supplier=".$ref_supplier);
-					$prod = new Product($this->db);
-					if ($prod->fetch($fk_product) > 0) {
-						$product_type = $prod->type;
-						$label = $prod->label;
+					$productsupplier = new ProductFournisseur($this->db);
+					if ($productsupplier->fetch($fk_product) > 0) {
+						$product_type = $productsupplier->type;
+						$label = $productsupplier->label;
 						$fk_prod_fourn_price = $fk_fournprice;
 
 						// We use 'none' instead of $ref_supplier, because fourn_ref may not exists anymore. So we will take the first supplier price ok.
 						// If we want a dedicated supplier price, we must provide $fk_prod_fourn_price.
-						$result = $prod->get_buyprice($fk_prod_fourn_price, $qty, $fk_product, 'none', ($this->fk_soc ? $this->fk_soc : $this->socid)); // Search on couple $fk_prod_fourn_price/$qty first, then on triplet $qty/$fk_product/$ref_supplier/$this->fk_soc
+						// @phan-suppress-next-line PhanPluginSuspiciousParamOrder
+						$result = $productsupplier->get_buyprice($fk_prod_fourn_price, $qty, $fk_product, 'none', $this->socid); // Search on couple $fk_prod_fourn_price/$qty first, then on triplet $qty/$fk_product/$ref_supplier/$this->socid
 						if ($result > 0) {
-							$pu = $prod->fourn_pu; // Unit price supplier price set by get_buyprice
-							$ref_supplier = $prod->ref_supplier; // Ref supplier price set by get_buyprice
+							$pu = $productsupplier->fourn_pu; // Unit price supplier price set by get_buyprice
+							$ref_supplier = $productsupplier->ref_supplier; // Ref supplier price set by get_buyprice
 							// is remise percent not keyed but present for the product we add it
-							if ($remise_percent == 0 && $prod->remise_percent != 0) {
-								$remise_percent = $prod->remise_percent;
+							if ($remise_percent == 0 && $productsupplier->remise_percent != 0) {
+								$remise_percent = $productsupplier->remise_percent;
 							}
 						}
 						if ($result == 0) {                   // If result == 0, we failed to found the supplier reference price
 							$langs->load("errors");
-							$this->error = "Ref ".$prod->ref." ".$langs->trans("ErrorQtyTooLowForThisSupplier");
+							$this->error = "Ref ".$productsupplier->ref." ".$langs->trans("ErrorQtyTooLowForThisSupplier");
 							$this->db->rollback();
 							dol_syslog(get_class($this)."::addline we did not found supplier price, so we can't guess unit price");
-							//$pu    = $prod->fourn_pu;     // We do not overwrite unit price
-							//$ref   = $prod->ref_fourn;    // We do not overwrite ref supplier price
+							//$pu    = $productsupplier->fourn_pu;     // We do not overwrite unit price
+							//$ref   = $productsupplier_fourn;    // We do not overwrite ref supplier price
 							return -1;
 						}
 						if ($result == -1) {
 							$langs->load("errors");
-							$this->error = "Ref ".$prod->ref." ".$langs->trans("ErrorQtyTooLowForThisSupplier");
+							$this->error = "Ref ".$productsupplier->ref." ".$langs->trans("ErrorQtyTooLowForThisSupplier");
 							$this->db->rollback();
 							dol_syslog(get_class($this)."::addline result=".$result." - ".$this->error, LOG_DEBUG);
 							return -1;
 						}
 						if ($result < -1) {
-							$this->error = $prod->error;
-							$this->errors = $prod->errors;
+							$this->setErrorsFromObject($productsupplier);
 							$this->db->rollback();
 							dol_syslog(get_class($this)."::addline result=".$result." - ".$this->error, LOG_ERR);
 							return -1;
 						}
 					} else {
-						$this->error = $prod->error;
-						$this->errors = $prod->errors;
+						$this->setErrorsFromObject($productsupplier);
 						$this->db->rollback();
 						return -1;
+					}
+				}
+
+				// Predefine quantity according to packaging (same rule as for supplier orders)
+				if (getDolGlobalString('PRODUCT_USE_SUPPLIER_PACKAGING')) {
+					$prod = new Product($this->db);
+					// @phan-suppress-next-line PhanPluginSuspiciousParamOrder
+					$prod->get_buyprice(($fk_fournprice > 0 ? (int) $fk_fournprice : 0), (float) $qty, $fk_product, 'none', $this->socid);
+
+					$newqty = $this->roundQtyToPackaging($qty, $prod->packaging);
+					if ($newqty != $qty) {
+						$qty = $newqty;
+						setEventMessages($langs->trans('QtyRecalculatedWithPackaging'), null, 'warnings');
+					}
+
+					// Enforce the supplier minimum purchase quantity on top of packaging rounding: if the line is below
+					// the supplier minimum, round the minimum itself up to the next packaging multiple.
+					if (!empty($prod->fourn_qty) && (float) $qty > 0 && (float) $qty < (float) $prod->fourn_qty) {	// A negative quantity (return) is not concerned by the minimum purchase quantity
+						if (!empty($prod->packaging) && (float) price2num(fmod((float) $prod->fourn_qty, (float) $prod->packaging), 'MS')) {
+							$coeff = intval((float) $prod->fourn_qty / (float) $prod->packaging) + 1;
+							$qty = (float) price2num((float) $prod->packaging * $coeff, 'MS');
+						} else {
+							$qty = (float) $prod->fourn_qty;
+						}
+						setEventMessages($langs->trans('QtyRecalculatedWithPackaging'), null, 'mesgs');
 					}
 				}
 			} else {
 				$product_type = $type;
 			}
 
-			// Calcul du total TTC et de la TVA pour la ligne a partir de
-			// qty, pu, remise_percent et txtva
-			// TRES IMPORTANT: C'est au moment de l'insertion ligne qu'on doit stocker
-			// la part ht, tva et ttc, et ce au niveau de la ligne qui a son propre taux tva.
+			// Calculation of the gross total (TTC) and VAT for the line from qty, pu, remise_percent and txtva
+			// VERY IMPORTANT: It's at the time of line insertion that we must store the net, VAT, and gross amounts,
+			// and this is done at the line level, which has its own VAT rate
 
 			$localtaxes_type = getLocalTaxesFromRate($txtva, 0, $this->thirdparty, $mysoc);
 
@@ -518,11 +653,28 @@ class SupplierProposal extends CommonObject
 				$txtva = preg_replace('/\s*\(.*\)/', '', $txtva); // Remove code into vatrate.
 			}
 
-			if (!empty($conf->multicurrency->enabled) && $pu_ht_devise > 0) {
+			if (isModEnabled("multicurrency") && $pu_ht_devise > 0) {
 				$pu = 0;
 			}
 
-			$tabprice = calcul_price_total($qty, $pu, $remise_percent, $txtva, $txlocaltax1, $txlocaltax2, 0, $price_base_type, $info_bits, $type, $this->thirdparty, $localtaxes_type, 100, $this->multicurrency_tx, $pu_ht_devise);
+			$tabprice = calcul_price_total(
+				$qty,
+				$pu,
+				(float) $remise_percent,
+				$txtva,
+				(float) $txlocaltax1,
+				(float) $txlocaltax2,
+				0,
+				$price_base_type,
+				$info_bits,
+				$type,
+				$this->thirdparty,
+				$localtaxes_type,
+				100,
+				(float) $this->multicurrency_tx,
+				$pu_ht_devise,
+				$this->multicurrency_code
+			);
 			$total_ht  = $tabprice[0];
 			$total_tva = $tabprice[1];
 			$total_ttc = $tabprice[2];
@@ -543,15 +695,6 @@ class SupplierProposal extends CommonObject
 				$ranktouse = $rangmax + 1;
 			}
 
-			// TODO A virer
-			// Anciens indicateurs: $price, $remise (a ne plus utiliser)
-			$price = $pu;
-			$remise = 0;
-			if ($remise_percent > 0) {
-				$remise = round(($pu * $remise_percent / 100), 2);
-				$price = $pu - $remise;
-			}
-
 			// Insert line
 			$this->line = new SupplierProposalLine($this->db);
 
@@ -568,25 +711,28 @@ class SupplierProposal extends CommonObject
 			$this->line->localtax2_type = empty($localtaxes_type[2]) ? '' : $localtaxes_type[2];
 			$this->line->fk_product = $fk_product;
 			$this->line->remise_percent = $remise_percent;
-			$this->line->subprice = $pu_ht;
+			$this->line->subprice = (float) $pu_ht;
+			// Persist the original entry mode of the line so updateline() can preserve it later.
+			$this->line->subprice_ttc = ($price_base_type === 'TTC') ? (float) $pu_ttc : 0;
 			$this->line->rang = $ranktouse;
 			$this->line->info_bits = $info_bits;
-			$this->line->total_ht = $total_ht;
-			$this->line->total_tva = $total_tva;
-			$this->line->total_localtax1 = $total_localtax1;
-			$this->line->total_localtax2 = $total_localtax2;
-			$this->line->total_ttc = $total_ttc;
+			$this->line->total_ht = (float) $total_ht;
+			$this->line->total_tva = (float) $total_tva;
+			$this->line->total_localtax1 = (float) $total_localtax1;
+			$this->line->total_localtax2 = (float) $total_localtax2;
+			$this->line->total_ttc = (float) $total_ttc;
 			$this->line->product_type = $type;
 			$this->line->special_code = $special_code;
 			$this->line->fk_parent_line = $fk_parent_line;
 			$this->line->fk_unit = $fk_unit;
 			$this->line->origin = $origin;
+			$this->line->origin_type = $origin;
 			$this->line->origin_id = $origin_id;
 			$this->line->ref_fourn = $this->db->escape($ref_supplier);
 			$this->line->date_start = $date_start;
 			$this->line->date_end = $date_end;
 
-			// infos marge
+			// infos merge
 			if (!empty($fk_product) && $fk_product > 0 && empty($fk_fournprice) && empty($pa_ht)) {
 				// When fk_fournprice is 0, we take the lowest buying price
 				include_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.product.class.php';
@@ -602,12 +748,12 @@ class SupplierProposal extends CommonObject
 			// Multicurrency
 			$this->line->fk_multicurrency = $this->fk_multicurrency;
 			$this->line->multicurrency_code = $this->multicurrency_code;
-			$this->line->multicurrency_subprice		= $pu_ht_devise;
-			$this->line->multicurrency_total_ht		= $multicurrency_total_ht;
-			$this->line->multicurrency_total_tva	= $multicurrency_total_tva;
-			$this->line->multicurrency_total_ttc	= $multicurrency_total_ttc;
+			$this->line->multicurrency_subprice		= (float) $pu_ht_devise;
+			$this->line->multicurrency_total_ht		= (float) $multicurrency_total_ht;
+			$this->line->multicurrency_total_tva	= (float) $multicurrency_total_tva;
+			$this->line->multicurrency_total_ttc	= (float) $multicurrency_total_ttc;
 
-			// Mise en option de la ligne
+			// Set the proposal line as optional
 			if (empty($qty) && empty($special_code)) {
 				$this->line->special_code = 3;
 			}
@@ -628,20 +774,17 @@ class SupplierProposal extends CommonObject
 					}
 				}
 
-				// Mise a jour informations denormalisees au niveau de la propale meme
+				// Update denormalized information at the present proposal level
 				$result = $this->update_price(1, 'auto', 0, $this->thirdparty); // This method is designed to add line from user input so total calculation must be done using 'auto' mode.
 				if ($result > 0) {
 					$this->db->commit();
 					return $this->line->id;
 				} else {
-					$this->error = $this->error();
-					$this->errors = $this->errors();
 					$this->db->rollback();
 					return -1;
 				}
 			} else {
-				$this->error = $this->line->error;
-				$this->errors = $this->line->errors;
+				$this->setErrorsFromObject($this->line);
 				$this->db->rollback();
 				return -2;
 			}
@@ -655,41 +798,46 @@ class SupplierProposal extends CommonObject
 	/**
 	 *  Update a proposal line
 	 *
-	 *  @param      int			$rowid           	Id de la ligne
-	 *  @param      double		$pu		     	  	Prix unitaire (HT ou TTC selon price_base_type)
-	 *  @param      double		$qty            	Quantity
-	 *  @param      double		$remise_percent  	Remise effectuee sur le produit
-	 *  @param      double		$txtva	          	Taux de TVA
-	 * 	@param	  	double		$txlocaltax1		Local tax 1 rate
-	 *  @param	  	double		$txlocaltax2		Local tax 2 rate
-	 *  @param      string		$desc            	Description
-	 *	@param	  	double		$price_base_type	HT ou TTC
-	 *	@param      int			$info_bits        	Miscellaneous informations
-	 *	@param		int			$special_code		Special code (also used by externals modules!)
-	 * 	@param		int			$fk_parent_line		Id of parent line (0 in most cases, used by modules adding sublevels into lines).
-	 * 	@param		int			$skip_update_total	Keep fields total_xxx to 0 (used for special lines by some modules)
-	 *  @param		int			$fk_fournprice		Id of origin supplier price
-	 *  @param		int			$pa_ht				Price (without tax) of product when it was bought
-	 *  @param		string		$label				???
-	 *  @param		int			$type				0/1=Product/service
-	 *  @param		array		$array_options		extrafields array
-	 * 	@param		string		$ref_supplier			Supplier price reference
-	 *	@param		int			$fk_unit			Id of the unit to use.
-	 * 	@param		double		$pu_ht_devise		Unit price in currency
-	 *  @return     int     		        		0 if OK, <0 if KO
+	 *  @param      int				$rowid           	Id of the row
+	 *  @param      float			$pu		     	  	Unit price (HT or TTC depending on price_base_type)
+	 *  @param      float			$qty            	Quantity
+	 *  @param      float			$remise_percent  	Discount on line
+	 *  @param      float|string	$txtva	          	VAT rate. Can be '19.6' or '19.6 (CODE)'
+	 * 	@param	  	float			$txlocaltax1		Local tax 1 rate
+	 *  @param	  	float			$txlocaltax2		Local tax 2 rate
+	 *  @param      string			$desc            	Description
+	 *	@param	  	string			$price_base_type	HT or TTC
+	 *	@param      int				$info_bits        	Miscellaneous information
+	 *	@param		int				$special_code		Special code (also used by externals modules!)
+	 * 	@param		int				$fk_parent_line		Id of parent line (0 in most cases, used by modules adding sublevels into lines).
+	 * 	@param		int				$skip_update_total	Keep fields total_xxx to 0 (used for special lines by some modules)
+	 *  @param		int				$fk_fournprice		Id of origin supplier price
+	 *  @param		float|string	$pa_ht				Price (without tax) of product when it was bought (Can be '' to keep AWP unchanged or a float value)
+	 *  @param		string			$label				???
+	 *  @param		int<0,1>		$type				0/1=Product/service
+	 *  @param		array<string,mixed>	$array_options	Extrafields array
+	 * 	@param		string			$ref_supplier		Supplier price reference
+	 *	@param		int				$fk_unit			Id of the unit to use.
+	 * 	@param		float			$pu_ht_devise		Unit price in currency
+	 *  @return     int     			        		Return 0 if OK, <0 if KO
 	 */
-	public function updateline($rowid, $pu, $qty, $remise_percent, $txtva, $txlocaltax1 = 0, $txlocaltax2 = 0, $desc = '', $price_base_type = 'HT', $info_bits = 0, $special_code = 0, $fk_parent_line = 0, $skip_update_total = 0, $fk_fournprice = 0, $pa_ht = 0, $label = '', $type = 0, $array_options = 0, $ref_supplier = '', $fk_unit = '', $pu_ht_devise = 0)
+	public function updateline($rowid, $pu, $qty, $remise_percent, $txtva, $txlocaltax1 = 0, $txlocaltax2 = 0, $desc = '', $price_base_type = 'HT', $info_bits = 0, $special_code = 0, $fk_parent_line = 0, $skip_update_total = 0, $fk_fournprice = 0, $pa_ht = 0, $label = '', $type = 0, $array_options = [], $ref_supplier = '', $fk_unit = 0, $pu_ht_devise = 0)
 	{
-		global $conf, $user, $langs, $mysoc;
+		global $mysoc, $langs;
+
+		if (!$this->isLineOfObject($rowid)) {
+			$this->error = 'ErrorLineIDDoesNotMatchWithObjectID';
+			return -1;
+		}
 
 		dol_syslog(get_class($this)."::updateLine $rowid, $pu, $qty, $remise_percent, $txtva, $desc, $price_base_type, $info_bits");
 		include_once DOL_DOCUMENT_ROOT.'/core/lib/price.lib.php';
 
 		// Clean parameters
 		$remise_percent = price2num($remise_percent);
-		$qty = price2num($qty);
+		$qty = (float) price2num($qty);
 		$pu = price2num($pu);
-		if (!preg_match('/\((.*)\)/', $txtva)) {
+		if (!preg_match('/\((.*)\)/', (string) $txtva)) {
 			$txtva = price2num($txtva); // $txtva can have format '5.0(XXX)' or '5'
 		}
 		$txlocaltax1 = price2num($txlocaltax1);
@@ -702,13 +850,12 @@ class SupplierProposal extends CommonObject
 			$special_code = 0; // Remove option tag
 		}
 
-		if ($this->statut == 0) {
+		if ($this->status == 0) {
 			$this->db->begin();
 
-			// Calcul du total TTC et de la TVA pour la ligne a partir de
-			// qty, pu, remise_percent et txtva
-			// TRES IMPORTANT: C'est au moment de l'insertion ligne qu'on doit stocker
-			// la part ht, tva et ttc, et ce au niveau de la ligne qui a son propre taux tva.
+			// Calculation of the gross total (TTC) and VAT for the line from qty, pu, remise_percent and txtva
+			// VERY IMPORTANT: It's at the time of line insertion that we must store the net, VAT, and gross amounts,
+			// and this is done at the line level, which has its own VAT rate
 
 			$localtaxes_type = getLocalTaxesFromRate($txtva, 0, $mysoc, $this->thirdparty);
 
@@ -720,11 +867,45 @@ class SupplierProposal extends CommonObject
 				$txtva = preg_replace('/\s*\(.*\)/', '', $txtva); // Remove code into vatrate.
 			}
 
-			if (!empty($conf->multicurrency->enabled) && $pu_ht_devise > 0) {
+			if (isModEnabled("multicurrency") && $pu_ht_devise > 0) {
 				$pu = 0;
 			}
 
-			$tabprice = calcul_price_total($qty, $pu, $remise_percent, $txtva, $txlocaltax1, $txlocaltax2, 0, $price_base_type, $info_bits, $type, $this->thirdparty, $localtaxes_type, 100, $this->multicurrency_tx, $pu_ht_devise);
+			// Round the quantity to the packaging before computing the amounts of the line,
+			// else the line is saved with the rounded quantity but with the amounts of the quantity before rounding
+			if (getDolGlobalString('PRODUCT_USE_SUPPLIER_PACKAGING')) {
+				$tmpline = new SupplierProposalLine($this->db);
+				if ($tmpline->fetch($rowid) > 0 && $tmpline->fk_product > 0) {
+					$prod = new Product($this->db);
+					// @phan-suppress-next-line PhanPluginSuspiciousParamOrder
+					$prod->get_buyprice(($fk_fournprice > 0 ? (int) $fk_fournprice : (int) $tmpline->fk_fournprice), (float) $qty, $tmpline->fk_product, 'none', $this->socid);
+
+					$newqty = $this->roundQtyToPackaging($qty, $prod->packaging);
+					if ($newqty != $qty) {
+						$qty = $newqty;
+						setEventMessages($langs->trans('QtyRecalculatedWithPackaging'), null, 'warnings');
+					}
+				}
+			}
+
+			$tabprice = calcul_price_total(
+				$qty,
+				$pu,
+				(float) $remise_percent,
+				$txtva,
+				(float) $txlocaltax1,
+				(float) $txlocaltax2,
+				0,
+				$price_base_type,
+				$info_bits,
+				$type,
+				$this->thirdparty,
+				$localtaxes_type,
+				100,
+				(float) $this->multicurrency_tx,
+				$pu_ht_devise,
+				$this->multicurrency_code
+			);
 			$total_ht  = $tabprice[0];
 			$total_tva = $tabprice[1];
 			$total_ttc = $tabprice[2];
@@ -740,15 +921,12 @@ class SupplierProposal extends CommonObject
 			$multicurrency_total_ttc = $tabprice[18];
 			$pu_ht_devise = $tabprice[19];
 
-			$pu = $pu_ht;
-			if ($price_base_type == 'TTC') {
-				$pu = $pu_ttc;
-			}
-
-			//Fetch current line from the database and then clone the object and set it in $oldline property
+			// Fetch current line from the database and then clone the object and set it in $oldline property
 			$line = new SupplierProposalLine($this->db);
 			$line->fetch($rowid);
 			$line->fetch_optionals();
+
+			$fk_product = $line->fk_product;
 
 			// Stock previous line records
 			$staticline = clone $line;
@@ -776,20 +954,22 @@ class SupplierProposal extends CommonObject
 			$this->line->localtax1_type		= empty($localtaxes_type[0]) ? '' : $localtaxes_type[0];
 			$this->line->localtax2_type		= empty($localtaxes_type[2]) ? '' : $localtaxes_type[2];
 			$this->line->remise_percent		= $remise_percent;
-			$this->line->subprice			= $pu;
+			$this->line->subprice			= (float) $pu_ht;
+			// Persist the original entry mode of the line so a no-op edit can preserve it later.
+			$this->line->subprice_ttc		= ($price_base_type === 'TTC') ? (float) $pu_ttc : 0;
 			$this->line->info_bits			= $info_bits;
-			$this->line->total_ht			= $total_ht;
-			$this->line->total_tva			= $total_tva;
-			$this->line->total_localtax1	= $total_localtax1;
-			$this->line->total_localtax2	= $total_localtax2;
-			$this->line->total_ttc			= $total_ttc;
+			$this->line->total_ht			= (float) $total_ht;
+			$this->line->total_tva			= (float) $total_tva;
+			$this->line->total_localtax1	= (float) $total_localtax1;
+			$this->line->total_localtax2	= (float) $total_localtax2;
+			$this->line->total_ttc			= (float) $total_ttc;
 			$this->line->special_code = $special_code;
 			$this->line->fk_parent_line		= $fk_parent_line;
 			$this->line->skip_update_total = $skip_update_total;
 			$this->line->ref_fourn = $ref_supplier;
 			$this->line->fk_unit = $fk_unit;
 
-			// infos marge
+			// infos merge
 			if (!empty($fk_product) && $fk_product > 0 && empty($fk_fournprice) && empty($pa_ht)) {
 				// by external module, take lowest buying price
 				include_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.product.class.php';
@@ -809,10 +989,10 @@ class SupplierProposal extends CommonObject
 			}
 
 			// Multicurrency
-			$this->line->multicurrency_subprice		= $pu_ht_devise;
-			$this->line->multicurrency_total_ht		= $multicurrency_total_ht;
-			$this->line->multicurrency_total_tva	= $multicurrency_total_tva;
-			$this->line->multicurrency_total_ttc	= $multicurrency_total_ttc;
+			$this->line->multicurrency_subprice		= (float) $pu_ht_devise;
+			$this->line->multicurrency_total_ht		= (float) $multicurrency_total_ht;
+			$this->line->multicurrency_total_tva	= (float) $multicurrency_total_tva;
+			$this->line->multicurrency_total_ttc	= (float) $multicurrency_total_ttc;
 
 			$result = $this->line->update();
 			if ($result > 0) {
@@ -822,8 +1002,6 @@ class SupplierProposal extends CommonObject
 				}
 
 				$this->update_price(1);
-
-				$this->fk_supplier_proposal = $this->id;
 
 				$this->db->commit();
 				return $result;
@@ -845,15 +1023,22 @@ class SupplierProposal extends CommonObject
 	 *  @param		int		$lineid			Id of line to delete
 	 *  @return     int         			>0 if OK, <0 if KO
 	 */
-	public function deleteline($lineid)
+	public function deleteLine($lineid)
 	{
-		if ($this->statut == 0) {
+		global $user;
+
+		if ($this->status == 0) {
 			$line = new SupplierProposalLine($this->db);
 
 			// For triggers
 			$line->fetch($lineid);
 
-			if ($line->delete() > 0) {
+			if ($this->id > 0 && (int) $line->fk_supplier_proposal !== (int) $this->id) {
+				$this->error = 'ErrorLineIDDoesNotMatchWithObjectID';
+				return -1;
+			}
+
+			if ($line->delete($user) > 0) {
 				$this->update_price(1);
 
 				return 1;
@@ -872,11 +1057,11 @@ class SupplierProposal extends CommonObject
 	 *
 	 * 	@param		User	$user		User that create
 	 * 	@param		int		$notrigger	1=Does not execute triggers, 0= execute triggers
-	 *  @return     int     			<0 if KO, >=0 if OK
+	 *  @return     int     			Return integer <0 if KO, >=0 if OK
 	 */
 	public function create($user, $notrigger = 0)
 	{
-		global $langs, $conf, $mysoc, $hookmanager;
+		global $conf, $mysoc, $hookmanager;
 		$error = 0;
 
 		$now = dol_now();
@@ -901,14 +1086,16 @@ class SupplierProposal extends CommonObject
 		}
 
 		// Set tmp vars
-		$delivery_date = empty($this->delivery_date) ? $this->date_livraison : $this->delivery_date;
+		$delivery_date = $this->delivery_date;
 
-		// Multicurrency
-		if (!empty($this->multicurrency_code)) {
+		// Multicurrency (test on $this->multicurrency_tx because we should take the default rate only if no rate was provided)
+		if (!empty($this->multicurrency_code) && empty($this->multicurrency_tx)) {
 			list($this->fk_multicurrency, $this->multicurrency_tx) = MultiCurrency::getIdAndTxFromCode($this->db, $this->multicurrency_code, $now);
+		} elseif (!empty($this->multicurrency_code)) {
+			$this->fk_multicurrency = MultiCurrency::getIdFromCode($this->db, $this->multicurrency_code);
 		}
 		if (empty($this->fk_multicurrency)) {
-			$this->multicurrency_code = $conf->currency;
+			$this->multicurrency_code = getDolCurrency();
 			$this->fk_multicurrency = 0;
 			$this->multicurrency_tx = 1;
 		}
@@ -919,9 +1106,6 @@ class SupplierProposal extends CommonObject
 		$sql = "INSERT INTO ".MAIN_DB_PREFIX."supplier_proposal (";
 		$sql .= "fk_soc";
 		$sql .= ", price";
-		$sql .= ", remise";
-		$sql .= ", remise_percent";
-		$sql .= ", remise_absolue";
 		$sql .= ", total_tva";
 		$sql .= ", total_ttc";
 		$sql .= ", datec";
@@ -931,6 +1115,7 @@ class SupplierProposal extends CommonObject
 		$sql .= ", note_public";
 		$sql .= ", model_pdf";
 		$sql .= ", fk_cond_reglement";
+		$sql .= ", deposit_percent";
 		$sql .= ", fk_mode_reglement";
 		$sql .= ", fk_account";
 		$sql .= ", date_livraison";
@@ -944,27 +1129,25 @@ class SupplierProposal extends CommonObject
 		$sql .= " VALUES (";
 		$sql .= ((int) $this->socid);
 		$sql .= ", 0";
-		$sql .= ", ".((double) $this->remise);
-		$sql .= ", ".($this->remise_percent ? ((double) $this->remise_percent) : 'null');
-		$sql .= ", ".($this->remise_absolue ? ((double) $this->remise_absolue) : 'null');
 		$sql .= ", 0";
 		$sql .= ", 0";
 		$sql .= ", '".$this->db->idate($now)."'";
 		$sql .= ", '(PROV)'";
 		$sql .= ", ".($user->id > 0 ? ((int) $user->id) : "null");
-		$sql .= ", '".$this->db->escape($this->note_private)."'";
-		$sql .= ", '".$this->db->escape($this->note_public)."'";
+		$sql .= ", '".$this->db->escape((string) $this->note_private)."'";
+		$sql .= ", '".$this->db->escape((string) $this->note_public)."'";
 		$sql .= ", '".$this->db->escape($this->model_pdf)."'";
 		$sql .= ", ".($this->cond_reglement_id > 0 ? ((int) $this->cond_reglement_id) : 'NULL');
+		$sql .= ", ".(!empty($this->deposit_percent) ? "'" . $this->db->escape($this->deposit_percent) . "'" : 'NULL');
 		$sql .= ", ".($this->mode_reglement_id > 0 ? ((int) $this->mode_reglement_id) : 'NULL');
 		$sql .= ", ".($this->fk_account > 0 ? ((int) $this->fk_account) : 'NULL');
-		$sql .= ", ".($delivery_date ? "'".$this->db->idate($delivery_date)."'" : "null");
+		$sql .= ", ".(isDolTms($delivery_date) ? "'".$this->db->idate($delivery_date)."'" : "null");
 		$sql .= ", ".($this->shipping_method_id > 0 ? ((int) $this->shipping_method_id) : 'NULL');
 		$sql .= ", ".($this->fk_project > 0 ? ((int) $this->fk_project) : "null");
 		$sql .= ", ".((int) $conf->entity);
 		$sql .= ", ".((int) $this->fk_multicurrency);
 		$sql .= ", '".$this->db->escape($this->multicurrency_code)."'";
-		$sql .= ", ".((double) $this->multicurrency_tx);
+		$sql .= ", ".((float) $this->multicurrency_tx);
 		$sql .= ")";
 
 		dol_syslog(get_class($this)."::create", LOG_DEBUG);
@@ -1002,29 +1185,41 @@ class SupplierProposal extends CommonObject
 				}
 
 				/*
-				 *  Insertion du detail des produits dans la base
+				 *  Insert products details into database
 				 */
 				if (!$error) {
 					$fk_parent_line = 0;
 					$num = count($this->lines);
 
 					for ($i = 0; $i < $num; $i++) {
+						if (!is_object($this->lines[$i])) {	// Lines coming from the REST API are plain arrays
+							// Build a real line object: the code below calls methods on it
+							// (getPriceBaseType), which an array cannot answer.
+							$lineobj = new SupplierProposalLine($this->db);
+							foreach ($this->lines[$i] as $key => $val) {
+								$lineobj->$key = $val;
+							}
+							$this->lines[$i] = $lineobj;
+						}
+
 						// Reset fk_parent_line for no child products and special product
 						if (($this->lines[$i]->product_type != 9 && empty($this->lines[$i]->fk_parent_line)) || $this->lines[$i]->product_type == 9) {
 							$fk_parent_line = 0;
 						}
 
+						// Preserve the original entry mode of the line so the total is computed from the typed value (no rounding drift).
+						$line_price_base_type = $this->lines[$i]->getPriceBaseType();
 						$result = $this->addline(
 							$this->lines[$i]->desc,
-							$this->lines[$i]->subprice,
+							(float) $this->lines[$i]->subprice,
 							$this->lines[$i]->qty,
 							$this->lines[$i]->tva_tx,
 							$this->lines[$i]->localtax1_tx,
 							$this->lines[$i]->localtax2_tx,
 							$this->lines[$i]->fk_product,
 							$this->lines[$i]->remise_percent,
-							'HT',
-							0,
+							$line_price_base_type,
+							(float) $this->lines[$i]->subprice_ttc,
 							0,
 							$this->lines[$i]->product_type,
 							$this->lines[$i]->rang,
@@ -1054,7 +1249,7 @@ class SupplierProposal extends CommonObject
 				}
 
 				if (!$error) {
-					// Mise a jour infos denormalisees
+					// Update denormalized data
 					$resql = $this->update_price(1);
 					if ($resql) {
 						$action = 'update';
@@ -1109,7 +1304,7 @@ class SupplierProposal extends CommonObject
 	 */
 	public function createFromClone(User $user, $fromid = 0)
 	{
-		global $conf, $hookmanager;
+		global $hookmanager;
 
 		$error = 0;
 		$now = dol_now();
@@ -1130,9 +1325,10 @@ class SupplierProposal extends CommonObject
 		if (!empty($fromid) && $fromid != $this->socid) {
 			if ($objsoc->fetch($fromid) > 0) {
 				$this->socid = $objsoc->id;
-				$this->cond_reglement_id	= (!empty($objsoc->cond_reglement_id) ? $objsoc->cond_reglement_id : 0);
-				$this->mode_reglement_id	= (!empty($objsoc->mode_reglement_id) ? $objsoc->mode_reglement_id : 0);
-				$this->fk_project = '';
+				$this->cond_reglement_id = (!empty($objsoc->cond_reglement_id) ? $objsoc->cond_reglement_id : 0);
+				$this->deposit_percent = (!empty($objsoc->deposit_percent) ? $objsoc->deposit_percent : 0);
+				$this->mode_reglement_id = (!empty($objsoc->mode_reglement_id) ? $objsoc->mode_reglement_id : 0);
+				unset($this->fk_project);
 			}
 
 			// TODO Change product price if multi-prices
@@ -1141,22 +1337,24 @@ class SupplierProposal extends CommonObject
 		}
 
 		$this->id = 0;
+		$this->status = 0;
 		$this->statut = 0;
 
-		if (empty($conf->global->SUPPLIER_PROPOSAL_ADDON) || !is_readable(DOL_DOCUMENT_ROOT."/core/modules/supplier_proposal/".$conf->global->SUPPLIER_PROPOSAL_ADDON.".php")) {
+		if (!getDolGlobalString('SUPPLIER_PROPOSAL_ADDON') || !is_readable(DOL_DOCUMENT_ROOT."/core/modules/supplier_proposal/" . getDolGlobalString('SUPPLIER_PROPOSAL_ADDON').".php")) {
 			$this->error = 'ErrorSetupNotComplete';
 			return -1;
 		}
 
 		// Clear fields
-		$this->user_author = $user->id;
-		$this->user_valid = '';
+		$this->user_author_id = $user->id;
+		$this->user_validation_id = 0;
 		$this->date = $now;
 
 		// Set ref
-		require_once DOL_DOCUMENT_ROOT."/core/modules/supplier_proposal/".$conf->global->SUPPLIER_PROPOSAL_ADDON.'.php';
-		$obj = $conf->global->SUPPLIER_PROPOSAL_ADDON;
-		$modSupplierProposal = new $obj;
+		require_once DOL_DOCUMENT_ROOT."/core/modules/supplier_proposal/" . getDolGlobalString('SUPPLIER_PROPOSAL_ADDON').'.php';
+		$obj = getDolGlobalString('SUPPLIER_PROPOSAL_ADDON');
+		$modSupplierProposal = new $obj();
+		'@phan-var-force ModeleNumRefSupplierProposal $modSupplierProposal';
 		$this->ref = $modSupplierProposal->getNextValue($objsoc, $this);
 
 		// Create clone
@@ -1169,10 +1367,11 @@ class SupplierProposal extends CommonObject
 		if (!$error) {
 			// Hook of thirdparty module
 			if (is_object($hookmanager)) {
-				$parameters = array('objFrom'=>$objFrom);
+				$parameters = array('objFrom' => $objFrom);
 				$action = '';
 				$reshook = $hookmanager->executeHooks('createFrom', $parameters, $this, $action); // Note that $action and $object may have been modified by some hooks
 				if ($reshook < 0) {
+					$this->setErrorsFromObject($hookmanager);
 					$error++;
 				}
 			}
@@ -1191,7 +1390,7 @@ class SupplierProposal extends CommonObject
 	}
 
 	/**
-	 *	Load a proposal from database and its ligne array
+	 *	Load a proposal from database and its lines array
 	 *
 	 *	@param      int			$rowid		id of object to load
 	 *	@param		string		$ref		Ref of proposal
@@ -1199,26 +1398,26 @@ class SupplierProposal extends CommonObject
 	 */
 	public function fetch($rowid, $ref = '')
 	{
-		global $conf;
-
-		$sql = "SELECT p.rowid, p.entity, p.ref, p.remise, p.remise_percent, p.remise_absolue, p.fk_soc";
+		$sql = "SELECT p.rowid, p.entity, p.ref, p.fk_soc as socid";
 		$sql .= ", p.total_ttc, p.total_tva, p.localtax1, p.localtax2, p.total_ht";
-		$sql .= ", p.datec";
+		$sql .= ", p.datec, GREATEST(p.tms, COALESCE(pef.tms, p.tms)) as date_modification";
 		$sql .= ", p.date_valid as datev";
 		$sql .= ", p.date_livraison as delivery_date";
 		$sql .= ", p.model_pdf, p.extraparams";
 		$sql .= ", p.note_private, p.note_public";
-		$sql .= ", p.fk_projet as fk_project, p.fk_statut";
-		$sql .= ", p.fk_user_author, p.fk_user_valid, p.fk_user_cloture";
+		$sql .= ", p.fk_projet as fk_project, p.fk_statut as status";
+		$sql .= ", p.fk_user_author, p.fk_user_modif, p.fk_user_valid, p.fk_user_cloture";
 		$sql .= ", p.fk_cond_reglement";
 		$sql .= ", p.fk_mode_reglement";
 		$sql .= ', p.fk_account';
 		$sql .= ", p.fk_shipping_method";
+		$sql .= ", p.last_main_doc";
 		$sql .= ", p.fk_multicurrency, p.multicurrency_code, p.multicurrency_tx, p.multicurrency_total_ht, p.multicurrency_total_tva, p.multicurrency_total_ttc";
 		$sql .= ", c.label as statut_label";
-		$sql .= ", cr.code as cond_reglement_code, cr.libelle as cond_reglement, cr.libelle_facture as cond_reglement_libelle_doc";
+		$sql .= ", cr.code as cond_reglement_code, cr.libelle as cond_reglement, cr.libelle_facture as cond_reglement_libelle_doc, p.deposit_percent";
 		$sql .= ", cp.code as mode_reglement_code, cp.libelle as mode_reglement";
 		$sql .= " FROM ".MAIN_DB_PREFIX."c_propalst as c, ".MAIN_DB_PREFIX."supplier_proposal as p";
+		$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."supplier_proposal_extrafields as pef ON pef.fk_object=p.rowid";
 		$sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'c_paiement as cp ON p.fk_mode_reglement = cp.id';
 		$sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'c_payment_term as cr ON p.fk_cond_reglement = cr.rowid';
 		$sql .= " WHERE p.fk_statut = c.id";
@@ -1239,71 +1438,68 @@ class SupplierProposal extends CommonObject
 				$this->entity               = $obj->entity;
 
 				$this->ref                  = $obj->ref;
-				$this->remise               = $obj->remise;
-				$this->remise_percent       = $obj->remise_percent;
-				$this->remise_absolue       = $obj->remise_absolue;
 				$this->total_ht             = $obj->total_ht;
 				$this->total_tva            = $obj->total_tva;
 				$this->total_localtax1		= $obj->localtax1;
 				$this->total_localtax2		= $obj->localtax2;
 				$this->total_ttc            = $obj->total_ttc;
-				$this->socid                = $obj->fk_soc;
+				$this->socid                = $obj->socid;
 				$this->fk_project           = $obj->fk_project;
 				$this->model_pdf            = $obj->model_pdf;
-				$this->modelpdf             = $obj->model_pdf; // deprecated
 				$this->note                 = $obj->note_private; // TODO deprecated
 				$this->note_private         = $obj->note_private;
 				$this->note_public          = $obj->note_public;
-				$this->statut               = (int) $obj->fk_statut;
-				$this->statut_libelle       = $obj->statut_label;
+				$this->statut               = (int) $obj->status;
+				$this->status               = (int) $obj->status;
 				$this->datec                = $this->db->jdate($obj->datec); // TODO deprecated
 				$this->datev                = $this->db->jdate($obj->datev); // TODO deprecated
-				$this->date_creation = $this->db->jdate($obj->datec); //Creation date
-				$this->date_validation = $this->db->jdate($obj->datev); //Validation date
-				$this->date_livraison       = $this->db->jdate($obj->delivery_date); // deprecated
-				$this->delivery_date        = $this->db->jdate($obj->delivery_date);
-				$this->shipping_method_id   = ($obj->fk_shipping_method > 0) ? $obj->fk_shipping_method : null;
+				$this->date_creation = $this->db->jdate($obj->datec);	// Creation date
+				$this->date_modification = $this->db->jdate($obj->date_modification);	// Modification date
+				$this->date = $this->date_creation;
+				$this->date_validation = $this->db->jdate($obj->datev); // Validation date
+				$this->delivery_date = $this->db->jdate($obj->delivery_date);
+				$this->shipping_method_id = ($obj->fk_shipping_method > 0) ? $obj->fk_shipping_method : null;
 
+				$this->last_main_doc    = $obj->last_main_doc;
 				$this->mode_reglement_id    = $obj->fk_mode_reglement;
 				$this->mode_reglement_code  = $obj->mode_reglement_code;
 				$this->mode_reglement       = $obj->mode_reglement;
+				$this->deposit_percent		= $obj->deposit_percent;
 				$this->fk_account           = ($obj->fk_account > 0) ? $obj->fk_account : null;
 				$this->cond_reglement_id    = $obj->fk_cond_reglement;
 				$this->cond_reglement_code  = $obj->cond_reglement_code;
 				$this->cond_reglement       = $obj->cond_reglement;
+				$this->cond_reglement_label = $obj->cond_reglement;
 				$this->cond_reglement_doc   = $obj->cond_reglement_libelle_doc;
 
-				$this->extraparams = (array) json_decode($obj->extraparams, true);
+				$this->extraparams = (array) (!empty($obj->extraparams) ? json_decode($obj->extraparams, true) : array());
 
 				$this->user_author_id = $obj->fk_user_author;
-				$this->user_valid_id  = $obj->fk_user_valid;
-				$this->user_close_id  = $obj->fk_user_cloture;
+				$this->user_modification_id = $obj->fk_user_modif;
+				$this->user_validation_id = $obj->fk_user_valid;
+				$this->user_closing_id = $obj->fk_user_cloture;
 
 				// Multicurrency
-				$this->fk_multicurrency 		= $obj->fk_multicurrency;
+				$this->fk_multicurrency = $obj->fk_multicurrency;
 				$this->multicurrency_code = $obj->multicurrency_code;
-				$this->multicurrency_tx 		= $obj->multicurrency_tx;
+				$this->multicurrency_tx = $obj->multicurrency_tx;
 				$this->multicurrency_total_ht = $obj->multicurrency_total_ht;
-				$this->multicurrency_total_tva 	= $obj->multicurrency_total_tva;
-				$this->multicurrency_total_ttc 	= $obj->multicurrency_total_ttc;
+				$this->multicurrency_total_tva = $obj->multicurrency_total_tva;
+				$this->multicurrency_total_ttc = $obj->multicurrency_total_ttc;
 
-				if ($obj->fk_statut == 0) {
-					$this->brouillon = 1;
-				}
+				$this->db->free($resql);
 
 				// Retrieve all extrafield
 				// fetch optionals attributes and labels
 				$this->fetch_optionals();
 
-				$this->db->free($resql);
-
 				$this->lines = array();
 
 				// Lines of supplier proposals
-				$sql = "SELECT d.rowid, d.fk_supplier_proposal, d.fk_parent_line, d.label as custom_label, d.description, d.price, d.tva_tx, d.localtax1_tx, d.localtax2_tx, d.qty, d.fk_remise_except, d.remise_percent, d.subprice, d.fk_product,";
+				$sql = "SELECT d.rowid, d.fk_supplier_proposal, d.fk_parent_line, d.label as custom_label, d.description, d.price, d.tva_tx, d.localtax1_tx, d.localtax2_tx, d.qty, d.fk_remise_except, d.remise_percent, d.subprice, d.subprice_ttc, d.fk_product,";
 				$sql .= " d.info_bits, d.total_ht, d.total_tva, d.total_localtax1, d.total_localtax2, d.total_ttc, d.fk_product_fournisseur_price as fk_fournprice, d.buy_price_ht as pa_ht, d.special_code, d.rang, d.product_type,";
 				$sql .= ' p.ref as product_ref, p.description as product_desc, p.fk_product_type, p.label as product_label,';
-				$sql .= ' d.ref_fourn as ref_produit_fourn,';
+				$sql .= ' d.ref_fourn as ref_produit_fourn, d.extraparams,';
 				$sql .= ' d.fk_multicurrency, d.multicurrency_code, d.multicurrency_subprice, d.multicurrency_total_ht, d.multicurrency_total_tva, d.multicurrency_total_ttc, d.fk_unit';
 				$sql .= " FROM ".MAIN_DB_PREFIX."supplier_proposaldet as d";
 				$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."product as p ON d.fk_product = p.rowid";
@@ -1326,12 +1522,13 @@ class SupplierProposal extends CommonObject
 						$line->fk_parent_line = $objp->fk_parent_line;
 						$line->product_type     = $objp->product_type;
 						$line->label            = $objp->custom_label;
-						$line->desc             = $objp->description; // Description ligne
+						$line->desc             = $objp->description; // Description of the line
 						$line->qty              = $objp->qty;
 						$line->tva_tx           = $objp->tva_tx;
 						$line->localtax1_tx		= $objp->localtax1_tx;
 						$line->localtax2_tx		= $objp->localtax2_tx;
 						$line->subprice         = $objp->subprice;
+						$line->subprice_ttc     = $objp->subprice_ttc;
 						$line->fk_remise_except = $objp->fk_remise_except;
 						$line->remise_percent   = $objp->remise_percent;
 
@@ -1341,7 +1538,7 @@ class SupplierProposal extends CommonObject
 						$line->total_localtax1	= $objp->total_localtax1;
 						$line->total_localtax2	= $objp->total_localtax2;
 						$line->total_ttc        = $objp->total_ttc;
-						  $line->fk_fournprice 	= $objp->fk_fournprice;
+						$line->fk_fournprice 	= $objp->fk_fournprice;
 						$marginInfos = getMarginInfos($objp->subprice, $objp->remise_percent, $objp->tva_tx, $objp->localtax1_tx, $objp->localtax2_tx, $line->fk_fournprice, $objp->pa_ht);
 						$line->pa_ht = $marginInfos[0];
 						$line->marge_tx			= $marginInfos[1];
@@ -1360,6 +1557,8 @@ class SupplierProposal extends CommonObject
 
 						$line->ref_fourn = $objp->ref_produit_fourn;
 
+						$line->extraparams = !empty($objp->extraparams) ? (array) json_decode($objp->extraparams, true) : array();
+
 						// Multicurrency
 						$line->fk_multicurrency = $objp->fk_multicurrency;
 						$line->multicurrency_code = $objp->multicurrency_code;
@@ -1368,6 +1567,8 @@ class SupplierProposal extends CommonObject
 						$line->multicurrency_total_tva 	= $objp->multicurrency_total_tva;
 						$line->multicurrency_total_ttc 	= $objp->multicurrency_total_ttc;
 						$line->fk_unit = $objp->fk_unit;
+
+						$line->fetch_optionals();
 
 						$this->lines[$i] = $line;
 
@@ -1378,10 +1579,6 @@ class SupplierProposal extends CommonObject
 					$this->error = $this->db->error();
 					return -1;
 				}
-
-				// Retrieve all extrafield
-				// fetch optionals attributes and labels
-				$this->fetch_optionals();
 
 				return 1;
 			}
@@ -1395,23 +1592,82 @@ class SupplierProposal extends CommonObject
 	}
 
 	/**
+	 *  Update the header fields of the price request that can be edited without a dedicated action
+	 *
+	 *  @param	User	$user		Object user that modify
+	 *  @param	int		$notrigger	1=Does not execute triggers, 0= execute triggers
+	 *  @return	int					Return integer <0 if KO, >0 if OK
+	 */
+	public function update($user, $notrigger = 0)
+	{
+		$error = 0;
+
+		$sql = "UPDATE ".MAIN_DB_PREFIX."supplier_proposal SET";
+		$sql .= " fk_projet = ".($this->fk_project > 0 ? ((int) $this->fk_project) : "null");
+		$sql .= ", fk_cond_reglement = ".($this->cond_reglement_id > 0 ? ((int) $this->cond_reglement_id) : "null");
+		$sql .= ", fk_mode_reglement = ".($this->mode_reglement_id > 0 ? ((int) $this->mode_reglement_id) : "null");
+		$sql .= ", fk_account = ".($this->fk_account > 0 ? ((int) $this->fk_account) : "null");
+		$sql .= ", fk_shipping_method = ".($this->shipping_method_id > 0 ? ((int) $this->shipping_method_id) : "null");
+		$sql .= ", date_livraison = ".($this->delivery_date ? "'".$this->db->idate($this->delivery_date)."'" : "null");
+		$sql .= ", note_private = ".(isset($this->note_private) ? "'".$this->db->escape($this->note_private)."'" : "null");
+		$sql .= ", note_public = ".(isset($this->note_public) ? "'".$this->db->escape($this->note_public)."'" : "null");
+		$sql .= ", model_pdf = ".(isset($this->model_pdf) ? "'".$this->db->escape($this->model_pdf)."'" : "null");
+		$sql .= ", fk_user_modif = ".((int) $user->id);
+		$sql .= " WHERE rowid = ".((int) $this->id);
+
+		$this->db->begin();
+
+		dol_syslog(get_class($this)."::update", LOG_DEBUG);
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			$error++;
+			$this->errors[] = "Error ".$this->db->lasterror();
+		}
+
+		if (!$error) {
+			$result = $this->insertExtraFields();
+			if ($result < 0) {
+				$error++;
+			}
+		}
+
+		if (!$error && !$notrigger) {
+			// Call trigger
+			$result = $this->call_trigger('PROPOSAL_SUPPLIER_MODIFY', $user);
+			if ($result < 0) {
+				$error++;
+			}
+			// End call triggers
+		}
+
+		if ($error) {
+			$this->error = implode(', ', $this->errors);
+			$this->db->rollback();
+			return -1 * $error;
+		}
+
+		$this->db->commit();
+		return 1;
+	}
+
+	/**
 	 *  Set status to validated
 	 *
 	 *  @param	User	$user       Object user that validate
 	 *  @param	int		$notrigger	1=Does not execute triggers, 0= execute triggers
-	 *  @return int         		<0 if KO, >=0 if OK
+	 *  @return int         		Return integer <0 if KO, >=0 if OK
 	 */
 	public function valid($user, $notrigger = 0)
 	{
 		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 
-		global $conf, $langs;
+		global $conf;
 
 		$error = 0;
 		$now = dol_now();
 
-		if ((empty($conf->global->MAIN_USE_ADVANCED_PERMS) && !empty($user->rights->supplier_proposal->creer))
-		   || (!empty($conf->global->MAIN_USE_ADVANCED_PERMS) && !empty($user->rights->supplier_proposal->validate_advance))) {
+		if ((!getDolGlobalString('MAIN_USE_ADVANCED_PERMS') && $user->hasRight('supplier_proposal', 'creer'))
+		   || (getDolGlobalString('MAIN_USE_ADVANCED_PERMS') && $user->hasRight('supplier_proposal', 'validate_advance'))) {
 			$this->db->begin();
 
 			// Numbering module definition
@@ -1421,12 +1677,15 @@ class SupplierProposal extends CommonObject
 			if ($result < 0) {
 				return -1;
 			}
-
+			if (!getDolGlobalBool('SUPPLIER_PROPOSAL_NOCHECK_ONBUY_PRODUCTS_ONVALID') && !$this->checkActiveProductInLines('onbuy')) {
+				dol_syslog(get_class($this)."::valid checkActiveProductInLines ".$this->error, LOG_INFO);
+				return -1;
+			}
 			// Define new ref
 			if (preg_match('/^[\(]?PROV/i', $this->ref) || empty($this->ref)) { // empty should not happened, but when it occurs, the test save life
 				$num = $this->getNextNumRef($soc);
 			} else {
-				$num = $this->ref;
+				$num = (string) $this->ref;
 			}
 			$this->newref = dol_sanitizeFileName($num);
 
@@ -1442,7 +1701,7 @@ class SupplierProposal extends CommonObject
 				$error++;
 			}
 
-			   // Trigger calls
+			// Trigger calls
 			if (!$error && !$notrigger) {
 				// Call trigger
 				$result = $this->call_trigger('PROPOSAL_SUPPLIER_VALIDATE', $user);
@@ -1459,10 +1718,18 @@ class SupplierProposal extends CommonObject
 				if (preg_match('/^[\(]?PROV/i', $this->ref)) {
 					// Now we rename also files into index
 					$sql = 'UPDATE '.MAIN_DB_PREFIX."ecm_files set filename = CONCAT('".$this->db->escape($this->newref)."', SUBSTR(filename, ".(strlen($this->ref) + 1).")), filepath = 'supplier_proposal/".$this->db->escape($this->newref)."'";
-					$sql .= " WHERE filename LIKE '".$this->db->escape($this->ref)."%' AND filepath = 'supplier_proposal/".$this->db->escape($this->ref)."' and entity = ".$conf->entity;
+					$sql .= " WHERE filename LIKE '".$this->db->escape($this->ref)."%' AND filepath = 'supplier_proposal/".$this->db->escape($this->ref)."' and entity = ".((int) $conf->entity);
 					$resql = $this->db->query($sql);
 					if (!$resql) {
-						$error++; $this->error = $this->db->lasterror();
+						$error++;
+						$this->error = $this->db->lasterror();
+					}
+					$sql = 'UPDATE '.MAIN_DB_PREFIX."ecm_files set filepath = 'supplier_proposal/".$this->db->escape($this->newref)."'";
+					$sql .= " WHERE filepath = 'supplier_proposal/".$this->db->escape($this->ref)."' and entity = ".((int) $conf->entity);
+					$resql = $this->db->query($sql);
+					if (!$resql) {
+						$error++;
+						$this->error = $this->db->lasterror();
 					}
 
 					// We rename directory ($this->ref = old ref, $num = new ref) in order not to lose the attachments
@@ -1488,10 +1755,18 @@ class SupplierProposal extends CommonObject
 				}
 
 				$this->ref = $num;
-				$this->brouillon = 0;
-				$this->statut = 1;
-				$this->user_valid_id = $user->id;
+				$this->statut = self::STATUS_VALIDATED;
+				$this->status = self::STATUS_VALIDATED;
+				$this->user_validation_id = $user->id;
 				$this->datev = $now;
+				$this->date_validation = $now;
+
+				if (getDolGlobalString('SUPPLIER_PROPOSAL_AUTOADD_USER_CONTACT')) {
+					$result = $this->add_contact($user->id, 'SALESREPFOLL', 'internal', 1);
+					if ($result < 0 && $result != -2) {	// -2 means already exists
+						$error++;
+					}
+				}
 
 				$this->db->commit();
 				return 1;
@@ -1511,7 +1786,7 @@ class SupplierProposal extends CommonObject
 	 *
 	 *	@param      User 	$user        		Object user that modify
 	 *	@param      int		$delivery_date		Delivery date
-	 *	@return     int         				<0 if ko, >0 if ok
+	 *	@return     int         				Return integer <0 if ko, >0 if ok
 	 *	@deprecated Use  setDeliveryDate
 	 */
 	public function set_date_livraison($user, $delivery_date)
@@ -1525,17 +1800,16 @@ class SupplierProposal extends CommonObject
 	 *
 	 *	@param      User 		$user        		Object user that modify
 	 *	@param      int			$delivery_date     Delivery date
-	 *	@return     int         					<0 if ko, >0 if ok
+	 *	@return     int         					Return integer <0 if ko, >0 if ok
 	 */
 	public function setDeliveryDate($user, $delivery_date)
 	{
-		if (!empty($user->rights->supplier_proposal->creer)) {
+		if ($user->hasRight('supplier_proposal', 'creer')) {
 			$sql = "UPDATE ".MAIN_DB_PREFIX."supplier_proposal ";
-			$sql .= " SET date_livraison = ".($delivery_date != '' ? "'".$this->db->idate($delivery_date)."'" : 'null');
+			$sql .= " SET date_livraison = ".(isDolTms($delivery_date) ? "'".$this->db->idate($delivery_date)."'" : 'null');
 			$sql .= " WHERE rowid = ".((int) $this->id);
 
 			if ($this->db->query($sql)) {
-				$this->date_livraison = $delivery_date;
 				$this->delivery_date = $delivery_date;
 				return 1;
 			} else {
@@ -1547,96 +1821,26 @@ class SupplierProposal extends CommonObject
 		return 0;
 	}
 
-	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
-	/**
-	 *	Set an overall discount on the proposal
-	 *
-	 *	@param      User	$user       Object user that modify
-	 *	@param      double	$remise      Amount discount
-	 *	@return     int         		<0 if ko, >0 if ok
-	 */
-	public function set_remise_percent($user, $remise)
-	{
-		// phpcs:enable
-		$remise = trim($remise) ?trim($remise) : 0;
-
-		if (!empty($user->rights->supplier_proposal->creer)) {
-			$remise = price2num($remise, 2);
-
-			$sql = "UPDATE ".MAIN_DB_PREFIX."supplier_proposal SET remise_percent = ".((float) $remise);
-			$sql .= " WHERE rowid = ".((int) $this->id)." AND fk_statut = 0";
-
-			if ($this->db->query($sql)) {
-				$this->remise_percent = ((float) $remise);
-				$this->update_price(1);
-				return 1;
-			} else {
-				$this->error = $this->db->error();
-				return -1;
-			}
-		}
-		return 0;
-	}
-
-
-	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
-	/**
-	 *	Set an absolute overall discount on the proposal
-	 *
-	 *	@param      User	$user        Object user that modify
-	 *	@param      double	$remise      Amount discount
-	 *	@return     int         		<0 if ko, >0 if ok
-	 */
-	public function set_remise_absolue($user, $remise)
-	{
-		// phpcs:enable
-		if (empty($remise)) {
-			$remise = 0;
-		}
-
-		$remise = price2num($remise);
-
-		if (!empty($user->rights->supplier_proposal->creer)) {
-			$sql = "UPDATE ".MAIN_DB_PREFIX."supplier_proposal ";
-			$sql .= " SET remise_absolue = ".((float) $remise);
-			$sql .= " WHERE rowid = ".((int) $this->id)." AND fk_statut = 0";
-
-			if ($this->db->query($sql)) {
-				$this->remise_absolue = $remise;
-				$this->update_price(1);
-				return 1;
-			} else {
-				$this->error = $this->db->error();
-				return -1;
-			}
-		}
-		return 0;
-	}
-
-
 
 	/**
 	 *	Reopen the commercial proposal
 	 *
 	 *	@param      User	$user		Object user that close
-	 *	@param      int		$statut		Statut
+	 *	@param      int		$status		Status
 	 *	@param      string	$note		Comment
 	 *  @param		int		$notrigger	1=Does not execute triggers, 0= execute triggers
-	 *	@return     int         		<0 if KO, >0 if OK
+	 *	@return     int         		Return integer <0 if KO, >0 if OK
 	 */
-	public function reopen($user, $statut, $note = '', $notrigger = 0)
+	public function reopen($user, $status, $note = '', $notrigger = 0)
 	{
-		global $langs, $conf;
-
-		$this->statut = $statut;
 		$error = 0;
 
 		$sql = "UPDATE ".MAIN_DB_PREFIX."supplier_proposal";
-		$sql .= " SET fk_statut = ".((int) $this->statut).",";
+		$sql .= " SET fk_statut = ".((int) $status).",";
 		if (!empty($note)) {
 			$sql .= " note_private = '".$this->db->escape($note)."',";
 		}
-		$sql .= " date_cloture=NULL, fk_user_cloture=NULL";
+		$sql .= " date_cloture = NULL, fk_user_cloture = NULL";
 		$sql .= " WHERE rowid = ".((int) $this->id);
 
 		$this->db->begin();
@@ -1644,7 +1848,8 @@ class SupplierProposal extends CommonObject
 		dol_syslog(get_class($this)."::reopen", LOG_DEBUG);
 		$resql = $this->db->query($sql);
 		if (!$resql) {
-			$error++; $this->errors[] = "Error ".$this->db->lasterror();
+			$error++;
+			$this->errors[] = "Error ".$this->db->lasterror();
 		}
 		if (!$error) {
 			if (!$notrigger) {
@@ -1668,6 +1873,9 @@ class SupplierProposal extends CommonObject
 			$this->db->rollback();
 			return -1 * $error;
 		} else {
+			$this->statut = $status;
+			$this->status = $status;
+
 			$this->db->commit();
 			return 1;
 		}
@@ -1680,7 +1888,7 @@ class SupplierProposal extends CommonObject
 	 *	@param      User	$user		Object user that close
 	 *	@param      int		$status		Status
 	 *	@param      string	$note		Comment
-	 *	@return     int         		<0 if KO, >0 if OK
+	 *	@return     int         		Return integer <0 if KO, >0 if OK
 	 */
 	public function cloture($user, $status, $note)
 	{
@@ -1688,26 +1896,29 @@ class SupplierProposal extends CommonObject
 		$hidedetails = 0;
 		$hidedesc = 0;
 		$hideref = 0;
-		$this->statut = $status;
+
 		$error = 0;
 		$now = dol_now();
 
 		$this->db->begin();
 
 		$sql = "UPDATE ".MAIN_DB_PREFIX."supplier_proposal";
-		$sql .= " SET fk_statut = ".((int) $status).", note_private = '".$this->db->escape($note)."', date_cloture='".$this->db->idate($now)."', fk_user_cloture=".$user->id;
+		$sql .= " SET fk_statut = ".((int) $status).", note_private = '".$this->db->escape($note)."', date_cloture='".$this->db->idate($now)."', fk_user_cloture=".((int) $user->id);
 		$sql .= " WHERE rowid = ".((int) $this->id);
 
 		$resql = $this->db->query($sql);
 		if ($resql) {
-			$modelpdf = $conf->global->SUPPLIER_PROPOSAL_ADDON_PDF_ODT_CLOSED ? $conf->global->SUPPLIER_PROPOSAL_ADDON_PDF_ODT_CLOSED : (empty($this->model_pdf) ? '' : $this->model_pdf);
+			$this->statut = $status;
+			$this->status = $status;
+
+			$modelpdf = getDolGlobalString('SUPPLIER_PROPOSAL_ADDON_PDF_ODT_CLOSED', (empty($this->model_pdf) ? '' : $this->model_pdf));
 			$triggerName = 'PROPOSAL_SUPPLIER_CLOSE_REFUSED';
 
 			if ($status == 2) {
 				$triggerName = 'PROPOSAL_SUPPLIER_CLOSE_SIGNED';
-				$modelpdf = $conf->global->SUPPLIER_PROPOSAL_ADDON_PDF_ODT_TOBILL ? $conf->global->SUPPLIER_PROPOSAL_ADDON_PDF_ODT_TOBILL : (empty($this->model_pdf) ? '' : $this->model_pdf);
+				$modelpdf = getDolGlobalString('SUPPLIER_PROPOSAL_ADDON_PDF_ODT_TOBILL', (empty($this->model_pdf) ? '' : $this->model_pdf));
 
-				if (!empty($conf->global->SUPPLIER_PROPOSAL_UPDATE_PRICE_ON_SUPPlIER_PROPOSAL)) {     // TODO This option was not tested correctly. Error if product ref does not exists
+				if (getDolGlobalString('SUPPLIER_PROPOSAL_UPDATE_PRICE_ON_SUPPlIER_PROPOSAL')) {     // TODO This option was not tested correctly. Error if product ref does not exists
 					$result = $this->updateOrCreatePriceFournisseur($user);
 				}
 			}
@@ -1715,15 +1926,15 @@ class SupplierProposal extends CommonObject
 				$triggerName = 'PROPOSAL_SUPPLIER_CLASSIFY_BILLED';
 			}
 
-			if (empty($conf->global->MAIN_DISABLE_PDF_AUTOUPDATE)) {
+			if (!getDolGlobalString('MAIN_DISABLE_PDF_AUTOUPDATE')) {
 				// Define output language
 				$outputlangs = $langs;
-				if (!empty($conf->global->MAIN_MULTILANGS)) {
+				if (getDolGlobalInt('MAIN_MULTILANGS')) {
 					$outputlangs = new Translate("", $conf);
 					$newlang = (GETPOST('lang_id', 'aZ09') ? GETPOST('lang_id', 'aZ09') : $this->thirdparty->default_lang);
 					$outputlangs->setDefaultLang($newlang);
 				}
-				//$ret=$object->fetch($id);    // Reload to get new records
+
 				$this->generateDocument($modelpdf, $outputlangs, $hidedetails, $hidedesc, $hideref);
 			}
 
@@ -1757,9 +1968,8 @@ class SupplierProposal extends CommonObject
 	 */
 	public function updateOrCreatePriceFournisseur($user)
 	{
-		global $conf;
-
 		dol_syslog(get_class($this)."::updateOrCreatePriceFournisseur", LOG_DEBUG);
+
 		foreach ($this->lines as $product) {
 			if ($product->subprice <= 0) {
 				continue;
@@ -1777,24 +1987,24 @@ class SupplierProposal extends CommonObject
 			if (empty($ref_fourn)) {
 				$ref_fourn = $product->ref_supplier;
 			}
-			if (!empty($conf->multicurrency->enabled) && !empty($product->multicurrency_code)) {
+			if (isModEnabled("multicurrency") && !empty($product->multicurrency_code)) {
 				list($fk_multicurrency, $multicurrency_tx) = MultiCurrency::getIdAndTxFromCode($this->db, $product->multicurrency_code);
 			}
 			$productsupplier->id = $product->fk_product;
 
-			$productsupplier->update_buyprice($product->qty, $product->total_ht, $user, 'HT', $this->thirdparty, '', $ref_fourn, $product->tva_tx, 0, 0, 0, $product->info_bits, '', '', array(), '', $product->multicurrency_total_ht, 'HT', $multicurrency_tx, $product->multicurrency_code, '', '', '');
+			$productsupplier->update_buyprice($product->qty, $product->total_ht, $user, 'HT', $this->thirdparty, 0, $ref_fourn, $product->tva_tx, 0, 0, 0, $product->info_bits, 0, '', array(), '', $product->multicurrency_total_ht, 'HT', $multicurrency_tx, $product->multicurrency_code, '', '', 0);
 		}
 
 		return 1;
 	}
 
 	/**
-	 *	Upate ProductFournisseur
+	 *	Update ProductFournisseur
 	 *
 	 * 	@param		int 	$idProductFournPrice	id of llx_product_fournisseur_price
-	 * 	@param		Product $product				contain informations to update
+	 * 	@param		SupplierProposalLine	$product	Line of the price request with the price to save
 	 *	@param      User	$user					Object user
-	 *	@return     int         					<0 if KO, >0 if OK
+	 *	@return     int         					Return integer <0 if KO, >0 if OK
 	 */
 	public function updatePriceFournisseur($idProductFournPrice, $product, $user)
 	{
@@ -1812,48 +2022,46 @@ class SupplierProposal extends CommonObject
 		return 1;
 	}
 
-	 /**
-	  *	Create ProductFournisseur
-	  *
-	  *	@param		Product 	$product	Object Product
-	  *	@param      User		$user		Object user
-	  *	@return     int         			<0 if KO, >0 if OK
-	  */
+	/**
+	 *	Create Price Fournisseur
+	 *
+	 *	@param		SupplierProposalLine	$product	Line of the price request with the price to save
+	 *	@param      User				$user		Object user
+	 *	@return     int								Return integer <0 if KO, >0 if OK
+	 */
 	public function createPriceFournisseur($product, $user)
 	{
-		global $conf;
-
 		$price = price2num($product->subprice * $product->qty, 'MU');
 		$qty = price2num($product->qty);
 		$unitPrice = price2num($product->subprice, 'MU');
 
 		$now = dol_now();
 
-		$values = array(
+		$sanitized_values = array(
 			"'".$this->db->idate($now)."'",
-			$product->fk_product,
-			$this->thirdparty->id,
-			"'".$product->ref_fourn."'",
-			$price,
-			$qty,
-			$unitPrice,
-			$product->tva_tx,
-			$user->id
+			(int) $product->fk_product,
+			(int) $this->thirdparty->id,
+			"'".$this->db->escape($product->ref_fourn)."'",
+			(float) $price,
+			(float) $qty,
+			(float) $unitPrice,
+			(float) $product->tva_tx,
+			(int) $user->id
 		);
-		if (!empty($conf->multicurrency->enabled)) {
+		if (isModEnabled("multicurrency")) {
 			if (!empty($product->multicurrency_code)) {
 				include_once DOL_DOCUMENT_ROOT.'/multicurrency/class/multicurrency.class.php';
 				$multicurrency = new MultiCurrency($this->db); //need to fetch because empty fk_multicurrency and rate
 				$multicurrency->fetch(0, $product->multicurrency_code);
 				if (!empty($multicurrency->id)) {
-					$values[] = $multicurrency->id;
-					$values[] = "'".$product->multicurrency_code."'";
-					$values[] = $product->multicurrency_subprice;
-					$values[] = $product->multicurrency_total_ht;
-					$values[] = $multicurrency->rate->rate;
+					$sanitized_values[] = (int) $multicurrency->id;
+					$sanitized_values[] = "'".$this->db->escape($product->multicurrency_code)."'";
+					$sanitized_values[] = (float) $product->multicurrency_subprice;
+					$sanitized_values[] = (float) $product->multicurrency_total_ht;
+					$sanitized_values[] = (float) $multicurrency->rate->rate;
 				} else {
 					for ($i = 0; $i < 5; $i++) {
-						$values[] = 'NULL';
+						$sanitized_values[] = 'NULL';
 					}
 				}
 			}
@@ -1861,10 +2069,10 @@ class SupplierProposal extends CommonObject
 
 		$sql = 'INSERT INTO '.MAIN_DB_PREFIX.'product_fournisseur_price ';
 		$sql .= '(datec, fk_product, fk_soc, ref_fourn, price, quantity, unitprice, tva_tx, fk_user';
-		if (!empty($conf->multicurrency->enabled) && !empty($product->multicurrency_code)) {
+		if (isModEnabled("multicurrency") && !empty($product->multicurrency_code)) {
 			$sql .= ',fk_multicurrency, multicurrency_code, multicurrency_unitprice, multicurrency_price, multicurrency_tx';
 		}
-		$sql .= ')  VALUES ('.implode(',', $values).')';
+		$sql .= ')  VALUES ('.implode(',', $sanitized_values).')';
 
 		$resql = $this->db->query($sql);
 		if (!$resql) {
@@ -1880,16 +2088,14 @@ class SupplierProposal extends CommonObject
 	 *  Set draft status
 	 *
 	 *	@param		User	$user		Object user that modify
-	 *	@return		int					<0 if KO, >0 if OK
+	 *	@return		int					Return integer <0 if KO, >0 if OK
 	 */
 	public function setDraft($user)
 	{
 		// phpcs:enable
-		global $conf, $langs;
-
 		$error = 0;
 
-		if ($this->statut == self::STATUS_DRAFT) {
+		if ($this->status == self::STATUS_DRAFT) {
 			dol_syslog(get_class($this)."::setDraft already draft status", LOG_WARNING);
 			return 0;
 		}
@@ -1912,8 +2118,8 @@ class SupplierProposal extends CommonObject
 			}
 
 			if (!$error) {
-				$this->statut = self::STATUS_DRAFT;
-				$this->brouillon = 1;
+				$this->status = self::STATUS_DRAFT;
+				$this->statut = self::STATUS_DRAFT;	// deprecated
 				$this->db->commit();
 				return 1;
 			} else {
@@ -1933,36 +2139,32 @@ class SupplierProposal extends CommonObject
 	 *    @param	int		$shortlist			0=Return array[id]=ref, 1=Return array[](id=>id,ref=>ref,name=>name)
 	 *    @param	int		$draft				0=not draft, 1=draft
 	 *    @param	int		$notcurrentuser		0=all user, 1=not current user
-	 *    @param    int		$socid				Id third pary
+	 *    @param    int		$socid				Id third party
 	 *    @param    int		$limit				For pagination
 	 *    @param    int		$offset				For pagination
 	 *    @param    string	$sortfield			Sort criteria
 	 *    @param    string	$sortorder			Sort order
-	 *    @return	int		       				-1 if KO, array with result if OK
+	 *    @return	array<int,string>|array<int,array{id:int,ref:string,name:string}>|int<-1,-1>	-1 if KO, array with result if OK
 	 */
 	public function liste_array($shortlist = 0, $draft = 0, $notcurrentuser = 0, $socid = 0, $limit = 0, $offset = 0, $sortfield = 'p.datec', $sortorder = 'DESC')
 	{
 		// phpcs:enable
-		global $conf, $user;
+		global $user;
 
 		$ga = array();
+
+		$search_sale = 0;
+		if (empty($user->socid) && !$user->hasRight('societe', 'client', 'voir')) {
+			$search_sale = $user->id;
+		}
 
 		$sql = "SELECT s.rowid, s.nom as name, s.client,";
 		$sql .= " p.rowid as supplier_proposalid, p.fk_statut, p.total_ht, p.ref, p.remise, ";
 		$sql .= " p.datep as dp, p.fin_validite as datelimite";
-		if (empty($user->rights->societe->client->voir) && !$socid) {
-			$sql .= ", sc.fk_soc, sc.fk_user";
-		}
 		$sql .= " FROM ".MAIN_DB_PREFIX."societe as s, ".MAIN_DB_PREFIX."supplier_proposal as p, ".MAIN_DB_PREFIX."c_propalst as c";
-		if (empty($user->rights->societe->client->voir) && !$socid) {
-			$sql .= ", ".MAIN_DB_PREFIX."societe_commerciaux as sc";
-		}
 		$sql .= " WHERE p.entity IN (".getEntity('supplier_proposal').")";
 		$sql .= " AND p.fk_soc = s.rowid";
 		$sql .= " AND p.fk_statut = c.id";
-		if (empty($user->rights->societe->client->voir) && !$socid) { //restriction
-			$sql .= " AND s.rowid = sc.fk_soc AND sc.fk_user = ".((int) $user->id);
-		}
 		if ($socid) {
 			$sql .= " AND s.rowid = ".((int) $socid);
 		}
@@ -1970,7 +2172,15 @@ class SupplierProposal extends CommonObject
 			$sql .= " AND p.fk_statut = 0";
 		}
 		if ($notcurrentuser > 0) {
-			$sql .= " AND p.fk_user_author <> ".$user->id;
+			$sql .= " AND p.fk_user_author <> ".((int) $user->id);
+		}
+		// Search on sale representative
+		if ($search_sale && $search_sale != '-1') {
+			if ($search_sale == -2) {
+				$sql .= " AND NOT EXISTS (SELECT sc.fk_soc FROM ".MAIN_DB_PREFIX."societe_commerciaux as sc WHERE sc.fk_soc = p.fk_soc)";
+			} elseif ($search_sale > 0) {
+				$sql .= " AND EXISTS (SELECT sc.fk_soc FROM ".MAIN_DB_PREFIX."societe_commerciaux as sc WHERE sc.fk_soc = p.fk_soc AND sc.fk_user = ".((int) $search_sale).")";
+			}
 		}
 		$sql .= $this->db->order($sortfield, $sortorder);
 		$sql .= $this->db->plimit($limit, $offset);
@@ -2012,7 +2222,7 @@ class SupplierProposal extends CommonObject
 	 */
 	public function delete($user, $notrigger = 0)
 	{
-		global $conf, $langs;
+		global $conf;
 		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 
 		$error = 0;
@@ -2028,10 +2238,23 @@ class SupplierProposal extends CommonObject
 			// End call triggers
 		}
 
+		// Remove linked categories.
 		if (!$error) {
-			$main = MAIN_DB_PREFIX.'supplier_proposaldet';
-			$ef = $main."_extrafields";
-			$sqlef = "DELETE FROM $ef WHERE fk_object IN (SELECT rowid FROM $main WHERE fk_supplier_proposal = ".((int) $this->id).")";
+			$sql = "DELETE FROM ".MAIN_DB_PREFIX."categorie_supplier_proposal";
+			$sql .= " WHERE fk_supplier_proposal = ".((int) $this->id);
+
+			$result = $this->db->query($sql);
+			if (!$result) {
+				$error++;
+				$this->error = $this->db->lasterror();
+				$this->errors[] = $this->error;
+			}
+		}
+
+		if (!$error) {
+			$sanitized_main = MAIN_DB_PREFIX.'supplier_proposaldet';
+			$sanitized_ef = $sanitized_main."_extrafields";
+			$sqlef = "DELETE FROM $sanitized_ef WHERE fk_object IN (SELECT rowid FROM $sanitized_main WHERE fk_supplier_proposal = ".((int) $this->id).")";
 			$sql = "DELETE FROM ".MAIN_DB_PREFIX."supplier_proposaldet WHERE fk_supplier_proposal = ".((int) $this->id);
 			if ($this->db->query($sql)) {
 				$sql = "DELETE FROM ".MAIN_DB_PREFIX."supplier_proposal WHERE rowid = ".((int) $this->id);
@@ -2044,7 +2267,8 @@ class SupplierProposal extends CommonObject
 
 					if (!$error) {
 						// Delete record into ECM index (Note that delete is also done when deleting files with the dol_delete_dir_recursive
-						$this->deleteEcmFiles();
+						$this->deleteEcmFiles(0); // Deleting files physically is done later with the dol_delete_dir_recursive
+						$this->deleteEcmFiles(1); // Deleting files physically is done later with the dol_delete_dir_recursive
 
 						// We remove directory
 						$ref = dol_sanitizeFileName($this->ref);
@@ -2116,10 +2340,11 @@ class SupplierProposal extends CommonObject
 	 */
 	public function info($id)
 	{
-		$sql = "SELECT c.rowid, ";
-		$sql .= " c.datec, c.date_valid as datev, c.date_cloture as dateo,";
-		$sql .= " c.fk_user_author, c.fk_user_valid, c.fk_user_cloture";
+		$sql = "SELECT c.rowid, GREATEST(c.tms, COALESCE(cef.tms, c.tms)) as date_modification,";
+		$sql .= " c.datec as date_creation, c.date_valid as date_validation, c.date_cloture as date_closure,";
+		$sql .= " c.fk_user_author, c.fk_user_modif, c.fk_user_valid, c.fk_user_cloture";
 		$sql .= " FROM ".MAIN_DB_PREFIX."supplier_proposal as c";
+		$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."supplier_proposal_extrafields as cef ON cef.fk_object=c.rowid";
 		$sql .= " WHERE c.rowid = ".((int) $id);
 
 		$result = $this->db->query($sql);
@@ -2128,27 +2353,17 @@ class SupplierProposal extends CommonObject
 			if ($this->db->num_rows($result)) {
 				$obj = $this->db->fetch_object($result);
 
-				$this->id                = $obj->rowid;
+				$this->id = $obj->rowid;
 
-				$this->date_creation     = $this->db->jdate($obj->datec);
-				$this->date_validation   = $this->db->jdate($obj->datev);
-				$this->date_cloture      = $this->db->jdate($obj->dateo);
+				$this->date_creation = $this->db->jdate($obj->date_creation);
+				$this->date_modification = empty($obj->date_modification) ? '' : $this->db->jdate($obj->date_modification);
+				$this->date_validation = $this->db->jdate($obj->date_validation);
+				$this->date_cloture = $this->db->jdate($obj->date_closure);
 
-				$cuser = new User($this->db);
-				$cuser->fetch($obj->fk_user_author);
-				$this->user_creation = $cuser;
-
-				if ($obj->fk_user_valid) {
-					$vuser = new User($this->db);
-					$vuser->fetch($obj->fk_user_valid);
-					$this->user_validation = $vuser;
-				}
-
-				if ($obj->fk_user_cloture) {
-					$cluser = new User($this->db);
-					$cluser->fetch($obj->fk_user_cloture);
-					$this->user_cloture = $cluser;
-				}
+				$this->user_creation_id = $obj->fk_user_author;
+				$this->user_modification_id = $obj->fk_user_modif;
+				$this->user_validation_id = $obj->fk_user_valid;
+				$this->user_closing_id = $obj->fk_user_cloture;
 			}
 			$this->db->free($result);
 		} else {
@@ -2165,7 +2380,7 @@ class SupplierProposal extends CommonObject
 	 */
 	public function getLibStatut($mode = 0)
 	{
-		return $this->LibStatut((isset($this->statut) ? $this->statut : $this->status), $mode);
+		return $this->LibStatut((isset($this->status) ? $this->status : $this->statut), $mode);
 	}
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
@@ -2190,7 +2405,7 @@ class SupplierProposal extends CommonObject
 			$this->labelStatus[self::STATUS_NOTSIGNED] = $langs->transnoentitiesnoconv("SupplierProposalStatusNotSigned");
 			$this->labelStatus[self::STATUS_CLOSE] = $langs->transnoentitiesnoconv("SupplierProposalStatusClosed");
 			$this->labelStatusShort[self::STATUS_DRAFT] = $langs->transnoentitiesnoconv("SupplierProposalStatusDraftShort");
-			$this->labelStatusShort[self::STATUS_VALIDATED] = $langs->transnoentitiesnoconv("Opened");
+			$this->labelStatusShort[self::STATUS_VALIDATED] = $langs->transnoentitiesnoconv("SupplierProposalStatusValidatedShort");
 			$this->labelStatusShort[self::STATUS_SIGNED] = $langs->transnoentitiesnoconv("SupplierProposalStatusSignedShort");
 			$this->labelStatusShort[self::STATUS_NOTSIGNED] = $langs->transnoentitiesnoconv("SupplierProposalStatusNotSignedShort");
 			$this->labelStatusShort[self::STATUS_CLOSE] = $langs->transnoentitiesnoconv("SupplierProposalStatusClosedShort");
@@ -2218,22 +2433,37 @@ class SupplierProposal extends CommonObject
 	 *      Load indicators for dashboard (this->nbtodo and this->nbtodolate)
 	 *
 	 *      @param          User	$user   Object user
-	 *      @param          int		$mode   "opened" for askprice to close, "signed" for proposal to invoice
-	 *      @return         int             <0 if KO, >0 if OK
+	 *      @param          string	$mode   "opened" for askprice to close, "signed" for proposal to invoice
+	 *      @return         WorkboardResponse|int	Return integer <0 if KO, WorkboardResponse if OK
 	 */
 	public function load_board($user, $mode)
 	{
 		// phpcs:enable
-		global $conf, $user, $langs;
+		global $conf, $langs;
 
 		$now = dol_now();
 
-		$this->nbtodo = $this->nbtodolate = 0;
 		$clause = " WHERE";
 
-		$sql = "SELECT p.rowid, p.ref, p.datec as datec, p.date_cloture as datefin";
+		$delay_warning = 0;
+		if ($mode == 'opened') {
+			$delay_warning = !empty($conf->supplier_proposal->cloture->warning_delay) ? $conf->supplier_proposal->cloture->warning_delay : 0;
+		}
+		if ($mode == 'signed') {
+			$delay_warning = !empty($conf->supplier_proposal->facturation->warning_delay) ? $conf->supplier_proposal->facturation->warning_delay : 0;
+		}
+
+		// The count and the number of late proposals are computed by the database instead of reading every proposal. An open
+		// proposal is late when its closing date is before now minus the warning delay (a proposal without closing date was
+		// counted as late, this is kept); nothing is late in the 'signed' mode.
+		$sql = "SELECT COUNT(p.rowid) as nb,";
+		if ($mode == 'opened') {
+			$sql .= " SUM(CASE WHEN p.date_cloture IS NULL OR p.date_cloture < '".$this->db->idate($now - $delay_warning)."' THEN 1 ELSE 0 END) as nblate";
+		} else {
+			$sql .= " 0 as nblate";
+		}
 		$sql .= " FROM ".MAIN_DB_PREFIX."supplier_proposal as p";
-		if (empty($user->rights->societe->client->voir) && !$user->socid) {
+		if (empty($user->socid) && !$user->hasRight('societe', 'client', 'voir')) {
 			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe_commerciaux as sc ON p.fk_soc = sc.fk_soc";
 			$sql .= " WHERE sc.fk_user = ".((int) $user->id);
 			$clause = " AND";
@@ -2254,13 +2484,11 @@ class SupplierProposal extends CommonObject
 			$label = $labelShort = '';
 			$status = '';
 			if ($mode == 'opened') {
-				$delay_warning = !empty($conf->supplier_proposal->cloture->warning_delay) ? $conf->supplier_proposal->cloture->warning_delay : 0;
 				$status = self::STATUS_VALIDATED;
 				$label = $langs->trans("SupplierProposalsToClose");
 				$labelShort = $langs->trans("ToAcceptRefuse");
 			}
 			if ($mode == 'signed') {
-				$delay_warning = !empty($conf->supplier_proposal->facturation->warning_delay) ? $conf->supplier_proposal->facturation->warning_delay : 0;
 				$status = self::STATUS_SIGNED;
 				$label = $langs->trans("SupplierProposalsToProcess"); // May be billed or ordered
 				$labelShort = $langs->trans("ToClose");
@@ -2274,16 +2502,11 @@ class SupplierProposal extends CommonObject
 			$response->img = img_object('', "propal");
 
 			// This assignment in condition is not a bug. It allows walking the results.
-			while ($obj = $this->db->fetch_object($resql)) {
-				$response->nbtodo++;
-				if ($mode == 'opened') {
-					$datelimit = $this->db->jdate($obj->datefin);
-					if ($datelimit < ($now - $delay_warning)) {
-						$response->nbtodolate++;
-					}
-				}
-				// TODO Definir regle des propales a facturer en retard
-				// if ($mode == 'signed' && ! count($this->FactureListeArray($obj->rowid))) $this->nbtodolate++;
+			// TODO Definir regle des propales a facturer en retard (mode 'signed')
+			$obj = $this->db->fetch_object($resql);
+			if ($obj) {
+				$response->nbtodo = (int) $obj->nb;
+				$response->nbtodolate = (int) $obj->nblate;
 			}
 			return $response;
 		} else {
@@ -2298,11 +2521,12 @@ class SupplierProposal extends CommonObject
 	 *  Used to build previews or test instances.
 	 *	id must be 0 if object instance is a specimen.
 	 *
-	 *  @return	void
+	 *  @param	array<string|mixed>		$param		Array of options
+	 *  @return int
 	 */
-	public function initAsSpecimen()
+	public function initAsSpecimen($param = array())
 	{
-		global $user, $langs, $conf;
+		global $conf, $langs;
 
 		// Load array of products prodids
 		$num_prods = 0;
@@ -2310,6 +2534,9 @@ class SupplierProposal extends CommonObject
 		$sql = "SELECT rowid";
 		$sql .= " FROM ".MAIN_DB_PREFIX."product";
 		$sql .= " WHERE entity IN (".getEntity('product').")";
+		if (array_key_exists('tobuy', $param)) {
+			$sql .= " AND tobuy = ".((int) $param['tobuy']);
+		}
 		$sql .= $this->db->plimit(100);
 
 		$resql = $this->db->query($sql);
@@ -2323,20 +2550,25 @@ class SupplierProposal extends CommonObject
 			}
 		}
 
-		// Initialise parametres
+		// Initialise parameters
 		$this->id = 0;
 		$this->ref = 'SPECIMEN';
+		$this->ref_supplier = 'NEMICEPS';
 		$this->specimen = 1;
 		$this->socid = 1;
-		$this->date = time();
+		$this->date = dol_now();
 		$this->cond_reglement_id   = 1;
 		$this->cond_reglement_code = 'RECEP';
 		$this->mode_reglement_id   = 7;
 		$this->mode_reglement_code = 'CHQ';
 		$this->note_public = 'This is a comment (public)';
 		$this->note_private = 'This is a comment (private)';
+
+		$this->multicurrency_tx = 1;
+		$this->multicurrency_code = getDolCurrency();
+
 		// Lines
-		$nbp = 5;
+		$nbp = min(1000, GETPOSTINT('nblines') ? GETPOSTINT('nblines') : 5);	// We can force the nb of lines to test from command line (but not more than 1000)
 		$xnbp = 0;
 		while ($xnbp < $nbp) {
 			$line = new SupplierProposalLine($this->db);
@@ -2371,18 +2603,18 @@ class SupplierProposal extends CommonObject
 
 			$xnbp++;
 		}
+
+		return 1;
 	}
 
-	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
 	/**
 	 *      Load indicator this->nb of global stats widget
 	 *
-	 *      @return     int         <0 if ko, >0 if ok
+	 *      @return     int         Return integer <0 if ko, >0 if ok
 	 */
-	public function load_state_board()
+	public function loadStateBoard()
 	{
-		// phpcs:enable
-		global $conf, $user;
+		global $user;
 
 		$this->nb = array();
 		$clause = "WHERE";
@@ -2390,7 +2622,7 @@ class SupplierProposal extends CommonObject
 		$sql = "SELECT count(p.rowid) as nb";
 		$sql .= " FROM ".MAIN_DB_PREFIX."supplier_proposal as p";
 		$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe as s ON p.fk_soc = s.rowid";
-		if (empty($user->rights->societe->client->voir) && !$user->socid) {
+		if (empty($user->socid) && !$user->hasRight('societe', 'client', 'voir')) {
 			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe_commerciaux as sc ON s.rowid = sc.fk_soc";
 			$sql .= " WHERE sc.fk_user = ".((int) $user->id);
 			$clause = "AND";
@@ -2425,11 +2657,11 @@ class SupplierProposal extends CommonObject
 		global $conf, $db, $langs;
 		$langs->load("supplier_proposal");
 
-		if (!empty($conf->global->SUPPLIER_PROPOSAL_ADDON)) {
+		if (getDolGlobalString('SUPPLIER_PROPOSAL_ADDON')) {
 			$mybool = false;
 
-			$file = $conf->global->SUPPLIER_PROPOSAL_ADDON.".php";
-			$classname = $conf->global->SUPPLIER_PROPOSAL_ADDON;
+			$file = getDolGlobalString('SUPPLIER_PROPOSAL_ADDON') . ".php";
+			$classname = getDolGlobalString('SUPPLIER_PROPOSAL_ADDON');
 
 			// Include file with class
 			$dirmodels = array_merge(array('/'), (array) $conf->modules_parts['models']);
@@ -2437,15 +2669,17 @@ class SupplierProposal extends CommonObject
 				$dir = dol_buildpath($reldir."core/modules/supplier_proposal/");
 
 				// Load file with numbering class (if found)
-				$mybool |= @include_once $dir.$file;
+				$mybool = ((bool) @include_once $dir.$file) || $mybool;
 			}
 
 			if (!$mybool) {
-				dol_print_error('', "Failed to include file ".$file);
+				dol_print_error(null, "Failed to include file ".$file);
 				return '';
 			}
 
 			$obj = new $classname();
+			'@phan-var-force ModeleNumRefSupplierProposal $obj';
+			/** @var ModeleNumRefSupplierProposal $obj */
 			$numref = "";
 			$numref = $obj->getNextValue($soc, $this);
 
@@ -2463,11 +2697,62 @@ class SupplierProposal extends CommonObject
 	}
 
 	/**
-	 *	Return clicable link of object (with eventually picto)
+	 * getTooltipContentArray
+	 * @param array<string,mixed> $params params to construct tooltip data
+	 * @since v18
+	 * @return array{picto?:string,ref?:string,refsupplier?:string,label?:string,date?:string,date_echeance?:string,amountht?:string,total_ht?:string,totaltva?:string,amountlt1?:string,amountlt2?:string,amountrevenustamp?:string,totalttc?:string}|array{optimize:string}
+	 */
+	public function getTooltipContentArray($params)
+	{
+		global $conf, $langs;
+
+		$langs->load('supplier_proposal');
+
+		if (getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER')) {
+			return ['optimize' => $langs->trans("ShowSupplierProposal")];
+		}
+
+		//$option = $params['option'] ?? '';
+		$datas = [];
+
+		$datas['picto'] = img_picto('', $this->picto).' <u class="paddingrightonly">'.$langs->trans("SupplierProposal").'</u>';
+		if (isset($this->status)) {
+			$datas['picto'] .= ' '.$this->getLibStatut(5);
+		}
+		if (!empty($this->ref)) {
+			$datas['ref'] = '<br><b>'.$langs->trans('Ref').':</b> '.$this->ref;
+		}
+		if (!empty($this->ref_fourn)) {
+			$datas['ref_supplier'] = '<br><b>'.$langs->trans('RefSupplier').':</b> '.$this->ref_fourn;
+		}
+		if (empty($params['nofetch'])) {
+			$langs->load('companies');
+			if (empty($this->thirdparty)) {
+				$this->fetch_thirdparty();
+			}
+			if (is_object($this->thirdparty)) {
+				$datas['supplier'] = '<br><b>'.$langs->trans('Supplier').':</b> '.$this->thirdparty->getNomUrl(1, '', 0, 1);
+			}
+		}
+		if (!empty($this->total_ht)) {
+			$datas['amount_ht'] = '<br><b>'.$langs->trans('AmountHT').':</b> '.price($this->total_ht, 0, $langs, 0, -1, -1, getDolCurrency());
+		}
+		if (!empty($this->total_tva)) {
+			$datas['amount_vat'] = '<br><b>'.$langs->trans('VAT').':</b> '.price($this->total_tva, 0, $langs, 0, -1, -1, getDolCurrency());
+		}
+		if (!empty($this->total_ttc)) {
+			$datas['amount_ttc'] = '<br><b>'.$langs->trans('AmountTTC').':</b> '.price($this->total_ttc, 0, $langs, 0, -1, -1, getDolCurrency());
+		}
+
+		return $datas;
+	}
+
+	/**
+	 *	Return clickable link of object (with eventually picto)
 	 *
 	 *	@param      int		$withpicto					Add picto into link
 	 *	@param      string	$option						Where point the link ('compta', 'expedition', 'document', ...)
-	 *	@param      string	$get_params    				Parametres added to url
+	 *	@param      string	$get_params    				Parameters added to url
 	 *  @param	    int   	$notooltip					1=Disable tooltip
 	 *  @param      int     $save_lastsearch_value		-1=Auto, 0=No save of lastsearch_values when clicking, 1=Save lastsearch_values whenclicking
 	 *  @param		int		$addlinktonotes				Add link to show notes
@@ -2483,25 +2768,19 @@ class SupplierProposal extends CommonObject
 
 		$url = '';
 		$result = '';
-
-		$label = img_picto('', $this->picto).' <u class="paddingrightonly">'.$langs->trans("SupplierProposal").'</u>';
-		if (isset($this->status)) {
-			$label .= ' '.$this->getLibStatut(5);
-		}
-		if (!empty($this->ref)) {
-			$label .= '<br><b>'.$langs->trans('Ref').':</b> '.$this->ref;
-		}
-		if (!empty($this->ref_fourn)) {
-			$label .= '<br><b>'.$langs->trans('RefSupplier').':</b> '.$this->ref_fourn;
-		}
-		if (!empty($this->total_ht)) {
-			$label .= '<br><b>'.$langs->trans('AmountHT').':</b> '.price($this->total_ht, 0, $langs, 0, -1, -1, $conf->currency);
-		}
-		if (!empty($this->total_tva)) {
-			$label .= '<br><b>'.$langs->trans('VAT').':</b> '.price($this->total_tva, 0, $langs, 0, -1, -1, $conf->currency);
-		}
-		if (!empty($this->total_ttc)) {
-			$label .= '<br><b>'.$langs->trans('AmountTTC').':</b> '.price($this->total_ttc, 0, $langs, 0, -1, -1, $conf->currency);
+		$params = [
+			'id' => $this->id,
+			'objecttype' => $this->element,
+			'option' => $option,
+		];
+		$classfortooltip = 'classfortooltip';
+		$dataparams = '';
+		if (getDolGlobalInt('MAIN_ENABLE_AJAX_TOOLTIP')) {
+			$classfortooltip = 'classforajaxtooltip';
+			$dataparams = ' data-params="'.dol_escape_htmltag(json_encode($params)).'"';
+			$label = '';
+		} else {
+			$label = $this->getTooltipContent($params);
 		}
 
 		if ($option == '') {
@@ -2514,7 +2793,7 @@ class SupplierProposal extends CommonObject
 		if ($option !== 'nolink') {
 			// Add param to save lastsearch_values or not
 			$add_save_lastsearch_values = ($save_lastsearch_value == 1 ? 1 : 0);
-			if ($save_lastsearch_value == -1 && preg_match('/list\.php/', $_SERVER["PHP_SELF"])) {
+			if ($save_lastsearch_value == -1 && isset($_SERVER["PHP_SELF"]) && preg_match('/list\.php/', $_SERVER["PHP_SELF"])) {
 				$add_save_lastsearch_values = 1;
 			}
 			if ($add_save_lastsearch_values) {
@@ -2523,13 +2802,13 @@ class SupplierProposal extends CommonObject
 		}
 
 		$linkclose = '';
-		if (empty($notooltip) && $user->rights->propal->lire) {
-			if (!empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER)) {
+		if (empty($notooltip) && $user->hasRight('propal', 'lire')) {
+			if (getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER')) {
 				$label = $langs->trans("ShowSupplierProposal");
-				$linkclose .= ' alt="'.dol_escape_htmltag($label, 1).'"';
+				$linkclose .= ' alt="'.dolPrintHTMLForAttribute($label).'"';
 			}
-			$linkclose .= ' title="'.dol_escape_htmltag($label, 1).'"';
-			$linkclose .= ' class="classfortooltip"';
+			$linkclose .= ($label ? ' title="'.dolPrintHTMLForAttribute($label).'"' : ' title="tocomplete"');
+			$linkclose .= $dataparams.' class="'.$classfortooltip.'"';
 		}
 
 		$linkstart = '<a href="'.$url.'"';
@@ -2538,7 +2817,7 @@ class SupplierProposal extends CommonObject
 
 		$result .= $linkstart;
 		if ($withpicto) {
-			$result .= img_object(($notooltip ? '' : $label), $this->picto, ($notooltip ? (($withpicto != 2) ? 'class="paddingright"' : '') : 'class="'.(($withpicto != 2) ? 'paddingright ' : '').'classfortooltip"'), 0, 0, $notooltip ? 0 : 1);
+			$result .= img_object(($notooltip ? '' : $label), ($this->picto ? $this->picto : 'generic'), (($withpicto != 2) ? 'class="paddingright"' : ''), 0, 0, $notooltip ? 0 : 1);
 		}
 		if ($withpicto != 2) {
 			$result .= $this->ref;
@@ -2560,7 +2839,7 @@ class SupplierProposal extends CommonObject
 		}
 		global $action;
 		$hookmanager->initHooks(array($this->element . 'dao'));
-		$parameters = array('id'=>$this->id, 'getnomurl' => &$result);
+		$parameters = array('id' => $this->id, 'getnomurl' => &$result);
 		$reshook = $hookmanager->executeHooks('getNomUrl', $parameters, $this, $action); // Note that $action and $object may have been modified by some hooks
 		if ($reshook > 0) {
 			$result = $hookmanager->resPrint;
@@ -2568,6 +2847,30 @@ class SupplierProposal extends CommonObject
 			$result .= $hookmanager->resPrint;
 		}
 		return $result;
+	}
+
+	/**
+	 *	Return the display context of the lines, as defined by the card before printObjectLines() and formAddObjectLine()
+	 *	On supplier documents, the supplier is the seller.
+	 *
+	 *	@return	array{seller:Societe,buyer:?Societe,dateSelector:int,forceall:int,senderissupplier:int,inputalsopricewithtax:int}	See CommonObject::getObjectLinesDisplayContext()
+	 */
+	public function getObjectLinesDisplayContext()
+	{
+		global $mysoc;
+
+		$context = parent::getObjectLinesDisplayContext();
+		// The supplier is the seller, an empty third party is used if it is not loaded (same as a failed fetch in the card)
+		require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+		$context['seller'] = (is_object($this->thirdparty) ? $this->thirdparty : new Societe($this->db));
+		$context['buyer'] = $mysoc;
+		$context['dateSelector'] = 0;
+		$context['forceall'] = 1;
+		$context['inputalsopricewithtax'] = 1;
+		// 2 is same than 1 but disable test on minimum qty
+		$context['senderissupplier'] = (getDolGlobalInt('SUPPLIER_PROPOSAL_WITH_PREDEFINED_PRICES_ONLY') ? getDolGlobalInt('SUPPLIER_PROPOSAL_WITH_PREDEFINED_PRICES_ONLY') : 2);
+
+		return $context;
 	}
 
 	/**
@@ -2580,9 +2883,9 @@ class SupplierProposal extends CommonObject
 		// For other object, here we call fetch_lines. But fetch_lines does not exists on supplier proposal
 
 		$sql = 'SELECT pt.rowid, pt.label as custom_label, pt.description, pt.fk_product, pt.fk_remise_except,';
-		$sql .= ' pt.qty, pt.tva_tx, pt.remise_percent, pt.subprice, pt.info_bits,';
+		$sql .= ' pt.qty, pt.tva_tx, pt.vat_src_code, pt.remise_percent, pt.subprice, pt.info_bits,';
 		$sql .= ' pt.total_ht, pt.total_tva, pt.total_ttc, pt.fk_product_fournisseur_price as fk_fournprice, pt.buy_price_ht as pa_ht, pt.special_code, pt.localtax1_tx, pt.localtax2_tx,';
-		$sql .= ' pt.product_type, pt.rang, pt.fk_parent_line,';
+		$sql .= ' pt.product_type, pt.rang, pt.fk_parent_line, pt.extraparams,';
 		$sql .= ' p.label as product_label, p.ref, p.fk_product_type, p.rowid as prodid,';
 		$sql .= ' p.description as product_desc, pt.ref_fourn as ref_supplier,';
 		$sql .= ' pt.fk_multicurrency, pt.multicurrency_code, pt.multicurrency_subprice, pt.multicurrency_total_ht, pt.multicurrency_total_tva, pt.multicurrency_total_ttc, pt.fk_unit';
@@ -2602,24 +2905,28 @@ class SupplierProposal extends CommonObject
 
 				$this->lines[$i] = new SupplierProposalLine($this->db);
 				$this->lines[$i]->id = $obj->rowid; // for backward compatibility
-				$this->lines[$i]->rowid				= $obj->rowid;
-				$this->lines[$i]->label 			= $obj->custom_label;
-				$this->lines[$i]->description = $obj->description;
+				$this->lines[$i]->rowid = $obj->rowid;
+
+				$this->lines[$i]->label = $obj->custom_label;
+				$this->lines[$i]->description = $obj->description; // deprecated
+				$this->lines[$i]->desc = $obj->description;
+
 				$this->lines[$i]->fk_product = $obj->fk_product;
 				$this->lines[$i]->ref = $obj->ref;
 				$this->lines[$i]->product_label = $obj->product_label;
-				$this->lines[$i]->product_desc		= $obj->product_desc;
+				$this->lines[$i]->product_desc = $obj->product_desc;
 				$this->lines[$i]->fk_product_type = $obj->fk_product_type; // deprecated
-				$this->lines[$i]->product_type		= $obj->product_type;
+				$this->lines[$i]->product_type = $obj->product_type;
 				$this->lines[$i]->qty = $obj->qty;
 				$this->lines[$i]->subprice = $obj->subprice;
 				$this->lines[$i]->fk_remise_except = $obj->fk_remise_except;
 				$this->lines[$i]->remise_percent = $obj->remise_percent;
 				$this->lines[$i]->tva_tx = $obj->tva_tx;
-				$this->lines[$i]->info_bits			= $obj->info_bits;
+				$this->lines[$i]->vat_src_code = $obj->vat_src_code;
+				$this->lines[$i]->info_bits = $obj->info_bits;
 				$this->lines[$i]->total_ht = $obj->total_ht;
-				$this->lines[$i]->total_tva			= $obj->total_tva;
-				$this->lines[$i]->total_ttc			= $obj->total_ttc;
+				$this->lines[$i]->total_tva = $obj->total_tva;
+				$this->lines[$i]->total_ttc = $obj->total_ttc;
 				$this->lines[$i]->fk_fournprice = $obj->fk_fournprice;
 				$marginInfos = getMarginInfos($obj->subprice, $obj->remise_percent, $obj->tva_tx, $obj->localtax1_tx, $obj->localtax2_tx, $this->lines[$i]->fk_fournprice, $obj->pa_ht);
 				$this->lines[$i]->pa_ht = $marginInfos[0];
@@ -2640,6 +2947,9 @@ class SupplierProposal extends CommonObject
 				$this->lines[$i]->multicurrency_total_tva 	= $obj->multicurrency_total_tva;
 				$this->lines[$i]->multicurrency_total_ttc 	= $obj->multicurrency_total_ttc;
 				$this->lines[$i]->fk_unit = $obj->fk_unit;
+				$this->lines[$i]->extraparams = !empty($obj->extraparams) ? (array) json_decode($obj->extraparams, true) : array();
+
+				$this->lines[$i]->fetch_optionals();
 
 				$i++;
 			}
@@ -2655,29 +2965,33 @@ class SupplierProposal extends CommonObject
 	/**
 	 *  Create a document onto disk according to template module.
 	 *
-	 * 	@param	    string		$modele			Force model to use ('' to not force)
-	 * 	@param		Translate	$outputlangs	Object langs to use for output
-	 *  @param      int			$hidedetails    Hide details of lines
-	 *  @param      int			$hidedesc       Hide description
-	 *  @param      int			$hideref        Hide ref
-	 *  @param   null|array  $moreparams     Array to provide more information
-	 * 	@return     int         				0 if KO, 1 if OK
+	 * 	@param	string		$modele			Force model to use ('' to not force)
+	 * 	@param	Translate	$outputlangs	Object langs to use for output
+	 *  @param	int<0,1>	$hidedetails    Hide details of lines
+	 *  @param	int<0,1>	$hidedesc       Hide description
+	 *  @param	int<0,1>	$hideref        Hide ref
+	 *  @param	?array<string,mixed>	$moreparams	Array to provide more information
+	 * 	@return	int         				0 if KO, 1 if OK
 	 */
 	public function generateDocument($modele, $outputlangs, $hidedetails = 0, $hidedesc = 0, $hideref = 0, $moreparams = null)
 	{
-		global $conf, $langs;
+		global $langs;
 
 		$langs->load("supplier_proposal");
 		$outputlangs->load("products");
 
 		if (!dol_strlen($modele)) {
-			$modele = 'aurore';
+			$modele = '';	// On supplier documents, template can be empty( no doc generated in this case)
 
 			if ($this->model_pdf) {
 				$modele = $this->model_pdf;
-			} elseif (!empty($conf->global->SUPPLIER_PROPOSAL_ADDON_PDF)) {
-				$modele = $conf->global->SUPPLIER_PROPOSAL_ADDON_PDF;
+			} elseif (getDolGlobalString('SUPPLIER_PROPOSAL_ADDON_PDF')) {
+				$modele = getDolGlobalString('SUPPLIER_PROPOSAL_ADDON_PDF');
 			}
+		}
+
+		if (empty($modele)) {
+			return 1;
 		}
 
 		$modelpath = "core/modules/supplier_proposal/doc/";
@@ -2689,18 +3003,18 @@ class SupplierProposal extends CommonObject
 	/**
 	 * Function used to replace a thirdparty id with another one.
 	 *
-	 * @param DoliDB $db Database handler
-	 * @param int $origin_id Old thirdparty id
-	 * @param int $dest_id New thirdparty id
-	 * @return bool
+	 * @param 	DoliDB 	$dbs 		Database handler, because function is static we name it $dbs not $db to avoid breaking coding test
+	 * @param 	int 	$origin_id 	Old thirdparty id
+	 * @param 	int 	$dest_id 	New thirdparty id
+	 * @return 	bool
 	 */
-	public static function replaceThirdparty(DoliDB $db, $origin_id, $dest_id)
+	public static function replaceThirdparty(DoliDB $dbs, $origin_id, $dest_id)
 	{
 		$tables = array(
 			'supplier_proposal'
 		);
 
-		return CommonObject::commonReplaceThirdparty($db, $origin_id, $dest_id, $tables);
+		return CommonObject::commonReplaceThirdparty($dbs, $origin_id, $dest_id, $tables);
 	}
 
 	/**
@@ -2718,6 +3032,65 @@ class SupplierProposal extends CommonObject
 		);
 
 		return CommonObject::commonReplaceProduct($db, $origin_id, $dest_id, $tables);
+	}
+
+
+	/**
+	 *	Return clickable link of object (with eventually picto)
+	 *
+	 *	@param	string	    			$option		Where point the link (0=> main card, 1,2 => shipment, 'nolink'=>No link)
+	 *  @param	?array<string,mixed>	$arraydata	Array of data
+	 *  @return	string								HTML Code for Kanban thumb.
+	 */
+	public function getKanbanView($option = '', $arraydata = null)
+	{
+		global $langs;
+
+		$selected = (empty($arraydata['selected']) ? 0 : $arraydata['selected']);
+
+		$return = '<div class="box-flex-item box-flex-grow-zero">';
+		$return .= '<div class="info-box info-box-sm">';
+		$return .= '<span class="info-box-icon bg-infobox-action">';
+		$return .= img_picto('', $this->picto);
+		//$return .= '<i class="fa fa-dol-action"></i>'; // Can be image
+		$return .= '</span>';
+		$return .= '<div class="info-box-content">';
+		$return .= '<span class="info-box-ref inline-block tdoverflowmax150 valignmiddle">'.(method_exists($this, 'getNomUrl') ? $this->getNomUrl() : $this->ref).'</span>';
+		if ($selected >= 0) {
+			$return .= '<input id="cb'.$this->id.'" class="flat checkforselect fright" type="checkbox" name="toselect[]" value="'.$this->id.'"'.($selected ? ' checked="checked"' : '').'>';
+		}
+		if (property_exists($this, 'socid')) {
+			$return .= '<span class="info-box-ref"> | '.$this->socid.'</span>';
+		}
+		if (property_exists($this, 'delivery_date')) {
+			$return .= '<br><span class="opacitymedium">'.$langs->trans("DateEnd").'</span> : <span class="info-box-label">'.dol_print_date($this->delivery_date).'</span>';
+		}
+		if (property_exists($this, 'total_ttc')) {
+			$return .= '<br><span class="opacitymedium" >'.$langs->trans("AmountHT").' : </span><span class="info-box-label amount">'.price($this->total_ttc).'</span>';
+		}
+		if (method_exists($this, 'getLibStatut')) {
+			$return .= '<br><div class="info-box-status">'.$this->getLibStatut(3).'</div>';
+		}
+		$return .= '</div>';
+		$return .= '</div>';
+		$return .= '</div>';
+		return $return;
+	}
+
+	/**
+	 * Sets object to supplied categories.
+	 *
+	 * Deletes object from existing categories not supplied.
+	 * Adds it to non existing supplied categories.
+	 * Existing categories are left untouch.
+	 *
+	 * @param  int[]|int 	$categories 	Category or categories IDs
+	 * @return int<-1,1>					Return integer <0 if KO, >0 if OK
+	 */
+	public function setCategories($categories)
+	{
+		require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
+		return parent::setCategoriesCommon($categories, Categorie::TYPE_SUPPLIER_PROPOSAL);
 	}
 }
 
@@ -2747,6 +3120,19 @@ class SupplierProposalLine extends CommonObjectLine
 	 */
 	public $table_element = 'supplier_proposaldet';
 
+	/**
+	 * @see CommonObjectLine
+	 */
+	public $parent_element = 'supplier_proposal';
+
+	/**
+	 * @see CommonObjectLine
+	 */
+	public $fk_parent_attribute = 'fk_supplier_proposal';
+
+	/**
+	 * @var SupplierProposalLine
+	 */
 	public $oldline;
 
 	/**
@@ -2764,16 +3150,20 @@ class SupplierProposalLine extends CommonObjectLine
 	 */
 	public $fk_parent_line;
 
-	public $desc; // Description ligne
+	/**
+	 * @var string
+	 */
+	public $desc; // Description of the line
 
 	/**
 	 * @var int ID
 	 */
-	public $fk_product; // Id produit predefini
+	public $fk_product; // Predefined Product ID
 
 	/**
-	 * @deprecated
+	 * @deprecated Use $product_type
 	 * @see $product_type
+	 * @var int
 	 */
 	public $fk_product_type;
 	/**
@@ -2783,11 +3173,22 @@ class SupplierProposalLine extends CommonObjectLine
 	 */
 	public $product_type = Product::TYPE_PRODUCT;
 
+	/**
+	 * @var float Quantity
+	 */
 	public $qty;
+	/**
+	 * @var float|string
+	 */
 	public $tva_tx;
+	/**
+	 * @var string
+	 */
 	public $vat_src_code;
 
-	public $subprice;
+	/**
+	 * @var float|string
+	 */
 	public $remise_percent;
 
 	/**
@@ -2795,6 +3196,9 @@ class SupplierProposalLine extends CommonObjectLine
 	 */
 	public $fk_remise_except;
 
+	/**
+	 * @var int
+	 */
 	public $rang = 0;
 
 	/**
@@ -2802,29 +3206,60 @@ class SupplierProposalLine extends CommonObjectLine
 	 */
 	public $fk_fournprice;
 
+	/**
+	 * @var int|float|string
+	 */
 	public $pa_ht;
+	/**
+	 * @var int|float
+	 */
 	public $marge_tx;
+	/**
+	 * @var int|float
+	 */
 	public $marque_tx;
 
-	public $special_code; // Tag for special lines (exlusive tags)
+	/**
+	 * @var int special code
+	 */
+	public $special_code; // Tag for special lines (exclusive tags)
 	// 1: frais de port
 	// 2: ecotaxe
 	// 3: option line (when qty = 0)
 
+	/**
+	 * @var int
+	 */
 	public $info_bits = 0; // Liste d'options cumulables:
-	// Bit 0: 	0 si TVA normal - 1 si TVA NPR
-	// Bit 1:	0 ligne normale - 1 si ligne de remise fixe
+	// Bit 0: 	0 if TVA normal - 1 if TVA NPR
+	// Bit 1:	0 normal line - 1 if fixed reduction
 
-	public $total_ht; // Total HT de la ligne toute quantite et incluant la remise ligne
-	public $total_tva; // Total TVA de la ligne toute quantite et incluant la remise ligne
-	public $total_ttc; // Total TTC de la ligne toute quantite et incluant la remise ligne
+	/**
+	 * @var float
+	 */
+	public $total_ht; // Line Net Total (HT), including all quantity and the line discount
+	/**
+	 * @var float
+	 */
+	public $total_tva; // Line Net Total (VAT), including all quantity and the line discount
+	/**
+	 * @var float
+	 */
+	public $total_ttc; // Line Net Total (TTC), including all quantity and the line discount
 
+	/**
+	 * @var int|string
+	 */
 	public $date_start;
+	/**
+	 * @var int|string
+	 */
 	public $date_end;
 
 	// From llx_product
 	/**
-	 * @deprecated
+	 * @var string
+	 * @deprecated Use $product_ref
 	 * @see $product_ref
 	 */
 	public $ref;
@@ -2836,7 +3271,8 @@ class SupplierProposalLine extends CommonObjectLine
 	public $product_ref;
 
 	/**
-	 * @deprecated
+	 * @var string
+	 * @deprecated Use $product_label
 	 * @see $product_label
 	 */
 	public $libelle;
@@ -2848,21 +3284,54 @@ class SupplierProposalLine extends CommonObjectLine
 	public $product_label;
 
 	/**
+	 * Custom label
+	 * @var string
+	 */
+	public $label;
+
+	/**
 	 * Product description
 	 * @var string
 	 */
 	public $product_desc;
 
+	/**
+	 * @var int|string
+	 */
 	public $localtax1_tx; // Local tax 1
+	/**
+	 * @var int|string
+	 */
 	public $localtax2_tx; // Local tax 2
+	/**
+	 * @var string
+	 */
 	public $localtax1_type; // Local tax 1 type
+	/**
+	 * @var string
+	 */
 	public $localtax2_type; // Local tax 2 type
+	/**
+	 * @var float
+	 */
 	public $total_localtax1; // Line total local tax 1
+	/**
+	 * @var float
+	 */
 	public $total_localtax2; // Line total local tax 2
 
+	/**
+	 * @var int<0,1>
+	 */
 	public $skip_update_total; // Skip update price total for special lines
 
+	/**
+	 * @var string
+	 */
 	public $ref_fourn;
+	/**
+	 * @var string
+	 */
 	public $ref_supplier;
 
 	// Multicurrency
@@ -2871,14 +3340,29 @@ class SupplierProposalLine extends CommonObjectLine
 	 */
 	public $fk_multicurrency;
 
+	/**
+	 * @var string
+	 */
 	public $multicurrency_code;
+	/**
+	 * @var float
+	 */
 	public $multicurrency_subprice;
+	/**
+	 * @var float
+	 */
 	public $multicurrency_total_ht;
+	/**
+	 * @var float
+	 */
 	public $multicurrency_total_tva;
+	/**
+	 * @var float
+	 */
 	public $multicurrency_total_ttc;
 
 	/**
-	 * 	Class line Contructor
+	 * 	Class line Constructor
 	 *
 	 * 	@param	DoliDB	$db	Database handler
 	 */
@@ -2891,75 +3375,80 @@ class SupplierProposalLine extends CommonObjectLine
 	 *	Retrieve the propal line object
 	 *
 	 *	@param	int		$rowid		Propal line id
-	 *	@return	int					<0 if KO, >0 if OK
+	 *	@return	int					Return integer <0 if KO, >0 if OK
 	 */
 	public function fetch($rowid)
 	{
 		$sql = 'SELECT pd.rowid, pd.fk_supplier_proposal, pd.fk_parent_line, pd.fk_product, pd.label as custom_label, pd.description, pd.price, pd.qty, pd.tva_tx,';
 		$sql .= ' pd.date_start, pd.date_end,';
-		$sql .= ' pd.remise, pd.remise_percent, pd.fk_remise_except, pd.subprice,';
+		$sql .= ' pd.remise, pd.remise_percent, pd.fk_remise_except, pd.subprice, pd.subprice_ttc,';
 		$sql .= ' pd.info_bits, pd.total_ht, pd.total_tva, pd.total_ttc, pd.fk_product_fournisseur_price as fk_fournprice, pd.buy_price_ht as pa_ht, pd.special_code, pd.rang,';
 		$sql .= ' pd.localtax1_tx, pd.localtax2_tx, pd.total_localtax1, pd.total_localtax2,';
 		$sql .= ' p.ref as product_ref, p.label as product_label, p.description as product_desc,';
-		$sql .= ' pd.product_type, pd.ref_fourn as ref_produit_fourn,';
-		$sql .= ' pd.fk_multicurrency, pd.multicurrency_code, pd.multicurrency_subprice, pd.multicurrency_total_ht, pd.multicurrency_total_tva, pd.multicurrency_total_ttc, pd.fk_unit';
+		$sql .= ' pd.product_type, pd.ref_fourn as ref_produit_fourn, pd.extraparams,';
+		$sql .= ' pd.fk_multicurrency, pd.multicurrency_code, pd.multicurrency_subprice, pd.multicurrency_subprice_ttc, pd.multicurrency_total_ht, pd.multicurrency_total_tva, pd.multicurrency_total_ttc, pd.fk_unit';
 		$sql .= ' FROM '.MAIN_DB_PREFIX.'supplier_proposaldet as pd';
 		$sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'product as p ON pd.fk_product = p.rowid';
 		$sql .= ' WHERE pd.rowid = '.((int) $rowid);
 
 		$result = $this->db->query($sql);
 		if ($result) {
-			$objp = $this->db->fetch_object($result);
+			if ($objp = $this->db->fetch_object($result)) {
+				$this->id = $objp->rowid;
+				$this->fk_supplier_proposal = $objp->fk_supplier_proposal;
+				$this->fk_parent_line = $objp->fk_parent_line;
+				$this->label = $objp->custom_label;
+				$this->desc = $objp->description;
+				$this->qty = $objp->qty;
 
-			$this->id = $objp->rowid;
-			$this->fk_supplier_proposal = $objp->fk_supplier_proposal;
-			$this->fk_parent_line = $objp->fk_parent_line;
-			$this->label			= $objp->custom_label;
-			$this->desc				= $objp->description;
-			$this->qty = $objp->qty;
-			$this->subprice = $objp->subprice;
-			$this->tva_tx = $objp->tva_tx;
-			$this->remise_percent = $objp->remise_percent;
-			$this->fk_remise_except = $objp->fk_remise_except;
-			$this->fk_product		= $objp->fk_product;
-			$this->info_bits		= $objp->info_bits;
-			$this->date_start		= $this->db->jdate($objp->date_start);
-			$this->date_end			= $this->db->jdate($objp->date_end);
+				$this->subprice = $objp->subprice;
+				$this->subprice_ttc = $objp->subprice_ttc;
 
-			$this->total_ht			= $objp->total_ht;
-			$this->total_tva		= $objp->total_tva;
-			$this->total_ttc		= $objp->total_ttc;
+				$this->tva_tx = $objp->tva_tx;
+				$this->remise_percent = $objp->remise_percent;
+				$this->fk_remise_except = $objp->fk_remise_except;
+				$this->fk_product = $objp->fk_product;
+				$this->info_bits = $objp->info_bits;
+				$this->date_start = $this->db->jdate($objp->date_start);
+				$this->date_end = $this->db->jdate($objp->date_end);
 
-			$this->fk_fournprice = $objp->fk_fournprice;
+				$this->total_ht = $objp->total_ht;
+				$this->total_tva = $objp->total_tva;
+				$this->total_ttc = $objp->total_ttc;
 
-			$marginInfos			= getMarginInfos($objp->subprice, $objp->remise_percent, $objp->tva_tx, $objp->localtax1_tx, $objp->localtax2_tx, $this->fk_fournprice, $objp->pa_ht);
-			$this->pa_ht			= $marginInfos[0];
-			$this->marge_tx			= $marginInfos[1];
-			$this->marque_tx		= $marginInfos[2];
+				$this->fk_fournprice = $objp->fk_fournprice;
 
-			$this->special_code		= $objp->special_code;
-			$this->product_type		= $objp->product_type;
-			$this->rang = $objp->rang;
+				$marginInfos = getMarginInfos($objp->subprice, $objp->remise_percent, $objp->tva_tx, $objp->localtax1_tx, $objp->localtax2_tx, $this->fk_fournprice, $objp->pa_ht);
+				$this->pa_ht = $marginInfos[0];
+				$this->marge_tx = $marginInfos[1];
+				$this->marque_tx = $marginInfos[2];
 
-			$this->ref = $objp->product_ref; // deprecated
-			$this->product_ref = $objp->product_ref;
-			$this->libelle = $objp->product_label; // deprecated
-			$this->product_label	= $objp->product_label;
-			$this->product_desc		= $objp->product_desc;
+				$this->special_code = $objp->special_code;
+				$this->product_type = $objp->product_type;
+				$this->rang = $objp->rang;
 
-			$this->ref_fourn = $objp->ref_produit_forun;
+				$this->product_ref = $objp->product_ref;
+				$this->product_label = $objp->product_label;
+				$this->product_desc = $objp->product_desc;
 
-			// Multicurrency
-			$this->fk_multicurrency = $objp->fk_multicurrency;
-			$this->multicurrency_code = $objp->multicurrency_code;
-			$this->multicurrency_subprice 	= $objp->multicurrency_subprice;
-			$this->multicurrency_total_ht 	= $objp->multicurrency_total_ht;
-			$this->multicurrency_total_tva 	= $objp->multicurrency_total_tva;
-			$this->multicurrency_total_ttc 	= $objp->multicurrency_total_ttc;
-			$this->fk_unit = $objp->fk_unit;
+				$this->ref_fourn = $objp->ref_produit_fourn;
 
-			$this->db->free($result);
-			return 1;
+				$this->extraparams = !empty($objp->extraparams) ? (array) json_decode($objp->extraparams, true) : array();
+
+				// Multicurrency
+				$this->fk_multicurrency = $objp->fk_multicurrency;
+				$this->multicurrency_code = $objp->multicurrency_code;
+				$this->multicurrency_subprice = $objp->multicurrency_subprice;
+				$this->multicurrency_subprice_ttc = $objp->multicurrency_subprice_ttc;
+				$this->multicurrency_total_ht = $objp->multicurrency_total_ht;
+				$this->multicurrency_total_tva = $objp->multicurrency_total_tva;
+				$this->multicurrency_total_ttc = $objp->multicurrency_total_ttc;
+				$this->fk_unit = $objp->fk_unit;
+
+				$this->db->free($result);
+				return 1;
+			}
+			return 0;
 		} else {
 			dol_print_error($this->db);
 			return -1;
@@ -2970,11 +3459,11 @@ class SupplierProposalLine extends CommonObjectLine
 	 *  Insert object line propal in database
 	 *
 	 *	@param		int		$notrigger		1=Does not execute triggers, 0= execute triggers
-	 *	@return		int						<0 if KO, >0 if OK
+	 *	@return		int						Return integer <0 if KO, >0 if OK
 	 */
 	public function insert($notrigger = 0)
 	{
-		global $conf, $langs, $user;
+		global $user;
 
 		$error = 0;
 
@@ -2984,6 +3473,9 @@ class SupplierProposalLine extends CommonObjectLine
 		if (empty($this->tva_tx)) {
 			$this->tva_tx = 0;
 		}
+		if (empty($this->vat_src_code)) {
+			$this->vat_src_code = '';
+		}
 		if (empty($this->localtax1_tx)) {
 			$this->localtax1_tx = 0;
 		}
@@ -2991,10 +3483,10 @@ class SupplierProposalLine extends CommonObjectLine
 			$this->localtax2_tx = 0;
 		}
 		if (empty($this->localtax1_type)) {
-			$this->localtax1_type = 0;
+			$this->localtax1_type = '';
 		}
 		if (empty($this->localtax2_type)) {
-			$this->localtax2_type = 0;
+			$this->localtax2_type = '';
 		}
 		if (empty($this->total_localtax1)) {
 			$this->total_localtax1 = 0;
@@ -3033,7 +3525,7 @@ class SupplierProposalLine extends CommonObjectLine
 
 		// if buy price not defined, define buyprice as configured in margin admin
 		if ($this->pa_ht == 0) {
-			$result = $this->defineBuyPrice($this->subprice, $this->remise_percent, $this->fk_product);
+			$result = $this->defineBuyPrice($this->subprice, $this->remise_percent, $this->fk_product, $this->qty);
 			if ($result < 0) {
 				return $result;
 			} else {
@@ -3052,46 +3544,49 @@ class SupplierProposalLine extends CommonObjectLine
 		$sql = 'INSERT INTO '.MAIN_DB_PREFIX.'supplier_proposaldet';
 		$sql .= ' (fk_supplier_proposal, fk_parent_line, label, description, fk_product, product_type,';
 		$sql .= ' date_start, date_end,';
-		$sql .= ' fk_remise_except, qty, tva_tx, localtax1_tx, localtax2_tx, localtax1_type, localtax2_type,';
-		$sql .= ' subprice, remise_percent, ';
+		$sql .= ' fk_remise_except, qty, tva_tx, vat_src_code, localtax1_tx, localtax2_tx, localtax1_type, localtax2_type,';
+		$sql .= ' subprice, subprice_ttc, remise_percent, ';
 		$sql .= ' info_bits, ';
 		$sql .= ' total_ht, total_tva, total_localtax1, total_localtax2, total_ttc, fk_product_fournisseur_price, buy_price_ht, special_code, rang,';
 		$sql .= ' ref_fourn,';
-		$sql .= ' fk_multicurrency, multicurrency_code, multicurrency_subprice, multicurrency_total_ht, multicurrency_total_tva, multicurrency_total_ttc, fk_unit)';
-		$sql .= " VALUES (".$this->fk_supplier_proposal.",";
-		$sql .= " ".($this->fk_parent_line > 0 ? ((int) $this->db->escape($this->fk_parent_line)) : "null").",";
+		$sql .= ' fk_multicurrency, multicurrency_code, multicurrency_subprice, multicurrency_subprice_ttc, multicurrency_total_ht, multicurrency_total_tva, multicurrency_total_ttc, fk_unit)';
+		$sql .= " VALUES (".((int) $this->fk_supplier_proposal).",";
+		$sql .= " ".($this->fk_parent_line > 0 ? ((int) $this->fk_parent_line) : "null").",";
 		$sql .= " ".(!empty($this->label) ? "'".$this->db->escape($this->label)."'" : "null").",";
 		$sql .= " '".$this->db->escape($this->desc)."',";
 		$sql .= " ".($this->fk_product ? ((int) $this->fk_product) : "null").",";
-		$sql .= " '".$this->db->escape($this->product_type)."',";
+		$sql .= " ".((int) $this->product_type).",";
 		$sql .= " ".($this->date_start ? "'".$this->db->idate($this->date_start)."'" : "null").",";
 		$sql .= " ".($this->date_end ? "'".$this->db->idate($this->date_end)."'" : "null").",";
-		$sql .= " ".($this->fk_remise_except ? ((int) $this->db->escape($this->fk_remise_except)) : "null").",";
-		$sql .= " ".price2num($this->qty, 'MS').",";
-		$sql .= " ".price2num($this->tva_tx).",";
-		$sql .= " ".price2num($this->localtax1_tx).",";
-		$sql .= " ".price2num($this->localtax2_tx).",";
+		$sql .= " ".($this->fk_remise_except ? ((int) $this->fk_remise_except) : "null").",";
+		$sql .= " ".(float) price2num($this->qty, 'MS').",";
+		$sql .= " ".(float) price2num($this->tva_tx).",";
+		$sql .= " '".$this->db->escape($this->vat_src_code)."',";
+		$sql .= " ".(float) price2num($this->localtax1_tx).",";
+		$sql .= " ".(float) price2num($this->localtax2_tx).",";
 		$sql .= " '".$this->db->escape($this->localtax1_type)."',";
 		$sql .= " '".$this->db->escape($this->localtax2_type)."',";
-		$sql .= " ".(!empty($this->subprice) ? price2num($this->subprice, 'MU') : "null").",";
+		$sql .= " ".(float) price2num($this->subprice, 'MU') .",";
+		$sql .= " ".(float) price2num($this->subprice_ttc, 'MU') .",";
 		$sql .= " ".((float) $this->remise_percent).",";
 		$sql .= " ".(isset($this->info_bits) ? ((int) $this->info_bits) : "null").",";
-		$sql .= " ".price2num($this->total_ht, 'MT').",";
-		$sql .= " ".price2num($this->total_tva, 'MT').",";
-		$sql .= " ".price2num($this->total_localtax1, 'MT').",";
-		$sql .= " ".price2num($this->total_localtax2, 'MT').",";
-		$sql .= " ".price2num($this->total_ttc, 'MT').",";
+		$sql .= " ".(float) price2num($this->total_ht, 'MT').",";
+		$sql .= " ".(float) price2num($this->total_tva, 'MT').",";
+		$sql .= " ".(float) price2num($this->total_localtax1, 'MT').",";
+		$sql .= " ".(float) price2num($this->total_localtax2, 'MT').",";
+		$sql .= " ".(float) price2num($this->total_ttc, 'MT').",";
 		$sql .= " ".(!empty($this->fk_fournprice) ? ((int) $this->fk_fournprice) : "null").",";
-		$sql .= " ".(isset($this->pa_ht) ? price2num($this->pa_ht, 'MU') : "null").",";
+		$sql .= " ".(isset($this->pa_ht) ? (float) price2num($this->pa_ht, 'MU') : "null").",";
 		$sql .= ' '.((int) $this->special_code).',';
 		$sql .= ' '.((int) $this->rang).',';
 		$sql .= " '".$this->db->escape($this->ref_fourn)."'";
 		$sql .= ", ".($this->fk_multicurrency > 0 ? ((int) $this->fk_multicurrency) : 'null');
 		$sql .= ", '".$this->db->escape($this->multicurrency_code)."'";
-		$sql .= ", ".price2num($this->multicurrency_subprice, 'CU');
-		$sql .= ", ".price2num($this->multicurrency_total_ht, 'CT');
-		$sql .= ", ".price2num($this->multicurrency_total_tva, 'CT');
-		$sql .= ", ".price2num($this->multicurrency_total_ttc, 'CT');
+		$sql .= ", ".(float) price2num($this->multicurrency_subprice, 'CU');
+		$sql .= ", ".(float) price2num($this->multicurrency_subprice_ttc, 'CU');
+		$sql .= ", ".(float) price2num($this->multicurrency_total_ht, 'CT');
+		$sql .= ", ".(float) price2num($this->multicurrency_total_tva, 'CT');
+		$sql .= ", ".(float) price2num($this->multicurrency_total_ttc, 'CT');
 		$sql .= ", ".($this->fk_unit ? ((int) $this->fk_unit) : 'null');
 		$sql .= ')';
 
@@ -3127,19 +3622,20 @@ class SupplierProposalLine extends CommonObjectLine
 	}
 
 	/**
-	 * 	Delete line in database
+	 * Delete line in database
 	 *
-	 *	@return	 int  <0 if ko, >0 if ok
+	 * @param	User	$user		User making the deletion
+	 * @return	int  				Return integer <0 if KO, >0 if OK
 	 */
-	public function delete()
+	public function delete($user)
 	{
-		global $conf, $langs, $user;
-
 		$error = 0;
+
 		$this->db->begin();
 
-		$sql = "DELETE FROM ".MAIN_DB_PREFIX."supplier_proposaldet WHERE rowid = ".((int) $this->id);
-		dol_syslog("SupplierProposalLine::delete", LOG_DEBUG);
+		$sql = "DELETE FROM ".MAIN_DB_PREFIX."supplier_proposaldet";
+		$sql .= " WHERE rowid = ".((int) $this->id);
+
 		if ($this->db->query($sql)) {
 			// Remove extrafields
 			if (!$error) {
@@ -3172,11 +3668,11 @@ class SupplierProposalLine extends CommonObjectLine
 	 *	Update propal line object into DB
 	 *
 	 *	@param 	int		$notrigger	1=Does not execute triggers, 0= execute triggers
-	 *	@return	int					<0 if ko, >0 if ok
+	 *	@return	int					Return integer <0 if ko, >0 if ok
 	 */
 	public function update($notrigger = 0)
 	{
-		global $conf, $langs, $user;
+		global $user;
 
 		$error = 0;
 
@@ -3197,10 +3693,10 @@ class SupplierProposalLine extends CommonObjectLine
 			$this->total_localtax2 = 0;
 		}
 		if (empty($this->localtax1_type)) {
-			$this->localtax1_type = 0;
+			$this->localtax1_type = '';
 		}
 		if (empty($this->localtax2_type)) {
-			$this->localtax2_type = 0;
+			$this->localtax2_type = '';
 		}
 		if (empty($this->marque_tx)) {
 			$this->marque_tx = 0;
@@ -3236,7 +3732,7 @@ class SupplierProposalLine extends CommonObjectLine
 
 		// if buy price not defined, define buyprice as configured in margin admin
 		if ($this->pa_ht == 0) {
-			$result = $this->defineBuyPrice($this->subprice, $this->remise_percent, $this->fk_product);
+			$result = $this->defineBuyPrice($this->subprice, $this->remise_percent, $this->fk_product, $this->qty);
 			if ($result < 0) {
 				return $result;
 			} else {
@@ -3246,46 +3742,46 @@ class SupplierProposalLine extends CommonObjectLine
 
 		$this->db->begin();
 
-		// Mise a jour ligne en base
+		// Update line in database
 		$sql = "UPDATE ".MAIN_DB_PREFIX."supplier_proposaldet SET";
-		$sql .= " description='".$this->db->escape($this->desc)."'";
-		$sql .= " , label=".(!empty($this->label) ? "'".$this->db->escape($this->label)."'" : "null");
-		$sql .= " , product_type=".((int) $this->product_type);
-		$sql .= " , date_start=".($this->date_start ? "'".$this->db->idate($this->date_start)."'" : "null");
-		$sql .= " , date_end=".($this->date_end ? "'".$this->db->idate($this->date_end)."'" : "null");
-		$sql .= " , tva_tx='".price2num($this->tva_tx)."'";
-		$sql .= " , localtax1_tx=".price2num($this->localtax1_tx);
-		$sql .= " , localtax2_tx=".price2num($this->localtax2_tx);
-		$sql .= " , localtax1_type='".$this->db->escape($this->localtax1_type)."'";
-		$sql .= " , localtax2_type='".$this->db->escape($this->localtax2_type)."'";
-		$sql .= " , qty='".price2num($this->qty)."'";
-		$sql .= " , subprice=".price2num($this->subprice)."";
-		$sql .= " , remise_percent=".price2num($this->remise_percent)."";
-		$sql .= " , info_bits='".$this->db->escape($this->info_bits)."'";
+		$sql .= " description = '".$this->db->escape($this->desc)."'";
+		$sql .= " , label = ".(!empty($this->label) ? "'".$this->db->escape($this->label)."'" : "null");
+		$sql .= " , product_type = ".((int) $this->product_type);
+		$sql .= " , date_start = ".($this->date_start ? "'".$this->db->idate($this->date_start)."'" : "null");
+		$sql .= " , date_end = ".($this->date_end ? "'".$this->db->idate($this->date_end)."'" : "null");
+		$sql .= " , tva_tx = '".price2num($this->tva_tx)."'";
+		$sql .= " , localtax1_tx = ".(float) price2num($this->localtax1_tx);
+		$sql .= " , localtax2_tx = ".(float) price2num($this->localtax2_tx);
+		$sql .= " , localtax1_type = '".$this->db->escape($this->localtax1_type)."'";
+		$sql .= " , localtax2_type = '".$this->db->escape($this->localtax2_type)."'";
+		$sql .= " , qty = ".(float) price2num($this->qty);
+		$sql .= " , subprice = ".(float) price2num($this->subprice);
+		$sql .= " , subprice_ttc = ".(float) price2num($this->subprice_ttc);
+		$sql .= " , remise_percent = ".(float) price2num($this->remise_percent);
+		$sql .= " , info_bits = ".((int) $this->info_bits);
 		if (empty($this->skip_update_total)) {
-			$sql .= " , total_ht=".price2num($this->total_ht)."";
-			$sql .= " , total_tva=".price2num($this->total_tva)."";
-			$sql .= " , total_ttc=".price2num($this->total_ttc)."";
-			$sql .= " , total_localtax1=".price2num($this->total_localtax1)."";
-			$sql .= " , total_localtax2=".price2num($this->total_localtax2)."";
+			$sql .= " , total_ht = ".(float) price2num($this->total_ht);
+			$sql .= " , total_tva = ".(float) price2num($this->total_tva);
+			$sql .= " , total_ttc = ".(float) price2num($this->total_ttc);
+			$sql .= " , total_localtax1 = ".(float) price2num($this->total_localtax1);
+			$sql .= " , total_localtax2 = ".(float) price2num($this->total_localtax2);
 		}
-		$sql .= " , fk_product_fournisseur_price=".(!empty($this->fk_fournprice) ? "'".$this->db->escape($this->fk_fournprice)."'" : "null");
-		$sql .= " , buy_price_ht=".price2num($this->pa_ht);
-		if (strlen($this->special_code)) {
-			$sql .= " , special_code=".((int) $this->special_code);
-		}
-		$sql .= " , fk_parent_line=".($this->fk_parent_line > 0 ? $this->fk_parent_line : "null");
+		$sql .= " , fk_product_fournisseur_price = ".(!empty($this->fk_fournprice) ? "'".$this->db->escape((string) $this->fk_fournprice)."'" : "null");
+		$sql .= " , buy_price_ht = ".(float) price2num($this->pa_ht);
+		$sql .= " , special_code = ".((int) $this->special_code);
+		$sql .= " , fk_parent_line = ".($this->fk_parent_line > 0 ? ((int) $this->fk_parent_line) : "null");
 		if (!empty($this->rang)) {
-			$sql .= ", rang=".((int) $this->rang);
+			$sql .= ", rang = ".((int) $this->rang);
 		}
-		$sql .= " , ref_fourn=".(!empty($this->ref_fourn) ? "'".$this->db->escape($this->ref_fourn)."'" : "null");
-		$sql .= " , fk_unit=".($this->fk_unit ? $this->fk_unit : 'null');
+		$sql .= " , ref_fourn = ".(!empty($this->ref_fourn) ? "'".$this->db->escape($this->ref_fourn)."'" : "null");
+		$sql .= " , fk_unit = ".($this->fk_unit ? (int) $this->fk_unit : 'null');
 
 		// Multicurrency
-		$sql .= " , multicurrency_subprice=".price2num($this->multicurrency_subprice)."";
-		$sql .= " , multicurrency_total_ht=".price2num($this->multicurrency_total_ht)."";
-		$sql .= " , multicurrency_total_tva=".price2num($this->multicurrency_total_tva)."";
-		$sql .= " , multicurrency_total_ttc=".price2num($this->multicurrency_total_ttc)."";
+		$sql .= " , multicurrency_subprice = ".(float) price2num($this->multicurrency_subprice);
+		$sql .= " , multicurrency_subprice_ttc = ".(float) price2num($this->multicurrency_subprice_ttc);
+		$sql .= " , multicurrency_total_ht = ".(float) price2num($this->multicurrency_total_ht);
+		$sql .= " , multicurrency_total_tva = ".(float) price2num($this->multicurrency_total_tva);
+		$sql .= " , multicurrency_total_ttc = ".(float) price2num($this->multicurrency_total_ttc);
 
 		$sql .= " WHERE rowid = ".((int) $this->id);
 
@@ -3323,18 +3819,18 @@ class SupplierProposalLine extends CommonObjectLine
 	 *	Update DB line fields total_xxx
 	 *	Used by migration
 	 *
-	 *	@return		int		<0 if ko, >0 if ok
+	 *	@return		int		Return integer <0 if ko, >0 if ok
 	 */
 	public function update_total()
 	{
 		// phpcs:enable
 		$this->db->begin();
 
-		// Mise a jour ligne en base
+		// Update line in database
 		$sql = "UPDATE ".MAIN_DB_PREFIX."supplier_proposaldet SET";
-		$sql .= " total_ht=".price2num($this->total_ht, 'MT');
-		$sql .= ",total_tva=".price2num($this->total_tva, 'MT');
-		$sql .= ",total_ttc=".price2num($this->total_ttc, 'MT');
+		$sql .= " total_ht = ".(float) price2num($this->total_ht, 'MT');
+		$sql .= ",total_tva = ".(float) price2num($this->total_tva, 'MT');
+		$sql .= ",total_ttc = ".(float) price2num($this->total_ttc, 'MT');
 		$sql .= " WHERE rowid = ".((int) $this->id);
 
 		dol_syslog("SupplierProposalLine::update_total", LOG_DEBUG);

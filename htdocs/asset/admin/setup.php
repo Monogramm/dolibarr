@@ -1,6 +1,8 @@
 <?php
-/* Copyright (C) 2004-2017 Laurent Destailleur  <eldy@users.sourceforge.net>
- * Copyright (C) 2018      Alexandre Spangaro   <aspangaro@open-dsi.fr>
+/* Copyright (C) 2004-2017  Laurent Destailleur  <eldy@users.sourceforge.net>
+ * Copyright (C) 2018-2024  Alexandre Spangaro   <alexandre@inovea-conseil.com>
+ * Copyright (C) 2024-2026	MDW                  <mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France      <frederic.france@free.fr>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,12 +19,20 @@
  */
 
 /**
- * \file    htdocs/asset/admin/setup.php
+ * \file	htdocs/asset/admin/setup.php
  * \ingroup asset
- * \brief   Asset setup page.
+ * \brief	Asset setup page.
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/core/lib/asset.lib.php';
 require_once DOL_DOCUMENT_ROOT."/core/lib/admin.lib.php";
 
@@ -45,9 +55,22 @@ $label = GETPOST('label', 'alpha');
 $scandir = GETPOST('scan_dir', 'alpha');
 $type = 'asset';
 
+// Day count conventions available to compute the prorata temporis of a depreciation.
+// Note: the deprecated setup ASSET_DEPRECIATION_DURATION_PER_YEAR is not editable anymore. It let a
+// count of real calendar days be divided by 360, which is not a convention but a calculation error
+// (it overestimates every partial period by about 1.39%). It is still read to deduce the convention
+// of an installation that has never saved this page (see getAssetDepreciationDayCountConvention()).
+$arrayofdaycountconventions = array();
+foreach (getAssetDepreciationDayCountConventions() as $conventioncode => $conventionlabelkey) {
+	$arrayofdaycountconventions[$conventioncode] = $langs->trans($conventionlabelkey);
+}
+
+/**
+ * @var array<string,array{type:string,enabled:int,arrayofkeyval?:array<int|string,string>,default?:string,css?:string}> $arrayofparameters
+ */
 $arrayofparameters = array(
-	'ASSET_ACCOUNTANCY_CATEGORY'=>array('type'=>'accountancy_category', 'enabled'=>1),
-	'ASSET_DEPRECIATION_DURATION_PER_YEAR'=>array('type'=>'string', 'css'=>'minwidth200', 'enabled'=>1),
+	'ASSET_ACCOUNTANCY_CATEGORY' => array('type' => 'accountancy_category', 'enabled' => 1),
+	'ASSET_DEPRECIATION_DAY_COUNT_CONVENTION' => array('type' => 'select', 'arrayofkeyval' => $arrayofdaycountconventions, 'default' => getAssetDepreciationDayCountConvention(), 'css' => 'minwidth300', 'enabled' => 1),
 	//'ASSET_MYPARAM2'=>array('type'=>'textarea','enabled'=>1),
 	//'ASSET_MYPARAM3'=>array('type'=>'category:'.Categorie::TYPE_CUSTOMER, 'enabled'=>1),
 	//'ASSET_MYPARAM4'=>array('type'=>'emailtemplate:thirdparty', 'enabled'=>1),
@@ -58,25 +81,32 @@ $arrayofparameters = array(
 );
 
 $error = 0;
-$setupnotempty = 0;
 
 $dirmodels = array_merge(array('/'), (array) $conf->modules_parts['models']);
+
+$moduledir = 'asset';
+$myTmpObjects = [
+	'asset' => array('label' => 'Asset', 'includerefgeneration' => 1, 'includedocgeneration' => 1, 'class' => 'Asset')
+];
+
+$tmpobjectkey = GETPOST('object', 'aZ09');
+if ($tmpobjectkey && !array_key_exists($tmpobjectkey, $myTmpObjects)) {
+	accessforbidden('Bad value for object. Hack attempt ?');
+}
 
 
 /*
  * Actions
  */
 
-if ((float) DOL_VERSION >= 6) {
-	include DOL_DOCUMENT_ROOT.'/core/actions_setmoduleoptions.inc.php';
-}
+include DOL_DOCUMENT_ROOT.'/core/actions_setmoduleoptions.inc.php';
 
 if ($action == 'updateMask') {
-	$maskconstorder = GETPOST('maskconstorder', 'alpha');
-	$maskorder = GETPOST('maskorder', 'alpha');
+	$maskconst = GETPOST('maskconst', 'alpha');
+	$mask = GETPOST('mask', 'alpha');
 
-	if ($maskconstorder) {
-		$res = dolibarr_set_const($db, $maskconstorder, $maskorder, 'chaine', 0, '', $conf->entity);
+	if ($maskconst && preg_match('/_MASK$/', $maskconst)) {
+		$res = dolibarr_set_const($db, $maskconst, $mask, 'chaine', 0, '', $conf->entity);
 		if (!($res > 0)) {
 			$error++;
 		}
@@ -87,29 +117,30 @@ if ($action == 'updateMask') {
 	} else {
 		setEventMessages($langs->trans("Error"), null, 'errors');
 	}
-} elseif ($action == 'specimen') {
+} elseif ($action == 'specimen' && $tmpobjectkey) {
 	$modele = GETPOST('module', 'alpha');
-	$tmpobjectkey = GETPOST('object');
 
-	$tmpobject = new $tmpobjectkey($db);
+	$className = $myTmpObjects[$tmpobjectkey]['class'];
+	$tmpobject = new $className($db);
 	$tmpobject->initAsSpecimen();
 
 	// Search template files
-	$file = ''; $classname = ''; $filefound = 0;
+	$file = '';
+	$classname = '';
 	$dirmodels = array_merge(array('/'), (array) $conf->modules_parts['models']);
 	foreach ($dirmodels as $reldir) {
 		$file = dol_buildpath($reldir."core/modules/asset/doc/pdf_".$modele."_".strtolower($tmpobjectkey).".modules.php", 0);
 		if (file_exists($file)) {
-			$filefound = 1;
 			$classname = "pdf_".$modele;
 			break;
 		}
 	}
 
-	if ($filefound) {
+	if ($classname !== '') {
 		require_once $file;
 
 		$module = new $classname($db);
+		'@phan-var-force ModelePDFAsset $module';
 
 		if ($module->write_file($tmpobject, $langs) > 0) {
 			header("Location: ".DOL_URL_ROOT."/document.php?modulepart=".strtolower($tmpobjectkey)."&file=SPECIMEN.pdf");
@@ -124,7 +155,6 @@ if ($action == 'updateMask') {
 	}
 } elseif ($action == 'setmod') {
 	// TODO Check if numbering module chosen can be activated by calling method canBeActivated
-	$tmpobjectkey = GETPOST('object');
 	if (!empty($tmpobjectkey)) {
 		$constforval = 'ASSET_'.strtoupper($tmpobjectkey)."_ADDON";
 		dolibarr_set_const($db, $constforval, $value, 'chaine', 0, '', $conf->entity);
@@ -135,17 +165,15 @@ if ($action == 'updateMask') {
 } elseif ($action == 'del') {
 	$ret = delDocumentModel($value, $type);
 	if ($ret > 0) {
-		$tmpobjectkey = GETPOST('object');
 		if (!empty($tmpobjectkey)) {
 			$constforval = 'ASSET_'.strtoupper($tmpobjectkey).'_ADDON_PDF';
-			if ($conf->global->$constforval == "$value") {
+			if (getDolGlobalString($constforval) == "$value") {
 				dolibarr_del_const($db, $constforval, $conf->entity);
 			}
 		}
 	}
 } elseif ($action == 'setdoc') {
 	// Set or unset default model
-	$tmpobjectkey = GETPOST('object');
 	if (!empty($tmpobjectkey)) {
 		$constforval = 'ASSET_'.strtoupper($tmpobjectkey).'_ADDON_PDF';
 		if (dolibarr_set_const($db, $constforval, $value, 'chaine', 0, '', $conf->entity)) {
@@ -161,7 +189,6 @@ if ($action == 'updateMask') {
 		}
 	}
 } elseif ($action == 'unsetdoc') {
-	$tmpobjectkey = GETPOST('object');
 	if (!empty($tmpobjectkey)) {
 		$constforval = 'ASSET_'.strtoupper($tmpobjectkey).'_ADDON_PDF';
 		dolibarr_del_const($db, $constforval, $conf->entity);
@@ -182,7 +209,7 @@ $page_name = "AssetSetup";
 llxHeader('', $langs->trans($page_name), $help_url);
 
 // Subheader
-$linkback = '<a href="'.($backtopage ? $backtopage : DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1').'">'.$langs->trans("BackToModuleList").'</a>';
+$linkback = '<a href="'.($backtopage ? $backtopage : DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1').'">'.img_picto($langs->trans("BackToModuleList"), 'back', 'class="pictofixedwidth"').'<span class="hideonsmartphone">'.$langs->trans("BackToModuleList").'</span></a>';
 
 print load_fiche_titre($langs->trans($page_name), $linkback, 'title_setup');
 
@@ -190,26 +217,12 @@ print load_fiche_titre($langs->trans($page_name), $linkback, 'title_setup');
 $head = assetAdminPrepareHead();
 print dol_get_fiche_head($head, 'settings', $langs->trans($page_name), -1, "asset");
 
-// Setup page goes here
-echo '<span class="opacitymedium">'.$langs->trans("AssetSetupPage").'</span>';
-
-
-$moduledir = 'asset';
-$myTmpObjects = array();
-$myTmpObjects['Asset'] = array('includerefgeneration'=>1, 'includedocgeneration'=>0);
-
-
 foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
-	if ($myTmpObjectKey == 'MyObject') {
-		continue;
-	}
 	if ($myTmpObjectArray['includerefgeneration']) {
 		/*
-		 * Orders Numbering model
+		 * Assets Numbering model
 		 */
-		$setupnotempty++;
-
-		print load_fiche_titre($langs->trans("NumberingModules", $myTmpObjectKey), '', '');
+		print load_fiche_titre($langs->trans("AssetNumberingModules", $myTmpObjectKey), '', '');
 
 		print '<table class="noborder centpercent">';
 		print '<tr class="liste_titre">';
@@ -229,18 +242,19 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 				$handle = opendir($dir);
 				if (is_resource($handle)) {
 					while (($file = readdir($handle)) !== false) {
-						if (strpos($file, 'mod_'.strtolower($myTmpObjectKey).'_') === 0 && substr($file, dol_strlen($file) - 3, 3) == 'php') {
-							$file = substr($file, 0, dol_strlen($file) - 4);
+						if (strpos($file, 'mod_'.strtolower($myTmpObjectKey).'_') === 0 && dol_substr($file, dol_strlen($file) - 3, 3) == 'php') {
+							$file = dol_substr($file, 0, dol_strlen($file) - 4);
 
 							require_once $dir.'/'.$file.'.php';
 
 							$module = new $file($db);
+							'@phan-var-force ModeleNumRefAsset $module';
 
-							// Show modules according to features level
-							if ($module->version == 'development' && $conf->global->MAIN_FEATURES_LEVEL < 2) {
+							// Show modules according to feature level
+							if ($module->version == 'development' && getDolGlobalInt('MAIN_FEATURES_LEVEL') < 2) {
 								continue;
 							}
-							if ($module->version == 'experimental' && $conf->global->MAIN_FEATURES_LEVEL < 1) {
+							if ($module->version == 'experimental' && getDolGlobalInt('MAIN_FEATURES_LEVEL') < 1) {
 								continue;
 							}
 
@@ -248,10 +262,10 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 								dol_include_once('/'.$moduledir.'/class/'.strtolower($myTmpObjectKey).'.class.php');
 
 								print '<tr class="oddeven"><td>'.$module->name."</td><td>\n";
-								print $module->info();
+								print $module->info($langs);
 								print '</td>';
 
-								// Show example of numbering model
+								// Show example of the numbering model
 								print '<td class="nowrap">';
 								$tmp = $module->getExample();
 								if (preg_match('/^Error/', $tmp)) {
@@ -266,7 +280,9 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 
 								print '<td class="center">';
 								$constforvar = 'ASSET_'.strtoupper($myTmpObjectKey).'_ADDON';
-								if (getDolGlobalString($constforvar) == $file) {
+								$defaultifnotset = 'mod_asset_standard';
+								$activenumberingmodel = getDolGlobalString($constforvar, $defaultifnotset);
+								if ($activenumberingmodel == $file) {
 									print img_picto($langs->trans("Activated"), 'switch_on');
 								} else {
 									print '<a href="'.$_SERVER["PHP_SELF"].'?action=setmod&token='.newToken().'&object='.strtolower($myTmpObjectKey).'&value='.urlencode($file).'">';
@@ -275,7 +291,8 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 								}
 								print '</td>';
 
-								$mytmpinstance = new $myTmpObjectKey($db);
+								$className = $myTmpObjectArray['class'];
+								$mytmpinstance = new $className($db);
 								$mytmpinstance->initAsSpecimen();
 
 								// Info
@@ -296,7 +313,7 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 								}
 
 								print '<td class="center">';
-								print $form->textwithpicto('', $htmltooltip, 1, 0);
+								print $form->textwithpicto('', $htmltooltip, 1, 'info');
 								print '</td>';
 
 								print "</tr>\n";
@@ -314,24 +331,26 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 		/*
 		 * Document templates generators
 		 */
-		$setupnotempty++;
 		$type = strtolower($myTmpObjectKey);
 
 		print load_fiche_titre($langs->trans("DocumentModules", $myTmpObjectKey), '', '');
 
 		// Load array def with activated templates
+		// TODO Replace with $def = getListOfModels($db, $type);
 		$def = array();
 		$sql = "SELECT nom";
 		$sql .= " FROM ".MAIN_DB_PREFIX."document_model";
 		$sql .= " WHERE type = '".$db->escape($type)."'";
-		$sql .= " AND entity = ".$conf->entity;
+		$sql .= " AND entity = ".((int) $conf->entity);
 		$resql = $db->query($sql);
 		if ($resql) {
 			$i = 0;
 			$num_rows = $db->num_rows($resql);
 			while ($i < $num_rows) {
 				$array = $db->fetch_array($resql);
-				array_push($def, $array[0]);
+				if (is_array($array)) {
+					array_push($def, $array[0]);
+				}
 				$i++;
 			}
 		} else {
@@ -358,6 +377,7 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 				if (is_dir($dir)) {
 					$handle = opendir($dir);
 					if (is_resource($handle)) {
+						$filelist = array();
 						while (($file = readdir($handle)) !== false) {
 							$filelist[] = $file;
 						}
@@ -367,26 +387,27 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 						foreach ($filelist as $file) {
 							if (preg_match('/\.modules\.php$/i', $file) && preg_match('/^(pdf_|doc_)/', $file)) {
 								if (file_exists($dir.'/'.$file)) {
-									$name = substr($file, 4, dol_strlen($file) - 16);
-									$classname = substr($file, 0, dol_strlen($file) - 12);
+									$name = dol_substr($file, 4, dol_strlen($file) - 16);
+									$classname = dol_substr($file, 0, dol_strlen($file) - 12);
 
 									require_once $dir.'/'.$file;
 									$module = new $classname($db);
+									'@phan-var-force ModelePDFAsset $module';
 
 									$modulequalified = 1;
-									if ($module->version == 'development' && $conf->global->MAIN_FEATURES_LEVEL < 2) {
+									if ($module->version == 'development' && getDolGlobalInt('MAIN_FEATURES_LEVEL') < 2) {
 										$modulequalified = 0;
 									}
-									if ($module->version == 'experimental' && $conf->global->MAIN_FEATURES_LEVEL < 1) {
+									if ($module->version == 'experimental' && getDolGlobalInt('MAIN_FEATURES_LEVEL') < 1) {
 										$modulequalified = 0;
 									}
 
 									if ($modulequalified) {
 										print '<tr class="oddeven"><td width="100">';
-										print (empty($module->name) ? $name : $module->name);
+										print(empty($module->name) ? $name : $module->name);
 										print "</td><td>\n";
 										if (method_exists($module, 'info')) {
-											print $module->info($langs);
+											print $module->info($langs);  // @phan-suppress-current-line PhanUndeclaredMethod
 										} else {
 											print $module->description;
 										}
@@ -430,7 +451,7 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 										$htmltooltip .= '<br>'.$langs->trans("MultiLanguage").': '.yn($module->option_multilang, 1, 1);
 
 										print '<td class="center">';
-										print $form->textwithpicto('', $htmltooltip, 1, 0);
+										print $form->textwithpicto('', $htmltooltip, 1, 'info');
 										print '</td>';
 
 										// Preview
@@ -438,7 +459,7 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 										if ($module->type == 'pdf') {
 											print '<a href="'.$_SERVER["PHP_SELF"].'?action=specimen&module='.$name.'&object='.$myTmpObjectKey.'">'.img_object($langs->trans("Preview"), 'pdf').'</a>';
 										} else {
-											print img_object($langs->trans("PreviewNotAvailable"), 'generic');
+											print img_object($langs->transnoentitiesnoconv("PreviewNotAvailable"), 'generic');
 										}
 										print '</td>';
 
@@ -456,8 +477,11 @@ foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
 	}
 }
 
+print '<br>';
+print load_fiche_titre($langs->trans("OtherOptions"), '', '');
+
 if ($action == 'edit') {
-	print '<form method="POST" action="'.$_SERVER["PHP_SELF"].'">';
+	print '<form method="POST" action="'.dolBuildUrl($_SERVER["PHP_SELF"]).'">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="action" value="update">';
 
@@ -465,23 +489,30 @@ if ($action == 'edit') {
 	print '<tr class="liste_titre"><td class="titlefield">'.$langs->trans("Parameter").'</td><td>'.$langs->trans("Value").'</td></tr>';
 
 	foreach ($arrayofparameters as $constname => $val) {
-		if ($val['enabled']==1) {
-			$setupnotempty++;
+		if ($val['enabled'] == 1) {
 			print '<tr class="oddeven"><td>';
 			$tooltiphelp = (($langs->trans($constname . 'Tooltip') != $constname . 'Tooltip') ? $langs->trans($constname . 'Tooltip') : '');
 			print '<span id="helplink'.$constname.'" class="spanforparamtooltip">'.$form->textwithpicto($langs->trans($constname), $tooltiphelp, 1, 'info', '', 0, 3, 'tootips'.$constname).'</span>';
 			print '</td><td>';
 
-			if ($val['type'] == 'textarea') {
+			if ($val['type'] == 'select') {
+				$selected = getDolGlobalString($constname, isset($val['default']) ? $val['default'] : '');
+				if (!isset($val['arrayofkeyval'][$selected])) {
+					// A value stored outside the list (forged post, deprecated setup) must show the value
+					// really in use, not silently the first entry of the list
+					$selected = isset($val['default']) ? $val['default'] : '';
+				}
+				print $form->selectarray($constname, $val['arrayofkeyval'], $selected, 0, 0, 0, '', 0, 0, 0, '', (empty($val['css']) ? 'minwidth200' : $val['css']));
+			} elseif ($val['type'] == 'textarea') {
 				print '<textarea class="flat" name="'.$constname.'" id="'.$constname.'" cols="50" rows="5" wrap="soft">' . "\n";
-				print $conf->global->{$constname};
+				print getDolGlobalString($constname);
 				print "</textarea>\n";
-			} elseif ($val['type']== 'html') {
+			} elseif ($val['type'] == 'html') {
 				require_once DOL_DOCUMENT_ROOT . '/core/class/doleditor.class.php';
-				$doleditor = new DolEditor($constname, $conf->global->{$constname}, '', 160, 'dolibarr_notes', '', false, false, $conf->fckeditor->enabled, ROWS_5, '90%');
+				$doleditor = new DolEditor($constname, getDolGlobalString($constname), '', 160, 'dolibarr_notes', '', false, false, isModEnabled('fckeditor'), ROWS_5, '90%');
 				$doleditor->Create();
 			} elseif ($val['type'] == 'yesno') {
-				print $form->selectyesno($constname, $conf->global->{$constname}, 1);
+				print $form->selectyesno($constname, getDolGlobalString($constname), 1);
 			} elseif (preg_match('/emailtemplate:/', $val['type'])) {
 				include_once DOL_DOCUMENT_ROOT . '/core/class/html.formmail.class.php';
 				$formmail = new FormMail($db);
@@ -501,7 +532,7 @@ if ($action == 'edit') {
 						$arrayofmessagename[$modelmail->id] = $langs->trans(preg_replace('/\(|\)/', '', $modelmail->label)) . $moreonlabel;
 					}
 				}
-				print $form->selectarray($constname, $arrayofmessagename, $conf->global->{$constname}, 'None', 0, 0, '', 0, 0, 0, '', '', 1);
+				print $form->selectarray($constname, $arrayofmessagename, getDolGlobalString($constname), 'None', 0, 0, '', 0, 0, 0, '', '', 1);
 			} elseif (preg_match('/category:/', $val['type'])) {
 				require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
 				require_once DOL_DOCUMENT_ROOT.'/core/class/html.formother.class.php';
@@ -509,54 +540,43 @@ if ($action == 'edit') {
 
 				$tmp = explode(':', $val['type']);
 				print img_picto('', 'category', 'class="pictofixedwidth"');
-				print $formother->select_categories($tmp[1],  $conf->global->{$constname}, $constname, 0, $langs->trans('CustomersProspectsCategoriesShort'));
+				print $formother->select_categories($tmp[1], getDolGlobalInt($constname), $constname, 0, $langs->trans('CustomersProspectsCategoriesShort'));
 			} elseif (preg_match('/thirdparty_type/', $val['type'])) {
 				require_once DOL_DOCUMENT_ROOT.'/core/class/html.formcompany.class.php';
 				$formcompany = new FormCompany($db);
-				print $formcompany->selectProspectCustomerType($conf->global->{$constname}, $constname);
+				print $formcompany->selectProspectCustomerType(getDolGlobalString($constname), $constname);
 			} elseif ($val['type'] == 'securekey') {
-				print '<input required="required" type="text" class="flat" id="'.$constname.'" name="'.$constname.'" value="'.(GETPOST($constname, 'alpha') ?GETPOST($constname, 'alpha') : $conf->global->{$constname}).'" size="40">';
+				print '<input required="required" type="text" class="flat" id="'.$constname.'" name="'.$constname.'" value="'.(GETPOST($constname, 'alpha') ? GETPOST($constname, 'alpha') : getDolGlobalString($constname)).'" size="40">';
 				if (!empty($conf->use_javascript_ajax)) {
 					print '&nbsp;'.img_picto($langs->trans('Generate'), 'refresh', 'id="generate_token'.$constname.'" class="linkobject"');
 				}
-				if (!empty($conf->use_javascript_ajax)) {
-					print "\n".'<script type="text/javascript">';
-					print '$(document).ready(function () {
-                        $("#generate_token'.$constname.'").click(function() {
-                	        $.get( "'.DOL_URL_ROOT.'/core/ajax/security.php", {
-                		      action: \'getrandompassword\',
-                		      generic: true
-    				        },
-    				        function(token) {
-    					       $("#'.$constname.'").val(token);
-            				});
-                         });
-                    });';
-					print '</script>';
-				}
+
+				// Add button to autosuggest a key
+				include_once DOL_DOCUMENT_ROOT.'/core/lib/security2.lib.php';
+				print dolJSToSetRandomPassword($constname, 'generate_token'.$constname);
 			} elseif ($val['type'] == 'product') {
-				if (!empty($conf->product->enabled) || !empty($conf->service->enabled)) {
-					$selected = (empty($conf->global->$constname) ? '' : $conf->global->$constname);
+				if (isModEnabled("product") || isModEnabled("service")) {
+					$selected = getDolGlobalInt($constname);
 					$form->select_produits($selected, $constname, '', 0);
 				}
 			} elseif ($val['type'] == 'accountancy_code') {
-				$selected = (empty($conf->global->$constname) ? '' : $conf->global->$constname);
-				if (!empty($conf->accounting->enabled)) {
+				$selected = getDolGlobalString($constname);
+				if (isModEnabled('accounting')) {
 					require_once DOL_DOCUMENT_ROOT . '/core/class/html.formaccounting.class.php';
 					$formaccounting = new FormAccounting($db);
-					print $formaccounting->select_account($selected, $constname, 1, null, 1, 1, 'minwidth150 maxwidth300', 1);
+					print $formaccounting->select_account($selected, $constname, 1, array(), 1, 1, 'minwidth150 maxwidth300', '1');
 				} else {
 					print '<input name="' . $constname . '" class="maxwidth200" value="' . dol_escape_htmltag($selected) . '">';
 				}
 			} elseif ($val['type'] == 'accountancy_category') {
-				$selected = (empty($conf->global->$constname) ? '' : $conf->global->$constname);
-				if (!empty($conf->accounting->enabled)) {
+				$selected = getDolGlobalString($constname);
+				if (isModEnabled('accounting')) {
 					print '<input type="text" name="' . $constname . '" list="pcg_type_datalist" value="' . $selected . '">';
 					// autosuggest from existing account types if found
 					print '<datalist id="pcg_type_datalist">';
 					require_once DOL_DOCUMENT_ROOT . '/accountancy/class/accountancysystem.class.php';
 					$accountsystem = new AccountancySystem($db);
-					$accountsystem->fetch($conf->global->CHARTOFACCOUNTS);
+					$accountsystem->fetch(getDolGlobalInt('CHARTOFACCOUNTS'));
 					$sql = 'SELECT DISTINCT pcg_type FROM ' . MAIN_DB_PREFIX . 'accounting_account';
 					$sql .= " WHERE fk_pcg_version = '" . $db->escape($accountsystem->ref) . "'";
 					$sql .= ' AND entity in ('.getEntity('accounting_account', 0).')';		// Always limit to current entity. No sharing in accountancy.
@@ -572,7 +592,7 @@ if ($action == 'edit') {
 					print '<input name="' . $constname . '" class="maxwidth200" value="' . dol_escape_htmltag($selected) . '">';
 				}
 			} else {
-				print '<input name="'.$constname.'"  class="flat '.(empty($val['css']) ? 'minwidth200' : $val['css']).'" value="'.$conf->global->{$constname}.'">';
+				print '<input name="'.$constname.'"  class="flat '.(empty($val['css']) ? 'minwidth200' : $val['css']).'" value="'.getDolGlobalString($constname).'">';
 			}
 			print '</td></tr>';
 		}
@@ -588,20 +608,22 @@ if ($action == 'edit') {
 } else {
 	if (!empty($arrayofparameters)) {
 		print '<table class="noborder centpercent">';
-		print '<tr class="liste_titre"><td class="titlefield">'.$langs->trans("Parameter").'</td><td>'.$langs->trans("Value").'</td></tr>';
+		print '<tr class="liste_titre"><td class="titlefield">'.$langs->trans("Parameter").'</td><td></td></tr>';
 
 		foreach ($arrayofparameters as $constname => $val) {
-			if ($val['enabled']==1) {
-				$setupnotempty++;
+			if ($val['enabled'] == 1) {
 				print '<tr class="oddeven"><td>';
 				$tooltiphelp = (($langs->trans($constname . 'Tooltip') != $constname . 'Tooltip') ? $langs->trans($constname . 'Tooltip') : '');
 				print $form->textwithpicto($langs->trans($constname), $tooltiphelp);
 				print '</td><td>';
 
-				if ($val['type'] == 'textarea') {
-					print dol_nl2br($conf->global->{$constname});
-				} elseif ($val['type']== 'html') {
-					print  $conf->global->{$constname};
+				if ($val['type'] == 'select') {
+					$selected = getDolGlobalString($constname, isset($val['default']) ? $val['default'] : '');
+					print isset($val['arrayofkeyval'][$selected]) ? $val['arrayofkeyval'][$selected] : dol_escape_htmltag($selected);
+				} elseif ($val['type'] == 'textarea') {
+					print dol_nl2br(getDolGlobalString($constname));
+				} elseif ($val['type'] == 'html') {
+					print getDolGlobalString($constname);
 				} elseif ($val['type'] == 'yesno') {
 					print ajax_constantonoff($constname);
 				} elseif (preg_match('/emailtemplate:/', $val['type'])) {
@@ -610,18 +632,18 @@ if ($action == 'edit') {
 
 					$tmp = explode(':', $val['type']);
 
-					$template = $formmail->getEMailTemplate($db, $tmp[1], $user, $langs, $conf->global->{$constname});
-					if ($template<0) {
+					$template = $formmail->getEMailTemplate($db, $tmp[1], $user, $langs, getDolGlobalInt($constname));
+					if ($template < 0) {
 						setEventMessages(null, $formmail->errors, 'errors');
 					}
 					print $langs->trans($template->label);
 				} elseif (preg_match('/category:/', $val['type'])) {
 					$c = new Categorie($db);
-					$result = $c->fetch($conf->global->{$constname});
+					$result = $c->fetch(getDolGlobalInt($constname));
 					if ($result < 0) {
 						setEventMessages(null, $c->errors, 'errors');
-					} elseif ($result > 0 ) {
-						$ways = $c->print_all_ways(' &gt;&gt; ', 'none', 0, 1); // $ways[0] = "ccc2 >> ccc2a >> ccc2a1" with html formated text
+					} elseif ($result > 0) {
+						$ways = $c->print_all_ways('auto', 'none', 0, 1); // $ways[0] = "ccc2 >> ccc2a >> ccc2a1" with html formatted text
 						$toprint = array();
 						foreach ($ways as $way) {
 							$toprint[] = '<li class="select2-search-choice-dolibarr noborderoncategories"' . ($c->color ? ' style="background: #' . $c->color . ';"' : ' style="background: #bbb"') . '>' . $way . '</li>';
@@ -629,35 +651,35 @@ if ($action == 'edit') {
 						print '<div class="select2-container-multi-dolibarr" style="width: 90%;"><ul class="select2-choices-dolibarr">' . implode(' ', $toprint) . '</ul></div>';
 					}
 				} elseif (preg_match('/thirdparty_type/', $val['type'])) {
-					if ($conf->global->{$constname}==2) {
+					if (getDolGlobalInt($constname) == 2) {
 						print $langs->trans("Prospect");
-					} elseif ($conf->global->{$constname}==3) {
+					} elseif (getDolGlobalInt($constname) == 3) {
 						print $langs->trans("ProspectCustomer");
-					} elseif ($conf->global->{$constname}==1) {
+					} elseif (getDolGlobalInt($constname) == 1) {
 						print $langs->trans("Customer");
-					} elseif ($conf->global->{$constname}==0) {
+					} elseif (getDolGlobalInt($constname) == 0) {
 						print $langs->trans("NorProspectNorCustomer");
 					}
 				} elseif ($val['type'] == 'product') {
 					$product = new Product($db);
-					$resprod = $product->fetch($conf->global->{$constname});
+					$resprod = $product->fetch(getDolGlobalInt($constname));
 					if ($resprod > 0) {
 						print $product->ref;
 					} elseif ($resprod < 0) {
-						setEventMessages(null, $object->errors, "errors");
+						setEventMessages(null, $product->errors, "errors");
 					}
 				} elseif ($val['type'] == 'accountancy_code') {
-					if (!empty($conf->accounting->enabled)) {
+					if (isModEnabled('accounting')) {
 						require_once DOL_DOCUMENT_ROOT . '/accountancy/class/accountingaccount.class.php';
 						$accountingaccount = new AccountingAccount($db);
-						$accountingaccount->fetch('', $conf->global->{$constname}, 1);
+						$accountingaccount->fetch(0, getDolGlobalString($constname), 1);
 
 						print $accountingaccount->getNomUrl(0, 1, 1, '', 1);
 					} else {
-						print $conf->global->{$constname};
+						print getDolGlobalString($constname);
 					}
 				} else {
-					print $conf->global->{$constname};
+					print getDolGlobalString($constname);
 				}
 				print '</td></tr>';
 			}
@@ -673,9 +695,6 @@ if ($action == 'edit') {
 	}
 }
 
-if (empty($setupnotempty)) {
-	print '<br>'.$langs->trans("NothingToSetup");
-}
 
 // Page end
 print dol_get_fiche_end();

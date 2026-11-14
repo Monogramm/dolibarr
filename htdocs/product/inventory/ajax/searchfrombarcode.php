@@ -1,5 +1,7 @@
 <?php
-
+/* Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
+ */
 /*
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,30 +37,48 @@ if (!defined('NOREQUIREAJAX')) {
 if (!defined('NOREQUIRESOC')) {
 	define('NOREQUIRESOC', '1');
 }
-if (!defined('NOCSRFCHECK')) {
-	define('NOCSRFCHECK', '1');
-}
 require '../../../main.inc.php';
 require_once DOL_DOCUMENT_ROOT."/product/stock/class/entrepot.class.php";
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
+
 $warehouse = new Entrepot($db);
 
 $action = GETPOST("action", "alpha");
-$barcode = GETPOST("barcode", "aZ09");
+$barcode = GETPOST("barcode", "alphanohtml"); // Lot/serial number may contain chars like '/' so we must not use aZ09 sanitizing here. Value is escaped before SQL use.
 $product = GETPOST("product");
 $response = "";
 
-$fk_entrepot = GETPOST("fk_entrepot", "int");
-$fk_inventory = GETPOST("fk_inventory", "int");
-$fk_product = GETPOST("fk_product", "int");
-$reelqty = GETPOST("reelqty", "int");
-$batch = GETPOST("batch", "int");
+$fk_entrepot = GETPOSTINT("fk_entrepot");
+$fk_inventory = GETPOSTINT("fk_inventory");
+$fk_product = GETPOSTINT("fk_product");
+$reelqty = GETPOSTINT("reelqty");
+$batch = GETPOST("batch", "alphanohtml"); // Lot/serial number may contain chars like '/' so we must not use aZ09 sanitizing here. Value is escaped before SQL use.
 $mode = GETPOST("mode", "aZ");
 
 $warehousefound = 0;
 $warehouseid = 0;
 $objectreturn = array();
 
-if ($action == "existbarcode" && !empty($barcode)) {
+/*
+ * Action
+ */
+
+// None
+
+
+/*
+ * View
+ */
+
+top_httphead('application/json');
+
+if ($action == "existbarcode" && !empty($barcode) && $user->hasRight('stock', 'lire')) {
 	if (!empty($mode) && $mode == "lotserial") {
 		$sql = "SELECT ps.fk_entrepot, ps.fk_product, p.barcode, ps.reel, pb.batch";
 		$sql .= " FROM ".MAIN_DB_PREFIX."product_batch as pb";
@@ -70,15 +90,15 @@ if ($action == "existbarcode" && !empty($barcode)) {
 		$sql .= " WHERE p.barcode = '".$db->escape($barcode)."'";
 	}
 	if (!empty($fk_entrepot)) {
-		$sql .= " AND ps.fk_entrepot = '".$db->escape($fk_entrepot)."'";
+		$sql .= " AND ps.fk_entrepot = ".((int) ($fk_entrepot));
 	}
 	if (!empty($fk_product)) {
-		$sql .= " AND ps.fk_product = '".$db->escape($fk_product)."'";
+		$sql .= " AND ps.fk_product = ".((int) ($fk_product));
 	}
 	$result = $db->query($sql);
 	if ($result) {
 		$nbline = $db->num_rows($result);
-		for ($i=0; $i < $nbline; $i++) {
+		for ($i = 0; $i < $nbline; $i++) {
 			$object = $db->fetch_object($result);
 			if (($mode == "barcode" && $barcode == $object->barcode) || ($mode == "lotserial" && $barcode == $object->batch)) {
 				$warehouse->fetch(0, $product["Warehouse"]);
@@ -88,25 +108,25 @@ if ($action == "existbarcode" && !empty($barcode)) {
 					$fk_product = $object->fk_product;
 					$reelqty = $object->reel;
 
-					$objectreturn = array('fk_warehouse'=>$warehouseid,'fk_product'=>$fk_product,'reelqty'=>$reelqty);
+					$objectreturn = array('fk_warehouse' => $warehouseid,'fk_product' => $fk_product,'reelqty' => $reelqty);
 				}
 			}
 		}
 		if ($warehousefound < 1) {
-			$response = array('status'=>'error','errorcode'=>'NotFound','message'=>'No warehouse found for barcode'.$barcode);
+			$response = array('status' => 'error','errorcode' => 'NotFound','message' => 'No warehouse found for barcode'.$barcode);
 		} elseif ($warehousefound > 1) {
-			$response = array('status'=>'error','errorcode'=>'TooManyWarehouse','message'=>'Too many warehouse found');
+			$response = array('status' => 'error','errorcode' => 'TooManyWarehouse','message' => 'Too many warehouse found');
 		} else {
-			$response = array('status'=>'success','message'=>'Warehouse found','object'=>$objectreturn);
+			$response = array('status' => 'success','message' => 'Warehouse found','object' => $objectreturn);
 		}
 	} else {
-		$response = array('status'=>'error','errorcode'=>'NotFound','message'=>"No results found for barcode");
+		$response = array('status' => 'error','errorcode' => 'NotFound','message' => "No results found for barcode");
 	}
 } else {
-	$response = array('status'=>'error','errorcode'=>'ActionError','message'=>"Error on action");
+	$response = array('status' => 'error','errorcode' => 'ActionError','message' => "Error on action");
 }
 
-if ($action == "addnewlineproduct") {
+if ($action == "addnewlineproduct" && $user->hasRight('stock', 'creer')) {
 	require_once DOL_DOCUMENT_ROOT."/product/inventory/class/inventory.class.php";
 	$inventoryline = new InventoryLine($db);
 	if (!empty($fk_inventory)) {
@@ -115,19 +135,37 @@ if ($action == "addnewlineproduct") {
 		$inventoryline->fk_warehouse = $fk_entrepot;
 		$inventoryline->fk_product = $fk_product;
 		$inventoryline->qty_stock = $reelqty;
-		if (!empty($batch)) {
-			$inventoryline->batch = $batch;
-		}
+		// Use '' and not NULL when there is no lot: NULL escapes the unique key, so a duplicate line would be created
+		$inventoryline->batch = (string) $batch;
 		$inventoryline->datec = dol_now();
 
-		$result = $inventoryline->create($user);
+		// Same checks on lot as when a line is added from the inventory page
+		require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
+		$langs->load("errors");
+		$errorcode = '';
+		$tmpproduct = new Product($db);
+		if (isModEnabled('productbatch') && $tmpproduct->fetch($fk_product) > 0) {
+			if ($tmpproduct->status_batch > 0 && $inventoryline->batch === '') {
+				$errorcode = 'ErrorProductNeedBatchNumber';	// The stock movement of a line without lot would be refused when recording
+			} elseif (empty($tmpproduct->status_batch) && $inventoryline->batch !== '') {
+				$errorcode = 'ErrorProductDoesNotNeedBatchNumber';
+			}
+		}
+
+		$result = (empty($errorcode) ? $inventoryline->create($user) : -1);
+		if ($result < 0 && empty($errorcode) && $db->lasterrno() == 'DB_ERROR_RECORD_ALREADY_EXISTS') {
+			$errorcode = 'ErrorRecordAlreadyExists';
+		}
 		if ($result > 0) {
-			$response = array('status'=>'success','message'=>'Success on creating line','id_line'=>$result);
+			$response = array('status' => 'success','message' => 'Success on creating line','id_line' => $result);
 		} else {
-			$response = array('status'=>'error','errorcode'=>'ErrorCreation','message'=>"Error on line creation");
+			$response = array('status' => 'error','errorcode' => 'ErrorCreation','message' => "Error on line creation");
+		}
+		if (!empty($errorcode)) {
+			$response = array('status' => 'error', 'errorcode' => $errorcode, 'message' => $langs->transnoentitiesnoconv($errorcode, $tmpproduct->ref));
 		}
 	} else {
-		$response = array('status'=>'error','errorcode'=>'NoIdForInventory','message'=>"No id for inventory");
+		$response = array('status' => 'error','errorcode' => 'NoIdForInventory','message' => "No id for inventory");
 	}
 }
 

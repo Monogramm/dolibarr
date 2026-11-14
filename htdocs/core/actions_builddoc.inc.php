@@ -1,5 +1,6 @@
 <?php
 /* Copyright (C) 2015 Laurent Destailleur  <eldy@users.sourceforge.net>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,23 +30,48 @@
 // $upload_dir must be defined (example $conf->project->dir_output . "/";)
 // $hidedetails, $hidedesc, $hideref and $moreparams may have been set or not.
 
+/**
+ * @var Conf $conf
+ * @var Translate $langs
+ * @var User $user
+ * @var CommonObject|Societe $object
+ *
+ * @var string $action
+ * @var int $id
+ * @var ?int $permissioncreate
+ * @var ?int $usercangeneratedoc
+ * @var int $permissiontoadd
+ * @var string $upload_dir
+ * @var int $donotredirect
+ *
+ * @var ?int $hidedetails
+ * @var ?int $hidedesc
+ * @var ?int $hideref
+ * @var ?array<string,mixed> $moreparams
+ */
+'
+@phan-var-force int $id
+@phan-var-force int $permissiontoadd
+@phan-var-force ?int $hidedetails
+@phan-var-force ?int $hidedesc
+@phan-var-force ?int $hideref
+@phan-var-force ?array<string,mixed> $moreparams
+@phan-var-force CommonObject|Societe $object
+@phan-var-force int $id
+';
+
 if (!empty($permissioncreate) && empty($permissiontoadd)) {
 	$permissiontoadd = $permissioncreate; // For backward compatibility
 }
 
 // Build doc
-if ($action == 'builddoc' && $permissiontoadd) {
+if ($action == 'builddoc' && ($permissiontoadd || !empty($usercangeneratedoc))) {
 	if (is_numeric(GETPOST('model', 'alpha'))) {
-		$error = $langs->trans("ErrorFieldRequired", $langs->transnoentities("Model"));
+		setEventMessages($langs->trans("ErrorFieldRequired", $langs->transnoentities("Model")), null, 'errors');
 	} else {
 		// Reload to get all modified line records and be ready for hooks
 		$ret = $object->fetch($id);
 		$ret = $object->fetch_thirdparty();
-		/*if (empty($object->id) || ! $object->id > 0)
-		{
-			dol_print_error('Object must have been loaded by a fetch');
-			exit;
-		}*/
 
 		// Save last template used to generate document
 		if (GETPOST('model', 'alpha')) {
@@ -53,26 +79,23 @@ if ($action == 'builddoc' && $permissiontoadd) {
 		}
 
 		// Special case to force bank account
-		//if (property_exists($object, 'fk_bank'))
-		//{
-		if (GETPOST('fk_bank', 'int')) {
+		if (GETPOSTINT('fk_bank')) {
 			// this field may come from an external module
-			$object->fk_bank = GETPOST('fk_bank', 'int');
+			$object->fk_bank = GETPOSTINT('fk_bank');	// For compatibility
+			$object->fk_account = GETPOSTINT('fk_bank');
 		} elseif (!empty($object->fk_account)) {
-			$object->fk_bank = $object->fk_account;
+			$object->fk_bank = $object->fk_account;		// For compatibility
 		}
-		//}
 
 		$outputlangs = $langs;
 		$newlang = '';
-
-		if (!empty($conf->global->MAIN_MULTILANGS) && empty($newlang) && GETPOST('lang_id', 'aZ09')) {
+		if (getDolGlobalInt('MAIN_MULTILANGS') /* && empty($newlang) */ && GETPOST('lang_id', 'aZ09')) {
 			$newlang = GETPOST('lang_id', 'aZ09');
 		}
-		if (!empty($conf->global->MAIN_MULTILANGS) && empty($newlang) && isset($object->thirdparty->default_lang)) {
+		if (getDolGlobalInt('MAIN_MULTILANGS') && empty($newlang) && isset($object->thirdparty->default_lang)) {
 			$newlang = $object->thirdparty->default_lang; // for proposal, order, invoice, ...
 		}
-		if (!empty($conf->global->MAIN_MULTILANGS) && empty($newlang) && isset($object->default_lang)) {
+		if (getDolGlobalInt('MAIN_MULTILANGS') && property_exists($object, 'default_lang') && empty($newlang) && isset($object->default_lang)) {
 			$newlang = $object->default_lang; // for thirdparty
 		}
 		if (!empty($newlang)) {
@@ -81,22 +104,23 @@ if ($action == 'builddoc' && $permissiontoadd) {
 		}
 
 		// To be sure vars is defined
-		if (empty($hidedetails)) {
-			$hidedetails = 0;
-		}
-		if (empty($hidedesc)) {
-			$hidedesc = 0;
-		}
-		if (empty($hideref)) {
-			$hideref = 0;
-		}
-		if (empty($moreparams)) {
-			$moreparams = null;
+		$hidedetails = isset($hidedetails) ? $hidedetails : (getDolGlobalString('MAIN_GENERATE_DOCUMENTS_HIDE_DETAILS') ? 1 : 0);  // @phan-suppress-current-line PhanPluginUndeclaredVariableIsset
+		$hidedesc = isset($hidedesc) ? $hidedesc : (getDolGlobalString('MAIN_GENERATE_DOCUMENTS_HIDE_DESC') ? 1 : 0);  // @phan-suppress-current-line PhanPluginUndeclaredVariableIsset
+		$hideref = isset($hideref) ? $hideref : (getDolGlobalString('MAIN_GENERATE_DOCUMENTS_HIDE_REF') ? 1 : 0);  // @phan-suppress-current-line PhanPluginUndeclaredVariableIsset
+		$moreparams = isset($moreparams) ? $moreparams : null;
+		// Choice made on the generation form to append or not the terms of sale file
+		if (GETPOSTISSET('addtermsofsale_shown')) {
+			if (!is_array($moreparams)) {
+				$moreparams = array();
+			}
+			$moreparams['addtermsofsale'] = (GETPOSTINT('addtermsofsale') ? 1 : 0);
 		}
 
 		$result = $object->generateDocument($object->model_pdf, $outputlangs, $hidedetails, $hidedesc, $hideref, $moreparams);
+
 		if ($result <= 0) {
 			setEventMessages($object->error, $object->errors, 'errors');
+			setEventMessages($object->warning, $object->warnings, 'warnings');
 			$action = '';
 		} else {
 			if (empty($donotredirect)) {	// This is set when include is done by bulk action "Bill Orders"
@@ -127,12 +151,12 @@ if ($action == 'remove_file' && $permissiontoadd) {
 		$langs->load("other");
 		$filetodelete = GETPOST('file', 'alpha');
 		$file = $upload_dir.'/'.$filetodelete;
-		$dirthumb = dirname($file).'/thumbs/'; // Chemin du dossier contenant la vignette (if file is an image)
-		$ret = dol_delete_file($file, 0, 0, 0, $object);
+		$dirthumb = dirname($file).'/thumbs/'; // Path to the folder containing the thumbnail (if file is an image)
+		$ret = dol_delete_file($file, 1, 0, 0, $object);
 		if ($ret) {
 			// If it exists, remove thumb.
 			$regs = array();
-			if (preg_match('/(\.jpg|\.jpeg|\.bmp|\.gif|\.png|\.tiff)$/i', $file, $regs)) {
+			if (preg_match('/(\.jpg|\.jpeg|\.bmp|\.gif|\.png|\.tiff|\.webp|\.xpm|\.xbm|\.avif)$/i', $file, $regs)) {
 				$photo_vignette = basename(preg_replace('/'.$regs[0].'/i', '', $file).'_small'.$regs[0]);
 				if (file_exists(dol_osencode($dirthumb.$photo_vignette))) {
 					dol_delete_file($dirthumb.$photo_vignette);
@@ -146,6 +170,7 @@ if ($action == 'remove_file' && $permissiontoadd) {
 
 			setEventMessages($langs->trans("FileWasRemoved", $filetodelete), null, 'mesgs');
 		} else {
+			$langs->load("errors");
 			setEventMessages($langs->trans("ErrorFailToDeleteFile", $filetodelete), null, 'errors');
 		}
 

@@ -1,10 +1,13 @@
 <?php
-/* Copyright (C) 2006-2016	Laurent Destailleur	<eldy@users.sourceforge.net>
- * Copyright (C) 2012		Regis Houssin		<regis.houssin@inodbox.com>
- * Copyright (C) 2015		Alexandre Spangaro	<aspangaro@open-dsi.fr>
- * Copyright (C) 2016		Juanjo Menent   	<jmenent@2byte.es>
- * Copyright (C) 2019	   Nicolas ZABOURI     <info@inovea-conseil.com>
- * Copyright (C) 2021		Ferran Marcet		<fmarcet@2byte.es>
+/* Copyright (C) 2006-2016  Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2012       Regis Houssin           <regis.houssin@inodbox.com>
+ * Copyright (C) 2015       Alexandre Spangaro      <alexandre@inovea-conseil.com>
+ * Copyright (C) 2016       Juanjo Menent           <jmenent@2byte.es>
+ * Copyright (C) 2019       Nicolas ZABOURI         <info@inovea-conseil.com>
+ * Copyright (C) 2021       Ferran Marcet           <fmarcet@2byte.es>
+ * Copyright (C) 2024       MDW                     <mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2026       Solution Libre SAS      <contact@solution-libre.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,50 +27,81 @@
 /**
  * \file       htdocs/core/lib/bank.lib.php
  * \ingroup    bank
- * \brief      Ensemble de fonctions de base pour le module banque
+ * \brief      Ensemble de functions de base pour le module banque
  */
+
 
 /**
  * Prepare array with list of tabs
  *
  * @param   Account	$object		Object related to tabs
- * @return  array				Array of tabs to show
+ * @return  array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function bank_prepare_head(Account $object)
 {
 	global $db, $langs, $conf, $user;
+
 	$h = 0;
 	$head = array();
 
-	$head[$h][0] = DOL_URL_ROOT.'/compta/bank/card.php?id='.$object->id;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/card.php', ['id' => $object->id]);
 	$head[$h][1] = $langs->trans("BankAccount");
 	$head[$h][2] = 'bankname';
 	$h++;
 
-	$head[$h][0] = DOL_URL_ROOT."/compta/bank/bankentries_list.php?id=".$object->id;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/bankentries_list.php', ['id' => $object->id]);
 	$head[$h][1] = $langs->trans("BankTransactions");
 	$head[$h][2] = 'journal';
 	$h++;
 
-	//    if ($conf->global->MAIN_FEATURES_LEVEL >= 1)
-	//    {
-	$head[$h][0] = DOL_URL_ROOT."/compta/bank/treso.php?account=".$object->id;
-	$head[$h][1] = $langs->trans("PlannedTransactions");
-	$head[$h][2] = 'cash';
-	$h++;
-	//    }
+	if ($object->canBeConciliated() > 0) {
+		$allowautomaticconciliation = getDolGlobalBool('MAIN_ALLOW_AUTOMATIC_CONCILIATION'); // TODO
+		$titletoconciliatemanual = $langs->trans("Conciliate");
+		$titletoconciliateauto = $langs->trans("Conciliate");
+		if ($allowautomaticconciliation) {
+			$titletoconciliatemanual .= ' ('.$langs->trans("Manual").')';
+			$titletoconciliateauto .= ' ('.$langs->trans("Auto").')';
+		}
 
-	$head[$h][0] = DOL_URL_ROOT."/compta/bank/annuel.php?account=".$object->id;
-	$head[$h][1] = $langs->trans("IOMonthlyReporting");
-	$head[$h][2] = 'annual';
-	$h++;
+		$param = '';
 
-	$head[$h][0] = DOL_URL_ROOT."/compta/bank/graph.php?account=".$object->id;
-	$head[$h][1] = $langs->trans("Graph");
-	$head[$h][2] = 'graph';
-	$h++;
+		// If not cash account and can be reconciliate
+		if ($user->hasRight('banque', 'consolidate')) {
+			$query = [
+				'id' => $object->id,
+				'action' => 'reconcile',
+				'sortfield' => 'b.datev,b.dateo,b.rowid',
+				'sortorder' => 'asc,asc,asc',
+				'search_conciliated' => 0,
+				'search_account' => $object->id,
+			];
+			$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/bankentries_list.php', $query).$param;
+			$head[$h][1] = $titletoconciliatemanual;
+			$head[$h][2] = 'reconcile';
+			$h++;
+		}/* else {
+			$buttonreconcile = '<a class="butActionRefused classfortooltip" title="'.$langs->trans("NotEnoughPermissions").'" href="#">'.$titletoconciliatemanual.'</a>';
+		}*/
 
-	if ($object->courant != Account::TYPE_CASH || !empty($conf->global->BANK_CAN_RECONCILIATE_CASHACCOUNT)) {
+		if ($allowautomaticconciliation) {
+			// If not cash account and can be reconciliate
+			if ($user->hasRight('banque', 'consolidate')) {
+				$newparam = $param;
+				$newparam = preg_replace('/search_conciliated=\d+/i', '', $newparam);
+
+				$head[$h][0] = DOL_URL_ROOT."/compta/bank/bankentries_list.php?id=".$object->id.'&action=reconcile&sortfield=b.datev,b.dateo,b.rowid&sortorder=asc,asc,asc&search_conciliated=0&search_account='.$object->id.$newparam;
+				$head[$h][1] = $titletoconciliateauto;
+				$head[$h][2] = 'reconcileauto';
+				$h++;
+
+				//$buttonreconcile .= ' <a class="butAction" style="margin-bottom: 5px !important; margin-top: 5px !important" href="'.DOL_URL_ROOT.'/compta/bank/bankentries_list.php?action=reconcile&sortfield=b.datev,b.dateo,b.rowid&sortorder=asc,asc,asc&search_conciliated=0'.$newparam.'">'.$titletoconciliateauto.'</a>';
+			}/* else {
+				$buttonreconcile .= ' <a class="butActionRefused" style="margin-bottom: 5px !important; margin-top: 5px !important" title="'.$langs->trans("NotEnoughPermissions").'" href="#">'.$titletoconciliateauto.'</a>';
+			}*/
+		}
+	}
+
+	if ($object->type != Account::TYPE_CASH || getDolGlobalString('BANK_CAN_RECONCILIATE_CASHACCOUNT')) {
 		$nbReceipts = 0;
 
 		// List of all standing receipts
@@ -84,7 +118,7 @@ function bank_prepare_head(Account $object)
 			$db->free($resql);
 		}
 
-		$head[$h][0] = DOL_URL_ROOT."/compta/bank/releve.php?account=".((int) $object->id);
+		$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/releve.php', ['account' => $object->id]);
 		$head[$h][1] = $langs->trans("AccountStatements");
 		if (($nbReceipts) > 0) {
 			$head[$h][1] .= '<span class="badge marginleftonlyshort">'.($nbReceipts).'</span>';
@@ -99,12 +133,22 @@ function bank_prepare_head(Account $object)
 	$upload_dir = $conf->bank->dir_output."/".dol_sanitizeFileName($object->ref);
 	$nbFiles = count(dol_dir_list($upload_dir, 'files', 0, '', '(\.meta|_preview.*\.png)$'));
 	$nbLinks = Link::count($db, $object->element, $object->id);
-	$head[$h][0] = DOL_URL_ROOT."/compta/bank/document.php?account=".$object->id;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/document.php', ['account' => $object->id]);
 	$head[$h][1] = $langs->trans("Documents");
 	if (($nbFiles + $nbLinks) > 0) {
 		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.($nbFiles + $nbLinks).'</span>';
 	}
 	$head[$h][2] = 'document';
+	$h++;
+
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/annuel.php', ['account' => $object->id]);
+	$head[$h][1] = $langs->trans("Reports");
+	$head[$h][2] = 'annual';
+	$h++;
+
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/treso.php', ['account' => $object->id]);
+	$head[$h][1] = $langs->trans("PlannedTransactions");
+	$head[$h][2] = 'cash';
 	$h++;
 
 	// Show more tabs from modules
@@ -122,24 +166,58 @@ function bank_prepare_head(Account $object)
 
 	return $head;
 }
+
 /**
- * Prepare array with list of tabs
+ * Prepare array with list of tabs for bank report
  *
- * @param   Object	$object		Object related to tabs
- * @return  array				Array of tabs to shoc
+ * @param   Account	$object		Object related to tabs
+ * @return  array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
-function bank_admin_prepare_head($object)
+function bank_report_prepare_head(Account $object)
 {
-	global $langs, $conf, $user;
+	global $db, $langs, $conf, $user;
+
 	$h = 0;
 	$head = array();
 
-	$head[$h][0] = DOL_URL_ROOT.'/admin/bank.php';
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/annuel.php', ['account' => $object->id]);
+	$head[$h][1] = $langs->trans("IOMonthlyReporting");
+	$head[$h][2] = 'annual';
+	$h++;
+
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/graph.php', ['account' => $object->id]);
+	$head[$h][1] = $langs->trans("Graph");
+	$head[$h][2] = 'graph';
+	$h++;
+
+	return $head;
+}
+/**
+ * Prepare array with list of tabs
+ *
+ * @param   ?CommonObject	$object						Object related to tabs
+ * @return  array<array{0:string,1:string,2:string}>	Array of tabs to show
+ */
+function bank_admin_prepare_head($object = null)
+{
+	global $langs, $conf, $extrafields;
+
+	$langs->loadLangs(array("compta"));
+
+	$extrafields->fetch_name_optionals_label('bank_account');
+	$extrafields->fetch_name_optionals_label('bank');
+	$extrafields->fetch_name_optionals_label('paiement');
+	$extrafields->fetch_name_optionals_label('payment_various');
+
+	$h = 0;
+	$head = array();
+
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/admin/bank.php');
 	$head[$h][1] = $langs->trans("Miscellaneous");
 	$head[$h][2] = 'general';
 	$h++;
 
-	$head[$h][0] = DOL_URL_ROOT.'/admin/chequereceipts.php';
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/admin/chequereceipts.php');
 	$head[$h][1] = $langs->trans("CheckReceiptShort");
 	$head[$h][2] = 'checkreceipts';
 	$h++;
@@ -151,13 +229,43 @@ function bank_admin_prepare_head($object)
 	// $this->tabs = array('entity:-tabname);   												to remove a tab
 	complete_head_from_modules($conf, $langs, $object, $head, $h, 'bank_admin');
 
-	$head[$h][0] = DOL_URL_ROOT.'/admin/bank_extrafields.php';
-	$head[$h][1] = $langs->trans("ExtraFields");
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/admin/extrafields.php', array('elementtype' => 'bank_account'));
+	$head[$h][1] = $langs->trans("ExtraFields").' ('.$langs->trans("BankAccounts").')';
+	$nbExtrafields = $extrafields->attributes['bank_account']['count'];
+	if ($nbExtrafields > 0) {
+		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.$nbExtrafields.'</span>';
+	}
 	$head[$h][2] = 'attributes';
 	$h++;
 
-	complete_head_from_modules($conf, $langs, $object, $head, $h, 'bank_admin', 'remove');
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/admin/extrafields.php', array('elementtype' => 'bank'));
+	$head[$h][1] = $langs->trans("ExtraFields").' ('.$langs->trans("BankTransactions").')';
+	$nbExtrafields = $extrafields->attributes['bank']['count'];
+	if ($nbExtrafields > 0) {
+		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.$nbExtrafields.'</span>';
+	}
+	$head[$h][2] = 'bankline_extrafields';
+	$h++;
 
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/admin/extrafields.php', array('elementtype' => 'paiement'));
+	$head[$h][1] = $langs->trans("ExtraFields").' ('.$langs->trans("Payments").')';
+	$nbExtrafields = $extrafields->attributes['paiement']['count'];
+	if ($nbExtrafields > 0) {
+		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.$nbExtrafields.'</span>';
+	}
+	$head[$h][2] = 'bank_payments_extrafields';
+	$h++;
+
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/admin/extrafields.php', array('elementtype' => 'payment_various'));
+	$head[$h][1] = $langs->trans("ExtraFields").' ('.$langs->trans("VariousPayments").')';
+	$nbExtrafields = $extrafields->attributes['payment_various']['count'];
+	if ($nbExtrafields > 0) {
+		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.$nbExtrafields.'</span>';
+	}
+	$head[$h][2] = 'bank_various_payment_extrafields';
+	$h++;
+
+	complete_head_from_modules($conf, $langs, $object, $head, $h, 'bank_admin', 'remove');
 
 	return $head;
 }
@@ -166,17 +274,17 @@ function bank_admin_prepare_head($object)
 /**
  * Prepare array with list of tabs
  *
- * @param   Object	$object		Object related to tabs
- * @param   Object	$num		val to account statement
- * @return  array				Array of tabs to shoc
+ * @param   CommonObject					$object		Object related to tabs
+ * @param   string							$num		val to account statement
+ * @return  array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function account_statement_prepare_head($object, $num)
 {
-	global $langs, $conf, $user, $db;
+	global $langs, $conf, $db;
 	$h = 0;
 	$head = array();
 
-	$head[$h][0] = DOL_URL_ROOT.'/compta/bank/releve.php?account='.$object->id.'&num='.$num;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/releve.php', ['account' => $object->id, 'num' => $num]);
 	$head[$h][1] = $langs->trans("AccountStatement");
 	$head[$h][2] = 'statement';
 	$h++;
@@ -188,7 +296,7 @@ function account_statement_prepare_head($object, $num)
 	$nbFiles = count(dol_dir_list($upload_dir, 'files', 0, '', '(\.meta|_preview.*\.png)$'));
 	$nbLinks = Link::count($db, $object->element, $object->id);
 
-	$head[$h][0] = DOL_URL_ROOT."/compta/bank/account_statement_document.php?account=".$object->id."&num=".$num;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/compta/bank/account_statement_document.php', ['account' => $object->id, 'num' => $num]);
 	$head[$h][1] = $langs->trans("Documents");
 	if (($nbFiles + $nbLinks) > 0) {
 		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.($nbFiles + $nbLinks).'</span>';
@@ -207,8 +315,8 @@ function account_statement_prepare_head($object, $num)
 /**
  * Prepare array with list of tabs
  *
- * @param   Object	$object		Object related to tabs
- * @return  array				Array of tabs to shoc
+ * @param   CommonObject	$object		Object related to tabs
+ * @return  array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function various_payment_prepare_head($object)
 {
@@ -230,8 +338,12 @@ function various_payment_prepare_head($object)
 
 	require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 	require_once DOL_DOCUMENT_ROOT.'/core/class/link.class.php';
-	$upload_dir = $conf->bank->dir_output."/".dol_sanitizeFileName($object->ref);
+	$upload_dir = $conf->bank->dir_output."/various_payment/".dol_sanitizeFileName($object->ref);
+	$upload_dirold = $conf->bank->dir_output."/".dol_sanitizeFileName($object->ref);
 	$nbFiles = count(dol_dir_list($upload_dir, 'files', 0, '', '(\.meta|_preview.*\.png)$'));
+	if (!empty($upload_dirold) && dol_is_dir($upload_dirold)) {
+		$nbFiles += count(dol_dir_list($upload_dirold, 'files', 0, '', '(\.meta|_preview.*\.png)$'));
+	}
 	$nbLinks = Link::count($db, $object->element, $object->id);
 	$head[$h][0] = DOL_URL_ROOT.'/compta/bank/various_payment/document.php?id='.$object->id;
 	$head[$h][1] = $langs->trans('Documents');
@@ -252,14 +364,19 @@ function various_payment_prepare_head($object)
 }
 
 /**
- *      Check SWIFT informations for a bank account
+ *      Check SWIFT information for a bank account
  *
- *      @param  Account     $account    A bank account
- *      @return boolean                 True if informations are valid, false otherwise
+ *      @param  ?Account	$account    A bank account (used to get BIC/SWIFT)
+ *      @param	?string		$swift		Swift value (used to get BIC/SWIFT, param $account non used if provided)
+ *      @return boolean                 True if information are valid, false otherwise
  */
-function checkSwiftForAccount($account)
+function checkSwiftForAccount($account = null, $swift = null)
 {
-	$swift = $account->bic;
+	if ($account == null && $swift == null) {
+		return false;
+	} elseif ($swift == null) {
+		$swift = $account->bic;
+	}
 	if (preg_match("/^([a-zA-Z]){4}([a-zA-Z]){2}([0-9a-zA-Z]){2}([0-9a-zA-Z]{3})?$/", $swift)) {
 		return true;
 	} else {
@@ -268,18 +385,22 @@ function checkSwiftForAccount($account)
 }
 
 /**
- *      Check IBAN number informations for a bank account.
+ *      Check IBAN number information for a bank account.
  *
- *      @param  Account     $account    A bank account
- *      @return boolean                 True if informations are valid, false otherwise
+ *      @param  ?Account	$account    	A bank account
+ *      @param	?string		$ibantocheck	Bank account number (used to get BAN, $account not used if provided)
+ *      @return boolean                 	True if information are valid, false otherwise
  */
-function checkIbanForAccount($account)
+function checkIbanForAccount($account = null, $ibantocheck = null)
 {
+	if ($account == null && $ibantocheck == null) {
+		return false;
+	} elseif ($ibantocheck == null) {
+		$ibantocheck = ($account->iban ? $account->iban : $account->iban_prefix);		// iban or iban_prefix for backward compatibility
+	}
 	require_once DOL_DOCUMENT_ROOT.'/includes/php-iban/oophp-iban.php';
 
-	$ibantocheck = ($account->iban ? $account->iban : $account->iban_prefix);		// iban or iban_prefix for backward compatibility
-
-	$iban = new IBAN($ibantocheck);
+	$iban = new PHP_IBAN\IBAN($ibantocheck);
 	$check = $iban->Verify();
 
 	if ($check) {
@@ -290,10 +411,28 @@ function checkIbanForAccount($account)
 }
 
 /**
- * 		Check account number informations for a bank account
+ * Returns the iban human readable
  *
- * 		@param	Account		$account    A bank account
- * 		@return boolean           		True if informations are valid, false otherwise
+ * @param Account $account Account object
+ * @return string
+ */
+function getIbanHumanReadable(Account $account)
+{
+	if ($account->getCountryCode() == 'FR') {
+		require_once DOL_DOCUMENT_ROOT.'/includes/php-iban/oophp-iban.php';
+		$ibantoprint = preg_replace('/[^a-zA-Z0-9]/', '', empty($account->iban) ? '' : $account->iban);
+		$iban = new PHP_IBAN\IBAN($ibantoprint);
+		return $iban->HumanFormat();
+	}
+
+	return $account->iban;
+}
+
+/**
+ * 		Check account number information for a bank account
+ *
+ * 		@param	Account|CompanyBankAccount	$account    A bank account
+ * 		@return boolean           		True if information are valid, false otherwise
  */
 function checkBanForAccount($account)
 {
@@ -303,7 +442,7 @@ function checkBanForAccount($account)
 	// account of type CompanyBankAccount class (we use number, cle_rib)
 	// account of type Account class (we use num_compte, cle)
 	if (empty($account->number)) {
-		$account->number = $account->num_compte;
+		$account->number = $account->num_compte;  // @phan-suppress-current-line PhanUndeclaredProperty
 	}
 	if (empty($account->cle)) {
 		$account->cle = $account->cle_rib;
@@ -313,19 +452,20 @@ function checkBanForAccount($account)
 
 	if ($country_code == 'FR') { // France rules
 		$coef = array(62, 34, 3);
-		// Concatenation des differents codes.
+		// Concatenate the code parts
 		$rib = strtolower(trim($account->code_banque).trim($account->code_guichet).trim($account->number).trim($account->cle));
-		// On remplace les eventuelles lettres par des chiffres.
-		//$rib = strtr($rib, "abcdefghijklmnopqrstuvwxyz","12345678912345678912345678");	//Ne marche pas
+		// Replace any letters with numbers.
+		//$rib = strtr($rib, "abcdefghijklmnopqrstuvwxyz","12345678912345678912345678");	// don't work
 		$rib = strtr($rib, "abcdefghijklmnopqrstuvwxyz", "12345678912345678923456789");
-		// Separation du rib en 3 groupes de 7 + 1 groupe de 2.
-		// Multiplication de chaque groupe par les coef du tableau
+		// Separation du rib en 3 groups de 7 + 1 group de 2.
+		// Multiplication of each group by the coefficients in the array.
 
-		for ($i = 0, $s = 0; $i < 3; $i++) {
+		$s = 0;
+		for ($i = 0; $i < 3; $i++) {
 			$code = substr($rib, 7 * $i, 7);
-			$s += (0 + (int) $code) * $coef[$i];
+			$s += ((int) $code) * $coef[$i];
 		}
-		// Soustraction du modulo 97 de $s a 97 pour obtenir la cle
+		// Subtract modulo 97 of $s from 97 to get the key
 		$cle_rib = 97 - ($s % 97);
 		if ($cle_rib == $account->cle) {
 			return true;
@@ -333,7 +473,55 @@ function checkBanForAccount($account)
 		return false;
 	}
 
-	if ($country_code == 'BE') { // Belgium rules
+	/*
+	if ($country_code == 'BE') { // Belgian rules
+	}
+	*/
+
+	if ($country_code == 'DZ') { // Algerian rules (Instruction n° 06-2004 Bank of Algeria)
+		$code_banque = trim((string) $account->code_banque);
+		$code_guichet = trim((string) $account->code_guichet);
+		$number = trim((string) $account->number);
+		$cle = trim((string) $account->cle);
+
+		// Backward compatibility if full 20-digit RIB was entered into a single field
+		if (empty($code_banque) && empty($code_guichet) && empty($cle) && preg_match('/^[0-9]{20}$/', $number)) {
+			$code_banque = substr($number, 0, 3);
+			$code_guichet = substr($number, 3, 5);
+			$cle = substr($number, 18, 2);
+			$number = substr($number, 8, 10);
+		}
+
+		// Ensure proper zero-padding
+		if (is_numeric($code_banque) && strlen($code_banque) < 3) {
+			$code_banque = sprintf('%03s', $code_banque);
+		}
+		if (is_numeric($code_guichet) && strlen($code_guichet) < 5) {
+			$code_guichet = sprintf('%05s', $code_guichet);
+		}
+		if (is_numeric($number) && strlen($number) < 10) {
+			$number = sprintf('%010s', $number);
+		}
+		if (is_numeric($cle) && strlen($cle) < 2) {
+			$cle = sprintf('%02s', $cle);
+		}
+
+		$rib18 = $code_banque.$code_guichet.$number;
+
+		if (!preg_match('/^[0-9]{18}$/', $rib18) || !preg_match('/^[0-9]{2}$/', $cle)) {
+			return false;
+		}
+
+		// Calculate modulo 97 of ($rib18 * 100)
+		$remainder = 0;
+		$rib20 = $rib18.'00';
+		$len = strlen($rib20);
+		for ($i = 0; $i < $len; $i++) {
+			$remainder = ($remainder * 10 + (int) $rib20[$i]) % 97;
+		}
+		$calculated_key = sprintf('%02d', 97 - $remainder);
+
+		return ($calculated_key === $cle);
 	}
 
 	if ($country_code == 'ES') { // Spanish rules
@@ -347,9 +535,9 @@ function checkBanForAccount($account)
 	}
 	if ($country_code == 'AU') {  // Australian
 		if (strlen($account->code_banque) > 7) {
-			return false; // Sould be 6 but can be 123-456
+			return false; // Should be 6 but can be 123-456
 		} elseif (strlen($account->code_banque) < 6) {
-			return false; // Sould be 6
+			return false; // Should be 6
 		} else {
 			return true;
 		}
@@ -398,7 +586,7 @@ function checkES($IentOfi, $InumCta)
 	$sum = 0;
 
 	for ($i = 2; $i < 10; $i++) {
-		$sum += $values[$i] * substr($IentOfi, $i - 2, 1);
+		$sum += $values[$i] * (int) substr($IentOfi, $i - 2, 1);
 	}
 
 	$key = 11 - $sum % 11;
@@ -414,7 +602,7 @@ function checkES($IentOfi, $InumCta)
 
 	$sum = 0;
 
-	for ($i = 0; $i < 11; $i++) {
+	for ($i = 0; $i < 10; $i++) {
 		$sum += $values[$i] * (int) substr($InumCta, $i, 1); //int to cast result of substr to a number
 	}
 

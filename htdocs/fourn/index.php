@@ -2,6 +2,8 @@
 /* Copyright (C) 2001-2006 Rodolphe Quiedeville <rodolphe@quiedeville.org>
  * Copyright (C) 2004-2011 Laurent Destailleur  <eldy@users.sourceforge.net>
  * Copyright (C) 2005-2011 Regis Houssin        <regis.houssin@inodbox.com>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2026		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,17 +25,26 @@
  *	\brief      Home page of suppliers area
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.commande.class.php';
 require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.facture.class.php';
 require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
 
+
 $langs->loadLangs(array("suppliers", "orders", "companies"));
 
 // Security check
-$socid = GETPOST("socid", 'int');
-if ($user->socid) {
-	$socid = $user->socid;
+$socid = GETPOSTINT("socid");
+if ($user->isExternalUser()) {
+	$socid = $user->isExternalUser();
 }
 $result = restrictedArea($user, 'societe', $socid, '');
 
@@ -46,7 +57,7 @@ $commandestatic = new CommandeFournisseur($db);
 $facturestatic = new FactureFournisseur($db);
 $companystatic = new Societe($db);
 
-llxHeader("", $langs->trans("SuppliersArea"));
+llxHeader("", $langs->trans("SuppliersArea"), '', '', 0, 0, '', '', '', 'mod-fourn-facture page-index');
 
 print load_fiche_titre($langs->trans("SuppliersArea"));
 
@@ -60,14 +71,14 @@ print '<div class="fichecenter"><div class="fichethirdleft">';
 $sql = "SELECT count(cf.rowid), cf.fk_statut";
 $sql .= " FROM ".MAIN_DB_PREFIX."commande_fournisseur as cf,";
 $sql .= " ".MAIN_DB_PREFIX."societe as s";
-if (empty($user->rights->societe->client->voir) && !$socid) {
+if (!$user->hasRight("societe", "client", "voir") && !$socid) {
 	$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe_commerciaux as sc ON s.rowid = sc.fk_soc";
 }
 $sql .= " WHERE cf.fk_soc = s.rowid ";
-if (empty($user->rights->societe->client->voir) && !$socid) {
+if (!$user->hasRight("societe", "client", "voir") && !$socid) {
 	$sql .= " AND sc.fk_user = ".((int) $user->id);
 }
-$sql .= " AND cf.entity = ".$conf->entity;
+$sql .= " AND cf.entity = ".((int) $conf->entity);
 $sql .= " GROUP BY cf.fk_statut";
 
 $resql = $db->query($sql);
@@ -99,21 +110,21 @@ if ($resql) {
 
 
 // Draft orders
-if ((!empty($conf->fournisseur->enabled) && empty($conf->global->MAIN_USE_NEW_SUPPLIERMOD)) || !empty($conf->supplier_order->enabled)) {
+if (isModEnabled("supplier_order")) {
 	$langs->load("orders");
 
 	$sql = "SELECT cf.rowid, cf.ref, cf.total_ttc,";
 	$sql .= " s.nom as name, s.rowid as socid";
 	$sql .= " FROM ".MAIN_DB_PREFIX."commande_fournisseur as cf";
 	$sql .= ", ".MAIN_DB_PREFIX."societe as s";
-	if (empty($user->rights->societe->client->voir) && !$socid) {
+	if (!$user->hasRight("societe", "client", "voir") && !$socid) {
 		$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe_commerciaux as sc ON s.rowid = sc.fk_soc";
 	}
 	$sql .= " WHERE cf.fk_soc = s.rowid";
-	if (empty($user->rights->societe->client->voir) && !$socid) {
+	if (!$user->hasRight("societe", "client", "voir") && !$socid) {
 		$sql .= " AND sc.fk_user = ".((int) $user->id);
 	}
-	$sql .= " AND cf.entity = ".$conf->entity;
+	$sql .= " AND cf.entity = ".((int) $conf->entity);
 	$sql .= " AND cf.fk_statut = 0";
 	if ($socid) {
 		$sql .= " AND cf.fk_soc = ".((int) $socid);
@@ -157,19 +168,19 @@ if ((!empty($conf->fournisseur->enabled) && empty($conf->global->MAIN_USE_NEW_SU
 }
 
 // Draft invoices
-if (((!empty($conf->fournisseur->enabled) && empty($conf->global->MAIN_USE_NEW_SUPPLIERMOD)) || !empty($conf->supplier_invoice->enabled)) && $user->rights->fournisseur->facture->lire) {
-	$sql = "SELECT ff.ref_supplier, ff.rowid, ff.total_ttc, ff.type";
+if (isModEnabled("supplier_invoice") && ($user->hasRight('fournisseur', 'facture', 'lire') || $user->hasRight('supplier_invoice', 'read'))) {
+	$sql = "SELECT ff.ref, ff.ref_supplier, ff.rowid, ff.total_ttc, ff.type";
 	$sql .= ", s.nom as name, s.rowid as socid";
 	$sql .= " FROM ".MAIN_DB_PREFIX."facture_fourn as ff";
 	$sql .= ", ".MAIN_DB_PREFIX."societe as s";
-	if (empty($user->rights->societe->client->voir) && !$socid) {
+	if (!$user->hasRight("societe", "client", "voir") && !$socid) {
 		$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe_commerciaux as sc ON s.rowid = sc.fk_soc";
 	}
 	$sql .= " WHERE s.rowid = ff.fk_soc";
-	if (empty($user->rights->societe->client->voir) && !$socid) {
+	if (!$user->hasRight("societe", "client", "voir") && !$socid) {
 		$sql .= " AND sc.fk_user = ".((int) $user->id);
 	}
-	$sql .= " AND ff.entity = ".$conf->entity;
+	$sql .= " AND ff.entity = ".((int) $conf->entity);
 	$sql .= " AND ff.fk_statut = 0";
 	if ($socid) {
 		$sql .= " AND f.fk_soc = ".((int) $socid);
@@ -229,24 +240,24 @@ print '</div><div class="fichetwothirdright">';
  */
 $max = 10;
 $sql = "SELECT s.rowid as socid, s.nom as name, s.town, s.datec, s.tms, s.prefix_comm, s.code_fournisseur";
-if (!empty($conf->global->MAIN_COMPANY_PERENTITY_SHARED)) {
+if (getDolGlobalString('MAIN_COMPANY_PERENTITY_SHARED')) {
 	$sql .= ", spe.accountancy_code_supplier as code_compta_fournisseur";
 } else {
 	$sql .= ", s.code_compta_fournisseur";
 }
 $sql .= ", st.libelle as stcomm";
 $sql .= " FROM ".MAIN_DB_PREFIX."societe as s";
-if (!empty($conf->global->MAIN_COMPANY_PERENTITY_SHARED)) {
+if (getDolGlobalString('MAIN_COMPANY_PERENTITY_SHARED')) {
 	$sql .= " LEFT JOIN " . MAIN_DB_PREFIX . "societe_perentity as spe ON spe.fk_soc = s.rowid AND spe.entity = " . ((int) $conf->entity);
 }
 $sql .= ", ".MAIN_DB_PREFIX."c_stcomm as st";
-if (empty($user->rights->societe->client->voir) && !$socid) {
+if (!$user->hasRight("societe", "client", "voir") && !$socid) {
 	$sql .= ", ".MAIN_DB_PREFIX."societe_commerciaux as sc";
 }
 $sql .= " WHERE s.fk_stcomm = st.id";
 $sql .= " AND s.fournisseur = 1";
 $sql .= " AND s.entity IN (".getEntity('societe').")";
-if (empty($user->rights->societe->client->voir) && !$socid) {
+if (!$user->hasRight("societe", "client", "voir") && !$socid) {
 	$sql .= " AND s.rowid = sc.fk_soc AND sc.fk_user = ".((int) $user->id);
 }
 if ($socid) {
@@ -289,7 +300,7 @@ if ($resql) {
 $companystatic->LoadSupplierCateg();
 $categstatic = new Categorie($db);
 
-if (count($companystatic->SupplierCategories)) {
+if (count($companystatic->supplierCategories)) {
 	print '<br>';
 
 	print '<table class="liste centpercent">';
@@ -297,10 +308,10 @@ if (count($companystatic->SupplierCategories)) {
 	print $langs->trans("Category");
 	print "</td></tr>\n";
 
-	foreach ($companystatic->SupplierCategories as $rowid => $label) {
+	foreach ($companystatic->supplierCategories as $rowid => $label) {
 		print '<tr class="oddeven">'."\n";
 		print '<td>';
-		$categstatic->id = $rowid;
+		$categstatic->id = (int) $rowid;
 		$categstatic->ref = $label;
 		$categstatic->label = $label;
 		print $categstatic->getNomUrl(1);

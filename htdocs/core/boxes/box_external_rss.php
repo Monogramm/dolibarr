@@ -3,7 +3,8 @@
  * Copyright (C) 2003      Eric Seigne          <erics@rycks.com>
  * Copyright (C) 2004-2008 Laurent Destailleur  <eldy@users.sourceforge.net>
  * Copyright (C) 2005-2011 Regis Houssin        <regis.houssin@inodbox.com>
- * Copyright (C) 2015      Frederic France      <frederic.france@free.fr>
+ * Copyright (C) 2015-2025  Frédéric France      <frederic.france@free.fr>
+ * Copyright (C) 2024      MDW                  <mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,15 +41,9 @@ class box_external_rss extends ModeleBoxes
 	public $depends = array("externalrss");
 
 	/**
-	 * @var DoliDB Database handler.
+	 * @var string
 	 */
-	public $db;
-
 	public $paramdef; // Params of box definition (not user params)
-
-	public $info_box_head = array();
-	public $info_box_contents = array();
-
 
 	/**
 	 *  Constructor
@@ -60,6 +55,7 @@ class box_external_rss extends ModeleBoxes
 	{
 		$this->db = $db;
 		$this->paramdef = $param;
+		$this->urltoaddentry = DOL_URL_ROOT.'/admin/external_rss.php';
 	}
 
 	/**
@@ -76,7 +72,7 @@ class box_external_rss extends ModeleBoxes
 
 		$this->max = $max;
 
-		// On recupere numero de param de la boite
+		// Retrieve box param number
 		$reg = array();
 		preg_match('/^([0-9]+) /', $this->paramdef, $reg);
 		$site = $reg[1];
@@ -89,7 +85,7 @@ class box_external_rss extends ModeleBoxes
 		$keyforparamtitle = "EXTERNAL_RSS_TITLE_".$site;
 
 		// Get RSS feed
-		$url = $conf->global->$keyforparamurl;
+		$url = getDolGlobalString($keyforparamurl);
 
 		$rssparser = new RssParser($this->db);
 		$result = $rssparser->parser($url, $this->max, $cachedelay, $conf->externalrss->dir_temp);
@@ -98,7 +94,7 @@ class box_external_rss extends ModeleBoxes
 		$description = $rssparser->getDescription();
 		$link = $rssparser->getLink();
 
-		$title = $langs->trans("BoxTitleLastRssInfos", $max, $conf->global->$keyforparamtitle);
+		$title = $langs->trans("BoxTitleLastRssInfos", $max, getDolGlobalString($keyforparamtitle));
 		if ($result < 0 || !empty($rssparser->error)) {
 			// Show warning
 			$errormessage = $langs->trans("FailedToRefreshDataInfoNotUpToDate", ($rssparser->getLastFetchDate() ? dol_print_date($rssparser->getLastFetchDate(), "dayhourtext") : $langs->trans("Unknown")));
@@ -111,26 +107,33 @@ class box_external_rss extends ModeleBoxes
 			$this->info_box_head = array(
 				'text' => $title,
 				'sublink' => $link,
-				'subtext'=>$langs->trans("LastRefreshDate").': '.($rssparser->getLastFetchDate() ? dol_print_date($rssparser->getLastFetchDate(), "dayhourtext") : $langs->trans("Unknown")),
-				'subpicto'=>'globe',
-				'target'=>'_blank',
+				'subtext' => $langs->trans("LastRefreshDate").': '.($rssparser->getLastFetchDate() ? dol_print_date($rssparser->getLastFetchDate(), "dayhourtext") : $langs->trans("Unknown")),
+				'subpicto' => 'globe',
+				'target' => '_blank',
 			);
 		}
 
 		// INFO on items
 		$items = $rssparser->getItems();
 		//print '<pre>'.print_r($items,true).'</pre>';
+
+		// Loop on last items
 		$nbitems = count($items);
 		for ($line = 0; $line < $max && $line < $nbitems; $line++) {
 			$item = $items[$line];
 
 			// Feed common fields
 			$href = $item['link'];
-			$title = urldecode($item['title']);
+			// urldecode() can give back HTML tags (%3C...%3E) that were removed by the parser, and the text of the box is
+			// shown with no escaping when it starts with <img, <div or <span
+			$title = dol_string_nohtmltag(urldecode($item['title']), 0);
 			$date = empty($item['date_timestamp']) ? null : $item['date_timestamp']; // date will be empty if conversion into timestamp failed
 			if ($rssparser->getFormat() == 'rss') {   // If RSS
 				if (!$date && isset($item['pubdate'])) {
 					$date = $item['pubdate'];
+				}
+				if (!$date && isset($item['pubDate'])) {
+					$date = $item['pubDate'];
 				}
 				if (!$date && isset($item['dc']['date'])) {
 					$date = $item['dc']['date'];
@@ -139,6 +142,9 @@ class box_external_rss extends ModeleBoxes
 				//$item['dc']['publisher']
 			}
 			if ($rssparser->getFormat() == 'atom') {	// If Atom
+				if (!$date && !empty($item['pubDate'])) {
+					$date = $item['pubDate'];
+				}
 				if (!$date && isset($item['issued'])) {
 					$date = $item['issued'];
 				}
@@ -149,65 +155,73 @@ class box_external_rss extends ModeleBoxes
 				//$item['modified']
 				//$item['atom_content']
 			}
+			if (!is_numeric($date)) {
+				$timestamp = strtotime($date);
+				if ($timestamp > 0) {
+					$date = $timestamp;
+				}
+			}
 			if (is_numeric($date)) {
 				$date = dol_print_date($date, "dayhour", 'tzuserrel');
 			}
 
 			$isutf8 = utf8_check($title);
 			if (!$isutf8 && $conf->file->character_set_client == 'UTF-8') {
-				$title = utf8_encode($title);
+				$title = mb_convert_encoding($title, 'UTF-8', 'ISO-8859-1');
 			} elseif ($isutf8 && $conf->file->character_set_client == 'ISO-8859-1') {
-				$title = utf8_decode($title);
+				$title = mb_convert_encoding($title, 'ISO-8859-1');
 			}
 
-			$title = preg_replace("/([[:alnum:]])\?([[:alnum:]])/", "\\1'\\2", $title); // Gere probleme des apostrophes mal codee/decodee par utf8
-			$title = preg_replace("/^\s+/", "", $title); // Supprime espaces de debut
-			$this->info_box_contents["$href"] = "$title";
+			$title = preg_replace("/([[:alnum:]])\?([[:alnum:]])/", "\\1'\\2", $title); // Manage issue of quotes improperly (de)coded in utf-8
+			$title = preg_replace("/^\s+/", "", $title); // Remove leading whitespace
 
 			$tooltip = $title;
 			$description = !empty($item['description']) ? $item['description'] : '';
 			$isutf8 = utf8_check($description);
 			if (!$isutf8 && $conf->file->character_set_client == 'UTF-8') {
-				$description = utf8_encode($description);
+				$description = mb_convert_encoding($description, 'UTF-8', 'ISO-8859-1');
 			} elseif ($isutf8 && $conf->file->character_set_client == 'ISO-8859-1') {
-				$description = utf8_decode($description);
+				$description = mb_convert_encoding($description, 'ISO-8859-1');
 			}
 			$description = preg_replace("/([[:alnum:]])\?([[:alnum:]])/", "\\1'\\2", $description);
 			$description = preg_replace("/^\s+/", "", $description);
 			$description = str_replace("\r\n", "", $description);
 			$tooltip .= '<br>'.$description;
 
+			// Note: Escaping of value will be done by the showBox rendering method.
 			$this->info_box_contents[$line][0] = array(
 				'td' => 'class="left" width="16"',
-				'logo' => $this->boximg,
+				'text' => img_picto('', 'rss'),
 				'url' => $href,
 				'tooltip' => $tooltip,
 				'target' => 'newrss',
 			);
 
 			$this->info_box_contents[$line][1] = array(
-				'td' => '',
+				'td' => 'class="tdoverflowmax300"',
 				'text' => $title,
 				'url' => $href,
 				'tooltip' => $tooltip,
-				'maxlength' => 64,
+				'maxlength' => 0,
 				'target' => 'newrss',
 			);
 
 			$this->info_box_contents[$line][2] = array(
-				'td' => 'class="right nowrap"',
+				'td' => 'class="right nowraponall"',
 				'text' => $date,
 			);
 		}
 	}
 
 
+
+
 	/**
-	 *	Method to show box
+	 *	Method to show box.  Called when the box needs to be displayed.
 	 *
-	 *	@param	array	$head       Array with properties of box title
-	 *	@param  array	$contents   Array with properties of box lines
-	 *  @param	int		$nooutput	No print, only return string
+	 *	@param	?array<array{text?:string,sublink?:string,subtext?:string,subpicto?:?string,picto?:string,nbcol?:int,limit?:int,subclass?:string,graph?:int<0,1>,target?:string}>   $head       Array with properties of box title
+	 *	@param	?array<array{tr?:string,td?:string,target?:string,text?:string,text2?:string,textnoformat?:string,tooltip?:string,logo?:string,url?:string,maxlength?:int,asis?:int<0,1>}>   $contents   Array with properties of box lines
+	 *	@param	int<0,1>	$nooutput	No print, only return string
 	 *	@return	string
 	 */
 	public function showBox($head = null, $contents = null, $nooutput = 0)

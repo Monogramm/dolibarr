@@ -1,6 +1,7 @@
 <?php
 /* Copyright (C) 2006-2012 Laurent Destailleur  <eldy@users.sourceforge.net>
  * Copyright (C) 2006-2017 Regis Houssin        <regis.houssin@inodbox.com>
+ * Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +23,15 @@
  *      \brief      Page fiche LDAP members types
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/core/lib/member.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/adherents/class/adherent.class.php';
 require_once DOL_DOCUMENT_ROOT.'/adherents/class/adherent_type.class.php';
@@ -32,8 +41,11 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/ldap.lib.php';
 // Load translation files required by the page
 $langs->loadLangs(array("admin", "members", "ldap"));
 
-$id = GETPOST('rowid', 'int');
+$id = GETPOSTINT('rowid');
 $action = GETPOST('action', 'aZ09');
+
+// Initialize a technical object to manage hooks of page. Note that conf->hooks_modules contains an array of hook context
+$hookmanager->initHooks(array('membertypeldapcard', 'globalcard'));
 
 // Security check
 $result = restrictedArea($user, 'adherent', $id, 'adherent_type');
@@ -41,13 +53,10 @@ $result = restrictedArea($user, 'adherent', $id, 'adherent_type');
 $object = new AdherentType($db);
 $object->fetch($id);
 
-// Initialize technical object to manage hooks of page. Note that conf->hooks_modules contains array of hook context
-$hookmanager->initHooks(array('membertypeldapcard', 'globalcard'));
 
 /*
  * Actions
  */
-
 
 $parameters = array();
 $reshook = $hookmanager->executeHooks('doActions', $parameters, $object, $action); // Note that $action and $object may have been modified by some hooks
@@ -58,7 +67,7 @@ if ($reshook < 0) {
 if (empty($reshook)) {
 	if ($action == 'dolibarr2ldap') {
 		$ldap = new Ldap();
-		$result = $ldap->connect_bind();
+		$result = $ldap->connectBind();
 
 		if ($result > 0) {
 			$object->listMembersForMemberType('', 1);
@@ -82,7 +91,10 @@ if (empty($reshook)) {
  * View
  */
 
-llxHeader();
+$title = $langs->trans("MembersTypeSetup");
+$help_url = 'EN:Module_Services_En|FR:Module_Services|ES:M&oacute;dulo_Servicios|DE:Modul_Mitglieder';
+
+llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-member page-type_ldap');
 
 $form = new Form($db);
 
@@ -100,17 +112,17 @@ print '<div class="underbanner clearboth"></div>';
 print '<table class="border centpercent">';
 
 // LDAP DN
-print '<tr><td>LDAP '.$langs->trans("LDAPMemberTypeDn").'</td><td class="valeur">'.$conf->global->LDAP_MEMBER_TYPE_DN."</td></tr>\n";
+print '<tr><td>LDAP '.$langs->trans("LDAPMemberTypeDn").'</td><td class="valeur">' . getDolGlobalString('LDAP_MEMBER_TYPE_DN')."</td></tr>\n";
 
 // LDAP Cle
-print '<tr><td>LDAP '.$langs->trans("LDAPNamingAttribute").'</td><td class="valeur">'.$conf->global->LDAP_KEY_MEMBERS_TYPES."</td></tr>\n";
+print '<tr><td>LDAP '.$langs->trans("LDAPNamingAttribute").'</td><td class="valeur">' . getDolGlobalString('LDAP_KEY_MEMBERS_TYPES')."</td></tr>\n";
 
 // LDAP Server
-print '<tr><td>LDAP '.$langs->trans("Type").'</td><td class="valeur">'.$conf->global->LDAP_SERVER_TYPE."</td></tr>\n";
-print '<tr><td>LDAP '.$langs->trans("Version").'</td><td class="valeur">'.$conf->global->LDAP_SERVER_PROTOCOLVERSION."</td></tr>\n";
-print '<tr><td>LDAP '.$langs->trans("LDAPPrimaryServer").'</td><td class="valeur">'.$conf->global->LDAP_SERVER_HOST."</td></tr>\n";
-print '<tr><td>LDAP '.$langs->trans("LDAPSecondaryServer").'</td><td class="valeur">'.$conf->global->LDAP_SERVER_HOST_SLAVE."</td></tr>\n";
-print '<tr><td>LDAP '.$langs->trans("LDAPServerPort").'</td><td class="valeur">'.$conf->global->LDAP_SERVER_PORT."</td></tr>\n";
+print '<tr><td>LDAP '.$langs->trans("Type").'</td><td class="valeur">' . getDolGlobalString('LDAP_SERVER_TYPE')."</td></tr>\n";
+print '<tr><td>LDAP '.$langs->trans("Version").'</td><td class="valeur">' . getDolGlobalString('LDAP_SERVER_PROTOCOLVERSION')."</td></tr>\n";
+print '<tr><td>LDAP '.$langs->trans("LDAPPrimaryServer").'</td><td class="valeur">' . getDolGlobalString('LDAP_SERVER_HOST')."</td></tr>\n";
+print '<tr><td>LDAP '.$langs->trans("LDAPSecondaryServer").'</td><td class="valeur">' . getDolGlobalString('LDAP_SERVER_HOST_SLAVE')."</td></tr>\n";
+print '<tr><td>LDAP '.$langs->trans("LDAPServerPort").'</td><td class="valeur">' . getDolGlobalString('LDAP_SERVER_PORT')."</td></tr>\n";
 
 print '</table>';
 
@@ -125,7 +137,7 @@ print dol_get_fiche_end();
 print '<div class="tabsAction">';
 
 if (getDolGlobalInt('LDAP_MEMBER_TYPE_ACTIVE') === Ldap::SYNCHRO_DOLIBARR_TO_LDAP) {
-	print '<a class="butAction" href="'.$_SERVER["PHP_SELF"].'?rowid='.$object->id.'&action=dolibarr2ldap">'.$langs->trans("ForceSynchronize").'</a>';
+	print '<a class="butAction" href="'.$_SERVER["PHP_SELF"].'?rowid='.$object->id.'&action=dolibarr2ldap&token='.newToken().'">'.$langs->trans("ForceSynchronize").'</a>';
 }
 
 print "</div>\n";
@@ -148,7 +160,7 @@ print '</tr>';
 
 // LDAP reading
 $ldap = new Ldap();
-$result = $ldap->connect_bind();
+$result = $ldap->connectBind();
 if ($result > 0) {
 	$info = $object->_load_ldap_info();
 	$dn = $object->_load_ldap_dn($info, 1);

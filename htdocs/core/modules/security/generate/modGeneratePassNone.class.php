@@ -1,5 +1,6 @@
 <?php
 /* Copyright (C) 2006-2011 Laurent Destailleur <eldy@users.sourceforge.net>
+ * Copyright (C) 2024-2026  Frédéric France			<frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,33 +32,16 @@ require_once DOL_DOCUMENT_ROOT.'/core/modules/security/generate/modules_genpassw
 class modGeneratePassNone extends ModeleGenPassword
 {
 	/**
-	 * @var int ID
+	 * @var int		Position
+	 */
+	public $position = 90;
+
+	/**
+	 * @var string ID
 	 */
 	public $id;
 
-	/**
-	 * Minimum length (text visible by end user)
-	 *
-	 * @var string
-	 */
-	public $length;
-
-	/**
-	 * Minimum length in number of characters
-	 *
-	 * @var integer
-	 */
-	public $length2;
-
-	/**
-	 * @var DoliDB Database handler.
-	 */
-	public $db;
-
-	public $conf;
-	public $lang;
-	public $user;
-
+	public $picto = 'fa-keyboard';
 
 	/**
 	 *	Constructor
@@ -65,18 +49,28 @@ class modGeneratePassNone extends ModeleGenPassword
 	 *  @param		DoliDB		$db			Database handler
 	 *	@param		Conf		$conf		Handler de conf
 	 *	@param		Translate	$langs		Handler de langue
-	 *	@param		User		$user		Handler du user connecte
+	 *	@param		User		$user		Handler du user connected
 	 */
 	public function __construct($db, $conf, $langs, $user)
 	{
 		$this->id = "none";
-		$this->length = 0;
+		$this->length = '0';
 		$this->length2 = 0;
 
 		$this->db = $db;
 		$this->conf = $conf;
 		$this->langs = $langs;
 		$this->user = $user;
+	}
+
+	/**
+	 *		Return if a module can be used or not
+	 *
+	 *		@return		boolean		true if module can be used
+	 */
+	public function isEnabled()
+	{
+		return isPasswordGenerationNoneForbidden() ? false : true;
 	}
 
 	/**
@@ -119,6 +113,8 @@ class modGeneratePassNone extends ModeleGenPassword
 	 */
 	public function validatePassword($password)
 	{
+		dol_syslog("modGeneratePassNone::validatePassword");
+
 		return 1;
 	}
 }

@@ -1,6 +1,6 @@
 # Dolibarr language file - Source file is en_US - main
 DIRECTION=ltr
-FONTFORPDF=helvetica
+FONTFORPDF=freemono
 FONTSIZEFORPDF=10
 SeparatorDecimal=.
 SeparatorThousand=,
@@ -12,6 +12,7 @@ FormatDateShortJQuery=mm/dd/yy
 FormatDateShortJQueryInput=mm/dd/yy
 FormatHourShortJQuery=HH:MI
 FormatHourShort=%I:%M %p
+FormatHourSecShort=%I:%M:%S %p
 FormatHourShortDuration=%H:%M
 FormatDateTextShort=%b %d, %Y
 FormatDateText=%B %d, %Y

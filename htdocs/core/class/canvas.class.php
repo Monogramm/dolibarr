@@ -1,6 +1,7 @@
 <?php
 /* Copyright (C) 2010-2018	Regis Houssin		<regis.houssin@inodbox.com>
  * Copyright (C) 2011 		Laurent Destailleur	<eldy@users.sourceforge.net>
+ * Copyright (C) 2024		MDW					<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,14 +44,35 @@ class Canvas
 	 */
 	public $errors = array();
 
+	/**
+	 * @var string
+	 */
 	public $actiontype;
 
+	/**
+	 * @var string Module directory
+	 */
 	public $dirmodule; // Module directory
+	/**
+	 * @var string
+	 */
 	public $targetmodule; // Module concerned by canvas (ex: thirdparty, contact, ...)
+	/**
+	 * @var string
+	 */
 	public $canvas; // Name of canvas (ex: company, individual, product, service, ...)
+	/**
+	 * @var string
+	 */
 	public $card; // Tab (sub-canvas)
 
-	public $template_dir; // Initialized by getCanvas with templates directory
+	/**
+	 * @var string Initialized by getCanvas with templates directory
+	 */
+	public $template_dir;
+	/**
+	 * @var ActionsContactCardCommon|ActionsAdherentCardCommon|ActionsCardProduct|ActionsCardService|ActionsCardCommon
+	 */
 	public $control; // Initialized by getCanvas with controller instance
 
 
@@ -99,8 +121,6 @@ class Canvas
 	 */
 	public function getCanvas($module, $card, $canvas)
 	{
-		global $conf, $langs;
-
 		// Set properties with value specific to dolibarr core: this->targetmodule, this->card, this->canvas
 		$this->targetmodule = $module;
 		$this->canvas = $canvas;
@@ -121,7 +141,6 @@ class Canvas
 		$controlclassfile = dol_buildpath('/'.$this->dirmodule.'/canvas/'.$this->canvas.'/actions_'.$this->card.'_'.$this->canvas.'.class.php');
 		if (file_exists($controlclassfile)) {
 			// Include actions class (controller)
-			$this->control_file = $controlclassfile;
 			require_once $controlclassfile;
 
 			// Instantiate actions class (controller)
@@ -157,18 +176,24 @@ class Canvas
 	}
 
 	/**
-	 *	Return the template to display canvas (if it exists)
+	 *	Return if a template exists to display as canvas (if it exists)
 	 *
 	 *	@param	string	$action		Action code
 	 *	@return	int		0=Canvas template file does not exist, 1=Canvas template file exists
 	 */
 	public function displayCanvasExists($action)
 	{
+		// template_dir should be '/'.$this->dirmodule.'/canvas/'.$this->canvas.'/tpl/', for example '/mymodule/canvas/product/tpl'
 		if (empty($this->template_dir)) {
 			return 0;
 		}
 
-		if (file_exists($this->template_dir.(!empty($this->card) ? $this->card.'_' : '').$this->_cleanaction($action).'.tpl.php')) {
+		$newaction = $action;
+		if ($action && !in_array($action, array('create', 'view', 'edit', 'list'))) {
+			$newaction = 'view';
+		}
+
+		if (file_exists($this->template_dir.(!empty($this->card) ? $this->card.'_' : '').$this->_cleanaction($newaction).'.tpl.php')) {
 			return 1;
 		} else {
 			return 0;
@@ -186,11 +211,16 @@ class Canvas
 	public function display_canvas($action)
 	{
 		// phpcs:enable
-		global $db, $conf, $langs, $user, $canvas;
-		global $form, $formfile;
+		global $db, $conf, $langs, $user, $canvas;	// used into include
+		global $form, $formfile;					// used into include
+
+		$newaction = $action;
+		if ($action && !in_array($action, array('create', 'view', 'edit', 'list'))) {
+			$newaction = 'view';
+		}
 
 		//var_dump($this->card.'-'.$action);
-		include $this->template_dir.(!empty($this->card) ? $this->card.'_' : '').$this->_cleanaction($action).'.tpl.php'; // Include native PHP template
+		include $this->template_dir.(!empty($this->card) ? $this->card.'_' : '').$this->_cleanaction($newaction).'.tpl.php'; // Include native PHP template
 	}
 
 
@@ -215,14 +245,17 @@ class Canvas
 	 *
 	 * 	@param		string		$action	Action string
 	 * 	@param		int			$id			Object id
-	 * 	@return		mixed					Return return code of doActions of canvas
+	 * 	@return		?mixed					Return return code of doActions of canvas
 	 * 	@see		https://wiki.dolibarr.org/index.php/Canvas_development
 	 */
 	public function doActions(&$action = 'view', $id = 0)
 	{
-		if (method_exists($this->control, 'doActions')) {
-			$ret = $this->control->doActions($action, $id);
+		$control = $this->control;
+		if (method_exists($control, 'doActions')) {
+			// The doActions() method is not declared in all canvas controllers (ActionsContactCardCommon...): @phan-suppress-next-line PhanUndeclaredMethod
+			$ret = $control->doActions($action, $id);
 			return $ret;
 		}
+		return null;
 	}
 }

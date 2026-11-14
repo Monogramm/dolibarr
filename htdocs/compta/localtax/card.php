@@ -1,7 +1,9 @@
 <?php
 /* Copyright (C) 2011-2014  Juanjo Menent           <jmenent@2byte.es>
  * Copyright (C) 2015       Marcos García           <marcosgdf@gmail.com>
- * Copyright (C) 2018       Frédéric France         <frederic.france@netlogic.fr>
+ * Copyright (C) 2018-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024		MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2026		Jose Martinez			<jose.martinez@pichinov.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,36 +25,49 @@
  *		\brief      Page of second or third tax payments (like IRPF for spain, ...)
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/localtax/class/localtax.class.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/vat.lib.php';
 
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Societe $mysoc
+ * @var Translate $langs
+ * @var User $user
+ */
+
 // Load translation files required by the page
 $langs->loadLangs(array('compta', 'banks', 'bills'));
 
-$id = GETPOST("id", 'int');
+$id = GETPOSTINT("id");
 $action = GETPOST("action", "aZ09");
-$cancel = GETPOST('cancel', 'aZ09');
+$cancel = GETPOST('cancel', 'alpha');
 
-$refund = GETPOST("refund", "int");
+$refund = GETPOSTINT("refund");
 if (empty($refund)) {
 	$refund = 0;
 }
 
-$lttype = GETPOST('localTaxType', 'int');
+$lttype = GETPOSTINT('localTaxType');
 
 // Security check
-$socid = GETPOST('socid', 'int');
+$socid = GETPOSTINT('socid');
 if ($user->socid) {
 	$socid = $user->socid;
 }
-$result = restrictedArea($user, 'tax', '', '', 'charges');
+// Initialize a technical object to manage hooks of page. Note that conf->hooks_modules contains an array of hook context
+$hookmanager->initHooks(array('localtaxvatcard', 'globalcard'));
+
+$result = restrictedArea($user, 'tax', $id, 'localtax', 'charges');
 
 $object = new Localtax($db);
 
-// Initialize technical object to manage hooks of page. Note that conf->hooks_modules contains array of hook context
-$hookmanager->initHooks(array('localtaxvatcard', 'globalcard'));
+$permissiontoadd = $user->hasRight('tax', 'charges', 'creer');
+$permissiontodelete = $user->hasRight('tax', 'charges', 'supprimer');
 
 
 /**
@@ -64,13 +79,13 @@ if ($cancel && !$id) {
 	exit;
 }
 
-if ($action == 'add' && !$cancel) {
+if ($action == 'add' && !$cancel && $permissiontoadd) {
 	$db->begin();
 
-	$datev = dol_mktime(12, 0, 0, GETPOST("datevmonth"), GETPOST("datevday"), GETPOST("datevyear"));
-	$datep = dol_mktime(12, 0, 0, GETPOST("datepmonth"), GETPOST("datepday"), GETPOST("datepyear"));
+	$datev = dol_mktime(12, 0, 0, GETPOSTINT("datevmonth"), GETPOSTINT("datevday"), GETPOSTINT("datevyear"));
+	$datep = dol_mktime(12, 0, 0, GETPOSTINT("datepmonth"), GETPOSTINT("datepday"), GETPOSTINT("datepyear"));
 
-	$object->accountid = GETPOST("accountid", 'int');
+	$object->accountid = GETPOSTINT("accountid");
 	$object->paymenttype = GETPOST("paiementtype");
 	$object->datev = $datev;
 	$object->datep = $datep;
@@ -86,17 +101,18 @@ if ($action == 'add' && !$cancel) {
 	} else {
 		$db->rollback();
 		setEventMessages($object->error, $object->errors, 'errors');
-		$_GET["action"] = "create";
+		$action = "create";
 	}
 }
 
 //delete payment of localtax
-if ($action == 'delete') {
+if ($action == 'delete' && $permissiontodelete) {
 	$result = $object->fetch($id);
 
 	if ($object->rappro == 0) {
 		$db->begin();
 
+		$object->oldcopy = dol_clone($object, 2);  // @phan-suppress-current-line PhanTypeMismatchProperty
 		$ret = $object->delete($user);
 		if ($ret > 0) {
 			if ($object->fk_bank) {
@@ -105,6 +121,8 @@ if ($action == 'delete') {
 				if ($result > 0) {
 					$result = $accountline->delete($user); // $result may be 0 if not found (when bank entry was deleted manually and fk_bank point to nothing)
 				}
+			} else {
+				$accountline = null;
 			}
 
 			if ($result >= 0) {
@@ -112,7 +130,7 @@ if ($action == 'delete') {
 				header("Location: ".DOL_URL_ROOT.'/compta/localtax/list.php?localTaxType='.$object->ltt);
 				exit;
 			} else {
-				$object->error = $accountline->error;
+				$object->error = $accountline !== null ? $accountline->error : "No account line / no bank identified found";
 				$db->rollback();
 				setEventMessages($object->error, $object->errors, 'errors');
 			}
@@ -131,21 +149,23 @@ if ($action == 'delete') {
  *	View
  */
 
+$form = new Form($db);
+
 if ($id) {
 	$result = $object->fetch($id);
 	if ($result <= 0) {
-		dol_print_error($db);
-		exit;
+		recordNotFound();
 	}
 }
 
-$form = new Form($db);
-
 $title = $langs->trans("LT".$object->ltt)." - ".$langs->trans("Card");
 $help_url = '';
-llxHeader('', $title, $helpurl);
+llxHeader('', $title, $help_url);
 
 if ($action == 'create') {
+	$datev = dol_mktime(12, 0, 0, GETPOSTINT("datevmonth"), GETPOSTINT("datevday"), GETPOSTINT("datevyear"));
+	$datep = dol_mktime(12, 0, 0, GETPOSTINT("datepmonth"), GETPOSTINT("datepday"), GETPOSTINT("datepyear"));
+
 	print load_fiche_titre($langs->transcountry($lttype == 2 ? "newLT2Payment" : "newLT1Payment", $mysoc->country_code));
 
 	print '<form name="add" action="'.$_SERVER["PHP_SELF"].'" name="formlocaltax" method="post">'."\n";
@@ -160,31 +180,31 @@ if ($action == 'create') {
 	// Date of payment
 	print "<tr>";
 	print '<td class="titlefieldcreate fieldrequired">'.$langs->trans("DatePayment").'</td><td>';
-	print $form->selectDate($datep, "datep", '', '', '', 'add', 1, 1);
+	print $form->selectDate($datep, "datep", 0, 0, 0, 'add', 1, 1);
 	print '</td></tr>';
 
 	// End date of period
 	print '<tr><td class="fieldrequired">'.$form->textwithpicto($langs->trans("PeriodEndDate"), $langs->trans("LastDayTaxIsRelatedTo")).'</td><td>';
-	print $form->selectDate($datev, "datev", '', '', '', 'add', 1, 1);
+	print $form->selectDate($datev, "datev", 0, 0, 0, 'add', 1, 1);
 	print '</td></tr>';
 
 	// Label
-	print '<tr><td class="fieldrequired">'.$langs->trans("Label").'</td><td><input name="label" class="minwidth200" value="'.(GETPOSTISSET("label") ? GETPOST("label", '', 2) : $langs->transcountry(($lttype == 2 ? "LT2Payment" : "LT1Payment"), $mysoc->country_code)).'"></td></tr>';
+	print '<tr><td class="fieldrequired">'.$langs->trans("Label").'</td><td><input name="label" class="minwidth200" value="'.(GETPOSTISSET("label") ? GETPOST("label", 'alphanohtml', 2) : $langs->transcountry(($lttype == 2 ? "LT2Payment" : "LT1Payment"), $mysoc->country_code)).'"></td></tr>';
 
 	// Amount
 	print '<tr><td class="fieldrequired">'.$langs->trans("Amount").'</td><td><input name="amount" size="10" value="'.GETPOST("amount").'"></td></tr>';
 
-	if (!empty($conf->banque->enabled)) {
+	if (isModEnabled("bank")) {
 		// Type payment
 		print '<tr><td class="fieldrequired">'.$langs->trans("PaymentMode").'</td><td>';
-		$form->select_types_paiements(GETPOST("paiementtype"), "paiementtype", '', 0, 1, 0, 0, 1, 'maxwidth500 widthcentpercentminusx');
+		print $form->select_types_paiements(GETPOST("paiementtype"), "paiementtype", '', 0, 1, 0, 0, 1, 'maxwidth500 widthcentpercentminusx', 1);
 		print "</td>\n";
 		print "</tr>";
 
 		// Bank account
-		print '<tr><td class="fieldrequired" id="label_fk_account">'.$langs->trans("Account").'</td><td>';
-		print img_picto('', 'bank_account', 'pictofixedwidth');
-		$form->select_comptes(GETPOST("accountid", "int"), "accountid", 0, "courant=1", 2, '', 0, 'maxwidth500 widthcentpercentminusx'); // Affiche liste des comptes courant
+		print '<tr><td class="fieldrequired" id="label_fk_account">'.$langs->trans("BankAccount").'</td><td>';
+		print img_picto('', 'bank_account', 'class="pictofixedwidth"');
+		$form->select_comptes(GETPOSTINT("accountid"), "accountid", 0, "(courant:=:1)", 2, '', 0, 'maxwidth500 widthcentpercentminusx'); // Affiche liste des comptes courant
 		print '</td></tr>';
 
 		// Number
@@ -211,6 +231,7 @@ if ($action == 'create') {
 // View mode
 if ($id) {
 	$h = 0;
+	$head = array();
 	$head[$h][0] = DOL_URL_ROOT.'/compta/localtax/card.php?id='.$object->id;
 	$head[$h][1] = $langs->trans('Card');
 	$head[$h][2] = 'card';
@@ -220,7 +241,7 @@ if ($id) {
 
 	$linkback = '<a href="'.DOL_URL_ROOT.'/compta/localtax/list.php?restore_lastsearch_values=1">'.$langs->trans("BackToList").'</a>';
 
-	dol_banner_tab($object, 'id', $linkback, 1, 'rowid', 'ref', $morehtmlref, '', 0, '', '');
+	dol_banner_tab($object, 'id', $linkback);
 
 	print '<div class="fichecenter">';
 	print '<div class="underbanner clearboth"></div>';
@@ -243,7 +264,7 @@ if ($id) {
 
 	print '<tr><td>'.$langs->trans("Amount").'</td><td>'.price($object->amount).'</td></tr>';
 
-	if (!empty($conf->banque->enabled)) {
+	if (isModEnabled("bank")) {
 		if ($object->fk_account > 0) {
 			$bankline = new AccountLine($db);
 			$bankline->fetch($object->fk_bank);
@@ -274,7 +295,7 @@ if ($id) {
 	 */
 	print "<div class=\"tabsAction\">\n";
 	if ($object->rappro == 0) {
-		print '<a class="butActionDelete" href="card.php?id='.$object->id.'&action=delete&token='.newToken().'">'.$langs->trans("Delete").'</a>';
+		print dolGetButtonAction($langs->trans("Delete"), $langs->trans("Delete"), 'delete', 'card.php?id='.$object->id.'&action=delete&token='.newToken(), '', true, array('attr' => array('class' => 'reposition')))."\n";
 	} else {
 		print '<a class="butActionRefused classfortooltip" href="#" title="'.$langs->trans("LinkedToAConcialitedTransaction").'">'.$langs->trans("Delete").'</a>';
 	}

@@ -1,5 +1,7 @@
 <?php
-/* Copyright (C) 2019 Laurent Destailleur  <eldy@users.sourceforge.net>
+/* Copyright (C) 2019       Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2024-2025	MDW				        <mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,7 +23,15 @@
  *		\brief      Page with tickets statistics
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/ticket/class/actions_ticket.class.php';
 require_once DOL_DOCUMENT_ROOT.'/ticket/class/ticketstats.class.php';
 require_once DOL_DOCUMENT_ROOT.'/ticket/class/ticket.class.php';
@@ -30,23 +40,33 @@ require_once DOL_DOCUMENT_ROOT.'/core/class/dolgraph.class.php';
 $WIDTH = DolGraph::getDefaultGraphSizeForStats('width');
 $HEIGHT = DolGraph::getDefaultGraphSizeForStats('height');
 
-if (!$user->rights->ticket->read) {
+$tabfamily = GETPOST('tabfamily', 'aZ09');	// 'ticketstats' to show the tab with the custom reports tool
+
+$hookmanager->initHooks(array('ticketstats', 'globalcard'));
+
+if (!$user->hasRight('ticket', 'read')) {
 	accessforbidden();
 }
 
 $object_status = GETPOST('object_status', 'intcomma');
 
-$userid = GETPOST('userid', 'int');
-$socid = GETPOST('socid', 'int');
+$userid = GETPOSTINT('userid');
+$socid = GETPOSTINT('socid');
 // Security check
 if ($user->socid > 0) {
 	$action = '';
 	$socid = $user->socid;
 }
 
-$nowyear = strftime("%Y", dol_now());
-$year = GETPOST('year') > 0 ? GETPOST('year', 'int') : $nowyear;
-$startyear = $year - (empty($conf->global->MAIN_STATS_GRAPHS_SHOW_N_YEARS) ? 2 : max(1, min(10, $conf->global->MAIN_STATS_GRAPHS_SHOW_N_YEARS)));
+$parameters = array();
+$reshook = $hookmanager->executeHooks('doActions', $parameters, $object, $action); // Note that $action and $object may have been modified by some hooks
+if ($reshook < 0) {
+	setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
+}
+
+$nowyear = dol_print_date(dol_now('gmt'), "%Y", 'gmt');
+$year = GETPOST('year') > 0 ? GETPOSTINT('year') : $nowyear;
+$startyear = $year - (!getDolGlobalString('MAIN_STATS_GRAPHS_SHOW_N_YEARS') ? 2 : max(1, min(10, getDolGlobalInt('MAIN_STATS_GRAPHS_SHOW_N_YEARS'))));
 $endyear = $year;
 
 // Load translation files required by the page
@@ -60,12 +80,65 @@ $langs->loadLangs(array('orders', 'companies', 'other', 'tickets'));
 $form = new Form($db);
 $object = new Ticket($db);
 
-$title = $langs->trans("Statistics");
 $dir = $conf->ticket->dir_temp;
 
-llxHeader('', $title);
+$title = $langs->trans("Statistics");
+$help_url = '';
 
-print load_fiche_titre($title, '', 'ticket');
+llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-ticket page-stats');
+
+$params = [
+	'action' => 'create',
+	'mode' => 'init',
+];
+if (!empty($socid)) {
+	$params += ['socid' => $socid];
+}
+$url = dolBuildUrl(DOL_URL_ROOT.'/ticket/card.php', $params);
+$newcardbutton = '';
+$newcardbutton .= dolGetButtonTitle($langs->trans('ViewList'), '', 'fa fa-bars imgforviewmode', DOL_URL_ROOT.'/ticket/list.php?mode=common', '', 1, array('morecss' => 'reposition'));
+$newcardbutton .= dolGetButtonTitle($langs->trans('ViewKanban'), '', 'fa fa-th-list imgforviewmode', DOL_URL_ROOT.'/ticket/list.php?mode=kanban', '', 1, array('morecss' => 'reposition'));
+$newcardbutton .= dolGetButtonTitle($langs->trans('Statistics'), '', 'fa fa-chart-bar imgforviewmode', DOL_URL_ROOT.'/ticket/stats/index.php?mode=statistics&objecttype=ticket@ticket', '', 2, array('morecss' => 'reposition'));
+$newcardbutton .= dolGetButtonTitleSeparator();
+$newcardbutton .= dolGetButtonTitle($langs->trans('NewTicket'), '', 'fa fa-plus-circle', $url, '', $user->hasRight('ticket', 'write'));
+
+print_barre_liste($langs->trans('Tickets'), 0, $_SERVER["PHP_SELF"], '', '', '', '', 0, $langs->trans("Statistics"), $object->picto, 0, $newcardbutton, '', 0, 0, 0, 1);   // @phan-suppress-current-line PhanPluginSuspiciousParamOrder
+
+// The custom reports tool is not available to external users
+$showtabcustomreports = empty($user->socid);
+
+$h = 0;
+$head = array();
+$head[$h][0] = DOL_URL_ROOT.'/ticket/stats/index.php';
+$head[$h][1] = $langs->trans("ByMonthYear");
+$head[$h][2] = 'byyear';
+$h++;
+
+if ($showtabcustomreports) {
+	$head[$h][0] = DOL_URL_ROOT.'/ticket/stats/index.php?tabfamily=ticketstats';
+	$head[$h][1] = $langs->trans("Custom");
+	$head[$h][2] = 'customreports';
+	$h++;
+}
+
+$type = 'ticket_stats';
+
+complete_head_from_modules($conf, $langs, null, $head, $h, $type);
+
+// Show the tab with the custom reports tool
+if ($showtabcustomreports && $tabfamily == 'ticketstats') {
+	print dol_get_fiche_head($head, 'customreports', '', -1);
+
+	define('USE_CUSTOM_REPORT_AS_TAB', 1);
+	$customreportobjecttype = 'ticket';
+	include DOL_DOCUMENT_ROOT.'/core/customreports.php';
+
+	print dol_get_fiche_end();
+
+	llxFooter();
+	$db->close();
+	exit;
+}
 
 dol_mkdir($dir);
 
@@ -78,11 +151,10 @@ if ($object_status != '' && $object_status >= -1) {
 // Build graphic number of object
 $data = $stats->getNbByMonthWithPrevYear($endyear, $startyear);
 
-//var_dump($data);
 // $data = array(array('Lib',val1,val2,val3),...)
 
 
-if (empty($user->rights->societe->client->voir) || $user->socid) {
+if (!$user->hasRight('societe', 'client', 'voir')) {
 	$filenamenb = $dir.'/ticketsnbinyear-'.$user->id.'-'.$year.'.png';
 	$fileurlnb = DOL_URL_ROOT.'/viewimage.php?modulepart=ticketstats&file=ticketsnbinyear-'.$user->id.'-'.$year.'.png';
 } else {
@@ -94,7 +166,8 @@ $px1 = new DolGraph();
 $mesg = $px1->isGraphKo();
 if (!$mesg) {
 	$px1->SetData($data);
-	$i = $startyear; $legend = array();
+	$i = $startyear;
+	$legend = array();
 	while ($i <= $endyear) {
 		$legend[] = $i;
 		$i++;
@@ -115,75 +188,8 @@ if (!$mesg) {
 
 // Build graphic amount of object
 $data = $stats->getAmountByMonthWithPrevYear($endyear, $startyear);
-//var_dump($data);
+
 // $data = array(array('Lib',val1,val2,val3),...)
-
-if (empty($user->rights->societe->client->voir) || $user->socid) {
-	$filenameamount = $dir.'/ticketsamountinyear-'.$user->id.'-'.$year.'.png';
-	$fileurlamount = DOL_URL_ROOT.'/viewimage.php?modulepart=ticketstats&file=ticketsamountinyear-'.$user->id.'-'.$year.'.png';
-} else {
-	$filenameamount = $dir.'/ticketsamountinyear-'.$year.'.png';
-	$fileurlamount = DOL_URL_ROOT.'/viewimage.php?modulepart=ticketstats&file=ticketsamountinyear-'.$year.'.png';
-}
-
-$px2 = new DolGraph();
-$mesg = $px2->isGraphKo();
-if (!$mesg) {
-	$px2->SetData($data);
-	$i = $startyear; $legend = array();
-	while ($i <= $endyear) {
-		$legend[] = $i;
-		$i++;
-	}
-	$px2->SetLegend($legend);
-	$px2->SetMaxValue($px2->GetCeilMaxValue());
-	$px2->SetMinValue(min(0, $px2->GetFloorMinValue()));
-	$px2->SetWidth($WIDTH);
-	$px2->SetHeight($HEIGHT);
-	$px2->SetYLabel($langs->trans("AmountOfTickets"));
-	$px2->SetShading(3);
-	$px2->SetHorizTickIncrement(1);
-	$px2->mode = 'depth';
-	$px2->SetTitle($langs->trans("AmountOfTicketsByMonthHT"));
-
-	$px2->draw($filenameamount, $fileurlamount);
-}
-
-
-$data = $stats->getAverageByMonthWithPrevYear($endyear, $startyear);
-
-if (empty($user->rights->societe->client->voir) || $user->socid) {
-	$filename_avg = $dir.'/ticketsaverage-'.$user->id.'-'.$year.'.png';
-	$fileurl_avg = DOL_URL_ROOT.'/viewimage.php?modulepart=ticketstats&file=ticketsaverage-'.$user->id.'-'.$year.'.png';
-} else {
-	$filename_avg = $dir.'/ticketsaverage-'.$year.'.png';
-	$fileurl_avg = DOL_URL_ROOT.'/viewimage.php?modulepart=ticketstats&file=ticketsaverage-'.$year.'.png';
-}
-
-$px3 = new DolGraph();
-$mesg = $px3->isGraphKo();
-if (!$mesg) {
-	$px3->SetData($data);
-	$i = $startyear; $legend = array();
-	while ($i <= $endyear) {
-		$legend[] = $i;
-		$i++;
-	}
-	$px3->SetLegend($legend);
-	$px3->SetYLabel($langs->trans("AmountAverage"));
-	$px3->SetMaxValue($px3->GetCeilMaxValue());
-	$px3->SetMinValue($px3->GetFloorMinValue());
-	$px3->SetWidth($WIDTH);
-	$px3->SetHeight($HEIGHT);
-	$px3->SetShading(3);
-	$px3->SetHorizTickIncrement(1);
-	$px3->mode = 'depth';
-	$px3->SetTitle($langs->trans("AmountAverage"));
-
-	$px3->draw($filename_avg, $fileurl_avg);
-}
-
-
 
 // Show array
 $data = $stats->getAllByYear();
@@ -197,25 +203,14 @@ if (!count($arrayyears)) {
 	$arrayyears[$nowyear] = $nowyear;
 }
 
-$h = 0;
-$head = array();
-$head[$h][0] = DOL_URL_ROOT.'/ticket/stats/index.php';
-$head[$h][1] = $langs->trans("ByMonthYear");
-$head[$h][2] = 'byyear';
-$h++;
-
-$type = 'ticket_stats';
-
-complete_head_from_modules($conf, $langs, null, $head, $h, $type);
-
-print dol_get_fiche_head($head, 'byyear', $langs->trans("Statistics"), -1);
+print dol_get_fiche_head($head, 'byyear', '', -1);
 
 
 print '<div class="fichecenter"><div class="fichethirdleft">';
 
 
 // Show filter box
-print '<form name="stats" method="POST" action="'.$_SERVER["PHP_SELF"].'">';
+print '<form name="stats" method="POST" action="'.dolBuildUrl($_SERVER["PHP_SELF"]).'">';
 print '<input type="hidden" name="token" value="'.newToken().'">';
 
 print '<table class="noborder centpercent">';
@@ -228,10 +223,11 @@ print '</td></tr>';
 // User
 print '<tr><td class="left">'.$langs->trans("CreatedBy").'</td><td class="left">';
 print img_picto('', 'user', 'class="pictofixedwidth"');
-print $form->select_dolusers($userid, 'userid', 1, '', 0, '', '', 0, 0, 0, '', 0, '', 'widthcentpercentminusx maxwidth300');
+print $form->select_dolusers($userid, 'userid', 1, null, 0, '', '', '0', 0, 0, '', 0, '', 'widthcentpercentminusx maxwidth300');
 // Status
 print '<tr><td class="left">'.$langs->trans("Status").'</td><td class="left">';
 $liststatus = $object->fields['fk_statut']['arrayofkeyval'];
+print img_picto('', 'status', 'class="pictofixedwidth"');
 print $form->selectarray('object_status', $liststatus, GETPOST('object_status', 'intcomma'), -4, 0, 0, '', 1);
 print '</td></tr>';
 // Year
@@ -243,6 +239,7 @@ if (!in_array($nowyear, $arrayyears)) {
 	$arrayyears[$nowyear] = $nowyear;
 }
 arsort($arrayyears);
+print img_picto('', 'calendar', 'class="pictofixedwidth"');
 print $form->selectarray('year', $arrayyears, $year, 0, 0, 0, '', 0, 0, 0, '', 'width75');
 print '</td></tr>';
 print '<tr><td class="center" colspan="2"><input type="submit" name="submit" class="button small" value="'.$langs->trans("Refresh").'"></td></tr>';
@@ -256,7 +253,7 @@ print '<table class="noborder centpercent">';
 print '<tr class="liste_titre" height="24">';
 print '<td class="center">'.$langs->trans("Year").'</td>';
 print '<td class="right">'.$langs->trans("NbOfTickets").'</td>';
-print '<td class="right">%</td>';
+print '<td class="right opacitylow">%</td>';
 //print '<td class="right">'.$langs->trans("AmountTotal").'</td>';
 //print '<td class="right">%</td>';
 //print '<td class="right">'.$langs->trans("AmountAverage").'</td>';
@@ -266,13 +263,14 @@ print '</tr>';
 $oldyear = 0;
 foreach ($data as $val) {
 	$year = $val['year'];
-	while (!empty($year) && $oldyear > $year + 1) { // If we have empty year
+	while (!empty($year) && $oldyear > (int) $year + 1) { // If we have empty year
 		$oldyear--;
 
 		print '<tr class="oddeven" height="24">';
 		print '<td class="center"><a href="'.$_SERVER["PHP_SELF"].'?year='.$oldyear.($socid > 0 ? '&socid='.$socid : '').($userid > 0 ? '&userid='.$userid : '').'">'.$oldyear.'</a></td>';
 		print '<td class="right">0</td>';
-		print '<td class="right"></td>';
+		// Empty year just after a year with records: delta is -100%
+		print '<td class="right growthdown">'.(($oldyear == (int) $year + 1 && $val['nb'] > 0) ? '-100%' : '').'</td>';
 		//print '<td class="right">0</td>';
 		//print '<td class="right"></td>';
 		//print '<td class="right">0</td>';
@@ -284,7 +282,7 @@ foreach ($data as $val) {
 	print '<tr class="oddeven" height="24">';
 	print '<td class="center"><a href="'.$_SERVER["PHP_SELF"].'?year='.$year.($socid > 0 ? '&socid='.$socid : '').($userid > 0 ? '&userid='.$userid : '').'">'.$year.'</a></td>';
 	print '<td class="right">'.$val['nb'].'</td>';
-	print '<td class="right" style="'.(($val['nb_diff'] >= 0) ? 'color: green;' : 'color: red;').'">'.round($val['nb_diff']).'</td>';
+	print '<td class="right '.((isset($val['nb_diff']) && $val['nb_diff'] >= 0) ? 'growthup' : 'growthdown').'">'.(isset($val['nb_diff']) ? ($val['nb_diff'] < 0 ? '' : '+').round($val['nb_diff']).'%' : '').'</td>';
 	//print '<td class="right">'.price(price2num($val['total'], 'MT'), 1).'</td>';
 	//print '<td class="right" style="'.(($val['total_diff'] >= 0) ? 'color: green;':'color: red;').'">'.round($val['total_diff']).'</td>';
 	//print '<td class="right">'.price(price2num($val['avg'], 'MT'), 1).'</td>';
@@ -315,7 +313,7 @@ print '</td></tr></table>';
 
 
 print '</div></div>';
-print '<div style="clear:both"></div>';
+print '<div class="clearboth"></div>';
 
 print dol_get_fiche_end();
 

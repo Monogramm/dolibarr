@@ -1,8 +1,9 @@
 <?php
-/* Copyright (C) 2013-2014 Laurent Destailleur <eldy@users.sourceforge.net>
- * Copyright (C) 2014      Marcos García       <marcosgdf@gmail.com>
- * Copyright (C) 2015-2016 Alexandre Spangaro  <aspangaro@open-dsi.fr>
- * Copyright (C) 2018       Frédéric France         <frederic.france@netlogic.fr>
+/* Copyright (C) 2013-2014  Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2014       Marcos García           <marcosgdf@gmail.com>
+ * Copyright (C) 2015-2016  Alexandre Spangaro      <aspangaro@open-dsi.fr>
+ * Copyright (C) 2018-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024-2025	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,14 +25,23 @@
  *	\brief      Page to create a new survey
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
 require_once DOL_DOCUMENT_ROOT."/core/lib/admin.lib.php";
 require_once DOL_DOCUMENT_ROOT."/core/lib/files.lib.php";
 require_once DOL_DOCUMENT_ROOT."/core/class/doleditor.class.php";
 require_once DOL_DOCUMENT_ROOT."/opensurvey/lib/opensurvey.lib.php";
 
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
+
 // Security check
-if (!$user->rights->opensurvey->write) {
+if (!$user->hasRight('opensurvey', 'write')) {
 	accessforbidden();
 }
 
@@ -42,21 +52,25 @@ $description = GETPOST('description', 'restricthtml');
 $mailsonde = GETPOST('mailsonde');
 $creation_sondage_date = GETPOST('creation_sondage_date');
 $creation_sondage_autre = GETPOST('creation_sondage_autre');
+$creation_sondage_form = GETPOST('creation_sondage_form');
 
-// We init some session variable to avoir warning
-$session_var = array('title', 'description', 'mailsonde');
+// We init some session variables to avoid PHP 8 "undefined array key" warning
+$session_var = array('title', 'description', 'mailsonde', 'allow_comments', 'allow_spy', 'champdatefin');
 foreach ($session_var as $var) {
-	if (isset($_SESSION[$var])) {
-		$_SESSION[$var] = null;
+	if (!isset($_SESSION[$var])) {
+		$_SESSION[$var] = '';
 	}
 }
 
-// On initialise également les autres variables
+// Also initialise the other variables
 $cocheplus = '';
 $cochemail = '';
+$champdatefin = 0;
 
 // Jump to correct page
-if (!empty($creation_sondage_date) || !empty($creation_sondage_autre)) {
+if (!empty($creation_sondage_date) || !empty($creation_sondage_autre) || !empty($creation_sondage_form)) {
+	$error = 0;
+
 	$_SESSION["title"] = $title;
 	$_SESSION["description"] = $description;
 
@@ -79,19 +93,20 @@ if (!empty($creation_sondage_date) || !empty($creation_sondage_autre)) {
 	}
 
 	$testdate = false;
-	$champdatefin = dol_mktime(0, 0, 0, GETPOST('champdatefinmonth'), GETPOST('champdatefinday'), GETPOST('champdatefinyear'));
+	$champdatefin = (int) dol_mktime(23, 59, 59, GETPOSTINT('champdatefinmonth'), GETPOSTINT('champdatefinday'), GETPOSTINT('champdatefinyear'));
 
-	if ($champdatefin && ($champdatefin > 0)) {	// A date was provided
+	if ($champdatefin > 0) {	// A date was provided
 		// Expire date is not before today
 		if ($champdatefin >= dol_now()) {
 			$testdate = true;
 			$_SESSION['champdatefin'] = dol_print_date($champdatefin, 'dayrfc');
 		} else {
+			$error++;
 			$testdate = true;
 			$_SESSION['champdatefin'] = dol_print_date($champdatefin, 'dayrfc');
 			//$testdate = false;
 			//$_SESSION['champdatefin'] = dol_print_date($champdatefin,'dayrfc');
-			setEventMessages('ExpireDate', null, 'warnings');
+			setEventMessages($langs->trans('ErrorDateMustBeInFuture'), null, 'errors');
 		}
 	}
 
@@ -99,7 +114,7 @@ if (!empty($creation_sondage_date) || !empty($creation_sondage_autre)) {
 		setEventMessages($langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv("ExpireDate")), null, 'errors');
 	}
 
-	if ($title && $testdate) {
+	if (!$error && $title && $testdate) {
 		if (!empty($creation_sondage_date)) {
 			header("Location: choix_date.php");
 			exit();
@@ -107,6 +122,11 @@ if (!empty($creation_sondage_date) || !empty($creation_sondage_autre)) {
 
 		if (!empty($creation_sondage_autre)) {
 			header("Location: choix_autre.php");
+			exit();
+		}
+
+		if (!empty($creation_sondage_form)) {
+			header("Location: choix_form.php");
 			exit();
 		}
 	}
@@ -125,42 +145,39 @@ $arrayofjs = array();
 $arrayofcss = array('/opensurvey/css/style.css');
 llxHeader('', $langs->trans("OpenSurvey"), '', "", 0, 0, $arrayofjs, $arrayofcss);
 
-print load_fiche_titre($langs->trans("CreatePoll").' (1 / 2)');
+print load_fiche_titre($langs->trans("CreatePoll").' (1 / 2)', '', 'poll');
 
-// debut du formulaire
+
 print '<form name="formulaire" action="" method="POST">'."\n";
 print '<input type="hidden" name="token" value="'.newToken().'">';
 
 print dol_get_fiche_head();
 
-// Affichage des différents champs textes a remplir
 print '<table class="border centpercent">'."\n";
 
-print '<tr><td class="titlefieldcreate fieldrequired">'.$langs->trans("PollTitle").'</td><td><input type="text" name="title" class="minwidth300" maxlength="80" value="'.$_SESSION["title"].'"></td>'."\n";
-if (!$_SESSION["title"] && (GETPOST('creation_sondage_date') || GETPOST('creation_sondage_autre'))) {
+print '<tr><td class="titlefieldcreate fieldrequired">'.$langs->trans("PollTitle").'</td>';
+
+print '<td><input type="text" id="title" name="title" class="minwidth300" maxlength="80" value="'.dol_escape_htmltag($_SESSION["title"]).'" autofocus></td>'."\n";
+
+if (!$_SESSION["title"] && (GETPOST('creation_sondage_date') || GETPOST('creation_sondage_autre') || GETPOST('creation_sondage_form'))) {
 	setEventMessages($langs->trans("ErrorFieldRequired", $langs->transnoentitiesnoconv("PollTitle")), null, 'errors');
 }
 
 print '</tr>'."\n";
 print '<tr><td>'.$langs->trans("Description").'</td><td>';
-$doleditor = new DolEditor('description', $_SESSION["description"], '', 120, 'dolibarr_notes', 'In', 1, 1, 1, ROWS_7, '90%');
+$doleditor = new DolEditor('description', $_SESSION["description"], '', 120, 'dolibarr_notes', 'In', true, 1, 1, ROWS_7, '90%');
 $doleditor->Create(0, '');
 print '</td>'."\n";
 print '</tr>'."\n";
 
 print '<tr><td class="fieldrequired">'.$langs->trans("ExpireDate").'</td><td>';
 
-print $form->selectDate($champdatefin ? $champdatefin : -1, 'champdatefin', '', '', '', "add", 1, 0);
+print $form->selectDate($champdatefin ? $champdatefin : -1, 'champdatefin', 0, 0, 0, "add", 1, 0);
 
 print '</tr>'."\n";
 print '</table>'."\n";
 
 print dol_get_fiche_end();
-
-//focus javascript sur le premier champ
-print '<script type="text/javascript">'."\n";
-print 'document.formulaire.title.focus();'."\n";
-print '</script>'."\n";
 
 print '<br>'."\n";
 
@@ -172,6 +189,7 @@ if ($_SESSION["mailsonde"]) {
 
 print '<input type="checkbox" id="mailsonde" name="mailsonde" '.$cochemail.'> <label for="mailsonde">'.$langs->trans("ToReceiveEMailForEachVote").'</label><br>'."\n";
 
+$allow_comments = '';
 if ($_SESSION['allow_comments']) {
 	$allow_comments = 'checked';
 }
@@ -180,6 +198,7 @@ if (GETPOSTISSET('allow_comments')) {
 }
 print '<input type="checkbox" id="allow_comments" name="allow_comments" '.$allow_comments.'"> <label for="allow_comments">'.$langs->trans('CanComment').'</label><br>'."\n";
 
+$allow_spy = '';
 if ($_SESSION['allow_spy']) {
 	$allow_spy = 'checked';
 }
@@ -191,18 +210,25 @@ print '<input type="checkbox" id="allow_spy" name="allow_spy" '.$allow_spy.'> <l
 if (GETPOST('choix_sondage')) {
 	if (GETPOST('choix_sondage') == 'date') {
 		print '<input type="hidden" name="creation_sondage_date" value="date">';
+		$labeltype = $langs->trans("TypeDate");
+	} elseif (GETPOST('choix_sondage') == 'formulaire') {
+		print '<input type="hidden" name="creation_sondage_form" value="formulaire">';
+		$labeltype = $langs->trans("TypeForm");
 	} else {
 		print '<input type="hidden" name="creation_sondage_autre" value="autre">';
+		$labeltype = $langs->trans("TypeClassic");
 	}
-	print '<input type="hidden" name="choix_sondage" value="'.GETPOST('choix_sondage').'">';
-	print '<br><input type="submit" class="button" name="submit" value="'.$langs->trans("CreatePoll").' ('.(GETPOST('choix_sondage') == 'date' ? $langs->trans("TypeDate") : $langs->trans("TypeClassic")).')">';
+	print '<input type="hidden" name="choix_sondage" value="'.dol_escape_htmltag(GETPOST('choix_sondage')).'">';
+	print '<br><input type="submit" class="button" name="submit" value="'.$langs->trans("CreatePoll").' ('.$labeltype.')">';
 } else {
-	// Show image to selecte between date survey or other survey
+	// Show image to select between date survey or other survey
 	print '<br><table>'."\n";
 	print '<tr><td>'.$langs->trans("CreateSurveyDate").'</td><td></td> '."\n";
 	print '<td><input type="image" name="creation_sondage_date" value="'.$langs->trans('CreateSurveyDate').'" src="../img/calendar-32.png"></td></tr>'."\n";
 	print '<tr><td>'.$langs->trans("CreateSurveyStandard").'</td><td></td> '."\n";
 	print '<td><input type="image" name="creation_sondage_autre" value="'.$langs->trans('CreateSurveyStandard').'" src="../img/chart-32.png"></td></tr>'."\n";
+	print '<tr><td>'.$langs->trans("CreateSurveyForm").'</td><td></td> '."\n";
+	print '<td><input type="image" name="creation_sondage_form" value="'.$langs->trans('CreateSurveyForm').'" src="../img/chart-32.png"></td></tr>'."\n";
 	print '</table>'."\n";
 }
 print '<br><br><br>'."\n";

@@ -1,6 +1,8 @@
 <?php
 /* Copyright (C) 2010-2012	Regis Houssin        <regis.houssin@inodbox.com>
  * Copyright (C) 2010		Laurent Destailleur  <eldy@users.sourceforge.net>
+ * Copyright (C) 2024		MDW							<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2026       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,7 +33,6 @@ include_once DOL_DOCUMENT_ROOT.'/core/modules/DolibarrModules.class.php';
  */
 class modWorkflow extends DolibarrModules
 {
-
 	/**
 	 *   Constructor. Define names, constants, directories, boxes, permissions
 	 *
@@ -72,7 +73,7 @@ class modWorkflow extends DolibarrModules
 		$this->depends = array(); // List of module class names as string that must be enabled if this module is enabled
 		$this->requiredby = array(); // List of module ids to disable if this one is disabled
 		$this->conflictwith = array(); // List of module class names as string this module is in conflict with
-		$this->phpmin = array(5, 6); // Minimum version of PHP required by module
+		$this->phpmin = array(7, 0); // Minimum version of PHP required by module
 		$this->need_dolibarr_version = array(2, 8); // Minimum version of Dolibarr required by module
 		$this->langfiles = array("@workflow");
 
@@ -84,19 +85,19 @@ class modWorkflow extends DolibarrModules
 		$this->const = array(
 			//0=>array('WORKFLOW_PROPAL_AUTOCREATE_ORDER', 'chaine', '1', 'WORKFLOW_PROPAL_AUTOCREATE_ORDER', 0, 'current', 0),
 			//0=>array('WORKFLOW_ORDER_AUTOCREATE_INVOICE', 'chaine', '1', 'WORKFLOW_ORDER_AUTOCREATE_INVOICE', 0, 'current', 0),
-			0=>array('WORKFLOW_ORDER_CLASSIFY_BILLED_PROPAL', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_BILLED_PROPAL', 0, 'current', 0),
-			1=>array('WORKFLOW_INVOICE_CLASSIFY_BILLED_PROPAL', 'chaine', '1', 'WORKFLOW_INVOICE_CLASSIFY_BILLED_PROPAL', 0, 'current', 0),
-			2=>array('WORKFLOW_ORDER_CLASSIFY_SHIPPED_SHIPPING', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_SHIPPED_SHIPPING', 0, 'current', 0),
-			3=>array('WORKFLOW_ORDER_CLASSIFY_SHIPPED_SHIPPING_CLOSED', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_SHIPPED_SHIPPING_CLOSED', 0, 'current', 0),
-			4=>array('WORKFLOW_INVOICE_AMOUNT_CLASSIFY_BILLED_ORDER', 'chaine', '1', 'WORKFLOW_INVOICE_AMOUNT_CLASSIFY_BILLED_ORDER', 0, 'current', 0),
-			5=>array('WORKFLOW_ORDER_CLASSIFY_BILLED_SUPPLIER_PROPOSAL', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_BILLED_SUPPLIER_PROPOSAL', 0, 'current', 0),
-			6=>array('WORKFLOW_ORDER_CLASSIFY_RECEIVED_RECEPTION', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_RECEIVED_RECEPTION', 0, 'current', 0),
-			7=>array('WORKFLOW_ORDER_CLASSIFY_RECEIVED_RECEPTION_CLOSED', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_RECEIVED_RECEPTION_CLOSED', 0, 'current', 0),
-			8=>array('WORKFLOW_INVOICE_AMOUNT_CLASSIFY_BILLED_SUPPLIER_ORDER', 'chaine', '1', 'WORKFLOW_INVOICE_AMOUNT_CLASSIFY_BILLED_SUPPLIER_ORDER', 0, 'current', 0),
-			9=>array('WORKFLOW_BILL_ON_RECEPTION', 'chaine', '1', 'WORKFLOW_BILL_ON_RECEPTION', 0, 'current', 0),
-			10=>array('WORKFLOW_TICKET_LINK_CONTRACT', 'chaine', '0', 'Automatically link a ticket to available contracts', 0, 'current', 0),
-			11=>array('WORKFLOW_TICKET_USE_PARENT_COMPANY_CONTRACTS', 'chaine', '0', 'Search among parent companies contracts when automatically linking a ticket to available contracts', 0, 'current', 0),
-			11=>array('WORKFLOW_TICKET_CREATE_INTERVENTION', 'chaine', '1', 'WORKFLOW_TICKET_CREATE_INTERVENTION', 0, 'current', 0)
+			0 => array('WORKFLOW_ORDER_CLASSIFY_BILLED_PROPAL', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_BILLED_PROPAL', 0, 'current', 0),
+			1 => array('WORKFLOW_INVOICE_CLASSIFY_BILLED_PROPAL', 'chaine', '1', 'WORKFLOW_INVOICE_CLASSIFY_BILLED_PROPAL', 0, 'current', 0),
+			2 => array('WORKFLOW_ORDER_CLASSIFY_SHIPPED_SHIPPING', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_SHIPPED_SHIPPING', 0, 'current', 0),
+			3 => array('WORKFLOW_ORDER_CLASSIFY_SHIPPED_SHIPPING_CLOSED', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_SHIPPED_SHIPPING_CLOSED', 0, 'current', 0),
+			4 => array('WORKFLOW_INVOICE_AMOUNT_CLASSIFY_BILLED_ORDER', 'chaine', '1', 'WORKFLOW_INVOICE_AMOUNT_CLASSIFY_BILLED_ORDER', 0, 'current', 0),
+			5 => array('WORKFLOW_SUM_INVOICES_AMOUNT_CLASSIFY_BILLED_ORDER', 'chaine', '1', 'WORKFLOW_INVOICE_AMOUNT_CLASSIFY_BILLED_ORDER', 0, 'current', 0),
+			6 => array('WORKFLOW_ORDER_CLASSIFY_BILLED_SUPPLIER_PROPOSAL', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_BILLED_SUPPLIER_PROPOSAL', 0, 'current', 0),
+			7 => array('WORKFLOW_ORDER_CLASSIFY_RECEIVED_RECEPTION', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_RECEIVED_RECEPTION', 0, 'current', 0),
+			8 => array('WORKFLOW_ORDER_CLASSIFY_RECEIVED_RECEPTION_CLOSED', 'chaine', '1', 'WORKFLOW_ORDER_CLASSIFY_RECEIVED_RECEPTION_CLOSED', 0, 'current', 0),
+			9 => array('WORKFLOW_INVOICE_AMOUNT_CLASSIFY_BILLED_SUPPLIER_ORDER', 'chaine', '1', 'WORKFLOW_INVOICE_AMOUNT_CLASSIFY_BILLED_SUPPLIER_ORDER', 0, 'current', 0),
+			10 => array('WORKFLOW_TICKET_LINK_CONTRACT', 'chaine', '0', 'Automatically link a ticket to available contracts', 0, 'current', 0),
+			11 => array('WORKFLOW_TICKET_USE_PARENT_COMPANY_CONTRACTS', 'chaine', '0', 'Search among parent companies contracts when automatically linking a ticket to available contracts', 0, 'current', 0),
+			12 => array('WORKFLOW_TICKET_CREATE_INTERVENTION', 'chaine', '0', 'WORKFLOW_TICKET_CREATE_INTERVENTION', 0, 'current', 0),
 		);
 
 		// Boxes
@@ -108,15 +109,15 @@ class modWorkflow extends DolibarrModules
 
 		/*
 		$r++;
-		$this->rights[$r][0] = 6001; // id de la permission
-		$this->rights[$r][1] = "Lire les workflow"; // libelle de la permission
-		$this->rights[$r][2] = 'r'; // type de la permission (deprecie a ce jour)
-		$this->rights[$r][3] = 0; // La permission est-elle une permission par defaut
+		$this->rights[$r][0] = 6001; // Permission id (must not be already used)
+		$this->rights[$r][1] = "Lire les workflow"; // Permission label
+		$this->rights[$r][2] = 'r'; // Permission type (deprecated)
+		$this->rights[$r][3] = 0; // Permission by default for new user (0/1)
 		$this->rights[$r][4] = 'read';
 		*/
 
 		// Main menu entries
-		$this->menus = array(); // List of menus to add
+		$this->menu = array(); // List of menus to add
 		$r = 0;
 		/*
 		$this->menu[$r]=array('fk_menu'=>0,
@@ -126,8 +127,8 @@ class modWorkflow extends DolibarrModules
 								'url'=>'/workflow/index.php',
 								'langs'=>'@workflow',
 								'position'=>100,
-								'perms'=>'$user->rights->workflow->read',
-								'enabled'=>'$conf->workflow->enabled',
+								'perms'=>'$user->hasRights("workflow", "read")',
+								'enabled'=>'isModEnabled("workflow")',
 								'target'=>'',
 								'user'=>0);
 		$r++;
@@ -139,8 +140,8 @@ class modWorkflow extends DolibarrModules
 								'url'=>'/workflow/index.php',
 								'langs'=>'@workflow',
 								'position'=>101,
-								'enabled'=>1,
-								'perms'=>'$user->rights->workflow->read',
+								'enabled'=>'isModEnabled("workflow")',
+								'perms'=>'$user->hasRight("workflow", "read")',
 								'target'=>'',
 								'user'=>0);
 		$r++;

@@ -1,7 +1,39 @@
 <?php
+/* Copyright (C) 2025-2026	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2025       Frédéric France         <frederic.france@free.fr>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @var string $action
+ * @var int $colspan
+ * @var string $tredited
+ * @var Conf $conf
+ * @var CommonObject $object
+ * @var FormFile $formfile
+ * @var User $user
+ */
+'
+@phan-var-force int $colspan
+@phan-var-force FormFile $formfile
+@phan-var-force User $user
+';
+
 // Add line to upload new file
 print '<!-- expensereport_addfile.tpl.php -->'."\n";
-print '<tr class="truploadnewfilenow'.(empty($tredited) ? ' oddeven nohover' : ' '.$tredited).'"'.(empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER) ? ' style="display: none"' : '').'>';
+print '<tr class="truploadnewfilenow'.(empty($tredited) ? ' oddeven nohover' : ' '.$tredited).'"'.(!getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER') ? ' style="display: none"' : '').'>';
 
 // Num line
 if ($action == 'editline') {
@@ -12,11 +44,11 @@ if ($action == 'editline') {
 print '<td colspan="'.($action == 'editline' ? $colspan - 1 : $colspan).'">';
 
 $modulepart = 'expensereport';
-$permission = $user->rights->expensereport->creer;
+$permission = $user->hasRight('expensereport', 'creer');
 
 // We define var to enable the feature to add prefix of uploaded files
 $savingdocmask = '';
-if (empty($conf->global->MAIN_DISABLE_SUGGEST_REF_AS_PREFIX)) {
+if (!getDolGlobalString('MAIN_DISABLE_SUGGEST_REF_AS_PREFIX')) {
 	//var_dump($modulepart);
 	if (in_array($modulepart, array('facture_fournisseur', 'commande_fournisseur', 'facture', 'commande', 'propal', 'supplier_proposal', 'ficheinter', 'contract', 'expedition', 'project', 'project_task', 'expensereport', 'tax', 'produit', 'product_batch'))) {
 		$savingdocmask = dol_sanitizeFileName($object->ref).'-__file__';

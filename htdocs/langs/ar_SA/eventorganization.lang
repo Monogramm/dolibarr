@@ -5,163 +5,162 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#
 # Generic
-#
-ModuleEventOrganizationName = Event Organization
-EventOrganizationDescription = Event Organization through Module Project
-EventOrganizationDescriptionLong= Manage the organization of an event (show, conferences, attendees or speakers, with public pages for suggestion, vote or registration)
-#
-# Menu
-#
-EventOrganizationMenuLeft = Organized events
-EventOrganizationConferenceOrBoothMenuLeft = Conference Or Booth
-
-PaymentEvent=Payment of event
-
-#
+ModuleEventOrganizationName = تنظيم الفعاليات
+EventOrganizationDescription = تنظيم الفعاليات عبر وحدة المشروعات
+EventOrganizationDescriptionLong= إدارة تنظيم فعالية، بما في ذلك العروض والمؤتمرات والمشاركون والمتحدثون، مع صفحات عامة لتقديم المقترحات والتصويت والتسجيل
+EventOrganizationMenuLeft = الفعاليات المنظمة
+EventOrganizationConferenceOrBoothMenuLeft = مؤتمر أو جناح
+PaymentEvent=دفعة الفعالية
+EventFee=رسوم الفعالية
 # Admin page
-#
-NewRegistration=Registration
-EventOrganizationSetup=Event Organization setup
-EventOrganization=Event organization
-Settings=إعدادات
-EventOrganizationSetupPage = Event Organization setup page
-EVENTORGANIZATION_TASK_LABEL = Label of tasks to create automatically when project is validated
-EVENTORGANIZATION_TASK_LABELTooltip = When you validate an organized event, some tasks can be automatically created in the project<br><br>For example: <br>Send Call for Conference<br>Send Call for Booth<br>Receive call for conferences<br>Receive call for Booth<br>Open subscriptions to events for attendees<br>Send remind of event to speakers<br>Send remind of event to Booth hoster<br>Send remind of event to attendees
-EVENTORGANIZATION_CATEG_THIRDPARTY_CONF = Category to add to third-parties automatically created when someone suggests a conference
-EVENTORGANIZATION_CATEG_THIRDPARTY_BOOTH = Category to add to third-parties automatically created when they suggests a booth
-EVENTORGANIZATION_TEMPLATE_EMAIL_ASK_CONF = Template of email to send after receiving a suggestion of a conference.
-EVENTORGANIZATION_TEMPLATE_EMAIL_ASK_BOOTH = Template of email to send after receiving a suggestion of a booth.
-EVENTORGANIZATION_TEMPLATE_EMAIL_AFT_SUBS_BOOTH = Template of email to send after a registration to a booth has been paid.
-EVENTORGANIZATION_TEMPLATE_EMAIL_AFT_SUBS_EVENT = Template of email to send after a registration to an event has been paid.
-EVENTORGANIZATION_TEMPLATE_EMAIL_BULK_SPEAKER = Template of email to use when sending emails from the massaction "Send emails" to speakers
-EVENTORGANIZATION_TEMPLATE_EMAIL_BULK_ATTENDES = Template of email to use when sending emails from the massaction "Send emails" on attendee list
-EVENTORGANIZATION_FILTERATTENDEES_CAT = In the form to create/add an attendee, restricts the list of thirdparties to thirdparties in the category
-EVENTORGANIZATION_FILTERATTENDEES_TYPE = In the form to create/add an attendee, restricts the list of thirdparties to thirdparties with the nature
-
-#
+NewRegistration=تسجيل جديد
+EventOrganizationSetup=إعدادات تنظيم الفعاليات
+EventOrganization=تنظيم الفعالية
+EventOrganizationSetupPage = صفحة إعدادات تنظيم الفعاليات
+EVENTORGANIZATION_TASK_LABEL = تسميات المهام التي ستُنشأ تلقائيًا عند اعتماد المشروع
+EVENTORGANIZATION_TASK_LABELTooltip = When you validate an event to organize, some tasks can be automatically created in the project<br><br>For example: <br>Send Call for Conferences<br>Send Call for Booths<br>Validate suggestions of Conferences<br>Validate application for Booths<br>Open subscriptions to the event for attendees<br>Send a reminder of the event to speakers<br>Send a reminder of the event to Booth hosters<br>Send a reminder of the event to attendees
+EVENTORGANIZATION_TASK_LABELTooltip2=اترك الحقل فارغًا عندما لا تكون هناك حاجة إلى إنشاء مهام تلقائيًا.
+EVENTORGANIZATION_CATEG_THIRDPARTY_CONF = الفئة التي تُسند إلى الأطراف الثالثة المنشأة تلقائيًا عند اقتراح مؤتمر
+EVENTORGANIZATION_CATEG_THIRDPARTY_BOOTH = الفئة التي تُسند إلى الأطراف الثالثة المنشأة تلقائيًا عند تقديم طلب جناح
+EVENTORGANIZATION_TEMPLATE_EMAIL_ASK_CONF = قالب البريد الإلكتروني المرسل بعد استلام اقتراح مؤتمر.
+EVENTORGANIZATION_TEMPLATE_EMAIL_ASK_BOOTH = قالب البريد الإلكتروني المرسل بعد استلام طلب جناح.
+EVENTORGANIZATION_TEMPLATE_EMAIL_AFT_SUBS_BOOTH = قالب البريد الإلكتروني المرسل بعد دفع رسوم التسجيل في جناح.
+EVENTORGANIZATION_TEMPLATE_EMAIL_AFT_SUBS_EVENT = قالب البريد الإلكتروني المرسل بعد دفع رسوم التسجيل في فعالية.
+EVENTORGANIZATION_TEMPLATE_EMAIL_BULK_SPEAKER = قالب البريد الإلكتروني المستخدم عند تنفيذ الإجراء الجماعي «إرسال رسائل بريد إلكتروني» للمتحدثين
+EVENTORGANIZATION_TEMPLATE_EMAIL_BULK_ATTENDES = قالب البريد الإلكتروني المستخدم عند تنفيذ الإجراء الجماعي «إرسال رسائل بريد إلكتروني» في قائمة المشاركين
+EVENTORGANIZATION_FILTERATTENDEES_CAT = في نموذج إنشاء مشارك أو إضافته، تُقصر قائمة الأطراف الثالثة على الأطراف المنتمية إلى الفئة المحددة
+EVENTORGANIZATION_FILTERATTENDEES_TYPE = في نموذج إنشاء مشارك أو إضافته، تُقصر قائمة الأطراف الثالثة على الأطراف ذات الطبيعة المحددة
 # Object
-#
-EventOrganizationConfOrBooth= Conference Or Booth
-ManageOrganizeEvent = Manage the organization of an event
-ConferenceOrBooth = Conference Or Booth
-ConferenceOrBoothTab = Conference Or Booth
-AmountPaid = Amount paid
-DateOfRegistration = Date of registration
-ConferenceOrBoothAttendee = Conference Or Booth Attendee
-
-#
+OrganizedEvent=فعالية منظمة
+EventOrganizationConfOrBooth= مؤتمر أو جناح
+EventOrganizationConfOrBoothes=مؤتمرات أو أجنحة
+ManageOrganizeEvent = إدارة تنظيم فعالية
+ConferenceOrBooth = مؤتمر أو جناح
+ConferenceOrBoothTab = المؤتمر أو الجناح
+AmountPaid = المبلغ المدفوع
+DateOfRegistration = تاريخ التسجيل
+ConferenceOrBoothAttendee = مشارك في المؤتمر أو الجناح
+ConferenceOrBoothAttendeesShort = مشاركو المؤتمرات أو الأجنحة
+ApplicantOrVisitor=مقدم الطلب أو الزائر
+Speaker=المتحدث
 # Template Mail
-#
-YourOrganizationEventConfRequestWasReceived = Your request for conference was received
-YourOrganizationEventBoothRequestWasReceived = Your request for booth was received
-EventOrganizationEmailAskConf = Request for conference
-EventOrganizationEmailAskBooth = Request for booth
-EventOrganizationEmailBoothPayment = Payment of your booth
-EventOrganizationEmailRegistrationPayment = Registration for an event
-EventOrganizationMassEmailAttendees = Communication to attendees
-EventOrganizationMassEmailSpeakers = Communication to speakers
-ToSpeakers=To speakers
-
-#
+YourOrganizationEventConfRequestWasReceived = تم استلام طلبك لتقديم مؤتمر
+YourOrganizationEventBoothRequestWasReceived = تم استلام طلبك لحجز جناح
+EventOrganizationEmailAskConf = طلب تقديم مؤتمر
+EventOrganizationEmailAskBooth = طلب حجز جناح
+EventOrganizationEmailBoothPayment = دفع رسوم جناحك
+EventOrganizationEmailRegistrationPayment = التسجيل في فعالية
+EventOrganizationMassEmailAttendees = مراسلة المشاركين
+EventOrganizationMassEmailSpeakers = مراسلة المتحدثين
+ToSpeakers=إلى المتحدثين
 # Event
-#
-AllowUnknownPeopleSuggestConf=Allow people to suggest conferences
-AllowUnknownPeopleSuggestConfHelp=Allow unknown people to suggest a conference they want to do
-AllowUnknownPeopleSuggestBooth=Allow people to apply for a booth
-AllowUnknownPeopleSuggestBoothHelp=Allow unknown people to apply for a booth
-PriceOfRegistration=Price of registration
-PriceOfRegistrationHelp=Price to pay to register or participate in the event
-PriceOfBooth=Subscription price to stand a booth
-PriceOfBoothHelp=Subscription price to stand a booth
-EventOrganizationICSLink=Link ICS for conferences
-ConferenceOrBoothInformation=Conference Or Booth informations
-Attendees=Attendees
-ListOfAttendeesOfEvent=List of attendees of the event project
-DownloadICSLink = Download ICS link
-EVENTORGANIZATION_SECUREKEY = Seed to secure the key for the public registration page to suggest a conference
-SERVICE_BOOTH_LOCATION = Service used for the invoice row about a booth location
-SERVICE_CONFERENCE_ATTENDEE_SUBSCRIPTION = Service used for the invoice row about an attendee subscription to an event
-NbVotes=Number of votes
-#
+AllowUnknownPeopleSuggestConf=السماح للزوار باقتراح مؤتمرات
+AllowUnknownPeopleSuggestConfHelp=السماح للزوار غير المسجلين باقتراح مؤتمر يرغبون في تقديمه
+AllowUnknownPeopleSuggestBooth=السماح للزوار بتقديم طلبات لحجز أجنحة
+AllowUnknownPeopleSuggestBoothHelp=السماح للزوار غير المسجلين بتقديم طلب لحجز جناح
+PriceOfRegistration=رسوم التسجيل
+PriceOfRegistrationHelp=المبلغ المطلوب دفعه للتسجيل أو المشاركة في الفعالية
+PriceOfBooth=رسوم حجز الجناح
+PriceOfBoothHelp=رسوم الاشتراك المطلوبة لحجز جناح
+EventOrganizationICSLinkProject=رابط ICS للفعالية
+EventOrganizationICSLink=رابط ICS للمؤتمرات
+ConferenceOrBoothInformation=معلومات المؤتمر أو الجناح
+ConferenceOrBoothFormat=صيغة المؤتمر أو الجناح
+ConferenceOrBoothFormatID=معرّف صيغة المؤتمر أو الجناح
+ConferenceOrBoothFormatCode=رمز صيغة المؤتمر أو الجناح
+ConferenceOrBoothFormatLabel=تسمية صيغة المؤتمر أو الجناح
+Attendees=المشاركون
+ListOfAttendeesOfEvent=قائمة المشاركين في مشروعات الفعاليات
+ListOfConfOrBoothOfEvent=قائمة المؤتمرات أو الأجنحة ضمن مشروعات الفعاليات
+DownloadICSLink=تنزيل ملف ICS
+EVENTORGANIZATION_SECUREKEY=قيمة أولية لتأمين مفتاح صفحة التسجيل العامة الخاصة باقتراح مؤتمر
+SERVICE_BOOTH_LOCATION=الخدمة المستخدمة في بند الفاتورة الخاص ببيع جناح.
+SERVICE_CONFERENCE_ATTENDEE_SUBSCRIPTION=الخدمة المستخدمة في بند الفاتورة الخاص برسوم المشاركة.
+NbVotes=عدد الأصوات
 # Status
-#
-EvntOrgDraft = حوالة مصرفية
-EvntOrgSuggested = Suggested
-EvntOrgConfirmed = Confirmed
-EvntOrgNotQualified = Not Qualified
-EvntOrgDone = منتهي
-EvntOrgCancelled = Cancelled
-#
-# Public page
-#
-SuggestForm = Suggestion page
-SuggestOrVoteForConfOrBooth = Page for suggestion or vote
-EvntOrgRegistrationHelpMessage = Here, you can vote for a conference or suggest a new one for the event. You can also apply to have a booth during the event.
-EvntOrgRegistrationConfHelpMessage = Here, you can suggest a new conference to animate during the event.
-EvntOrgRegistrationBoothHelpMessage = Here, you can apply to have a booth during the event.
-ListOfSuggestedConferences = List of suggested conferences
-ListOfSuggestedBooths = List of suggested booths
-ListOfConferencesOrBooths=List of conferences or booths of event project
-SuggestConference = Suggest a new conference
-SuggestBooth = Suggest a booth
-ViewAndVote = View and vote for suggested events
-PublicAttendeeSubscriptionGlobalPage = Public link for registration to the event
-PublicAttendeeSubscriptionPage = Public link for registration to this event only
-MissingOrBadSecureKey = The security key is invalid or missing
-EvntOrgWelcomeMessage = This form allows you to register as a new participant to the event : <b>%s</b>
-EvntOrgDuration = This conference starts on %s and ends on %s.
-ConferenceAttendeeFee = Conference attendee fee for the event : '%s' occurring from %s to %s.
-BoothLocationFee = Booth location for the event : '%s' occurring from %s to %s
-EventType = نوع الحدث
-LabelOfBooth=Booth label
-LabelOfconference=Conference label
-ConferenceIsNotConfirmed=Registration not available, conference is not confirmed yet
-DateMustBeBeforeThan=%s must be before %s
-DateMustBeAfterThan=%s must be after %s
-
-NewSubscription=Registration
-OrganizationEventConfRequestWasReceived=Your suggestion for a conference has been received
-OrganizationEventBoothRequestWasReceived=Your request for a booth has been received
-OrganizationEventPaymentOfBoothWasReceived=Your payment for your booth has been recorded
-OrganizationEventPaymentOfRegistrationWasReceived=Your payment for your event registration has been recorded
-OrganizationEventBulkMailToAttendees=This is a remind about your participation in the event as an attendee
-OrganizationEventBulkMailToSpeakers=This is a reminder on your participation in the event as a speaker
-OrganizationEventLinkToThirdParty=Link to third party (customer, supplier or partner)
-
-NewSuggestionOfBooth=Application for a booth
-NewSuggestionOfConference=Application for a conference
-
-#
-# Vote page
-#
-EvntOrgRegistrationWelcomeMessage = Welcome on the conference or booth suggestion page.
-EvntOrgRegistrationConfWelcomeMessage = Welcome on the conference suggestion page.
-EvntOrgRegistrationBoothWelcomeMessage = Welcome on the booth suggestion page.
-EvntOrgVoteHelpMessage = Here, you can view and vote for the suggested events for the project
-VoteOk = Your vote has been accepted.
-AlreadyVoted = You have already voted for this event.
-VoteError = An error has occurred during the vote, please try again.
-
-SubscriptionOk = Your registration has been validated
-ConfAttendeeSubscriptionConfirmation = Confirmation of your subscription to an event
-Attendee = Attendee
-PaymentConferenceAttendee = Conference attendee payment
-PaymentBoothLocation = Booth location payment
-DeleteConferenceOrBoothAttendee=Remove attendee
-RegistrationAndPaymentWereAlreadyRecorder=A registration and a payment were already recorded for the email <b>%s</b>
-EmailAttendee=Attendee email
-EmailCompanyForInvoice=Company email (for invoice, if different of attendee email)
-ErrorSeveralCompaniesWithEmailContactUs=Several companies with this email has been found so we can't validate automaticaly your registration. Please contact us at %s for a manual validation
-ErrorSeveralCompaniesWithNameContactUs=Several companies with this name has been found so we can't validate automaticaly your registration. Please contact us at %s for a manual validation
-NoPublicActionsAllowedForThisEvent=No public actions are open to public for this event
+EvntOrgDraft = مسودة
+EvntOrgSuggested = مقترح
+EvntOrgConfirmed = مؤكَّد
+EvntOrgNotQualified = غير مستوفٍ للشروط
+EvntOrgDone = مكتمل
+EvntOrgCancelled = ملغى
+# Other
+SuggestForm = صفحة تقديم المقترحات
+SuggestOrVoteForConfOrBooth = صفحة الاقتراح أو التصويت
+EvntOrgRegistrationHelpMessage = يمكنك هنا التصويت لمؤتمر أو اقتراح مؤتمر جديد للفعالية. كما يمكنك تقديم طلب لحجز جناح أثناء الفعالية.
+EvntOrgRegistrationConfHelpMessage = يمكنك هنا اقتراح مؤتمر جديد لتقديمه خلال الفعالية.
+EvntOrgRegistrationBoothHelpMessage = يمكنك هنا تقديم طلب لحجز جناح أثناء الفعالية.
+ListOfSuggestedConferences = قائمة المؤتمرات المقترحة
+ListOfSuggestedBooths=قائمة الأجنحة المقترحة
+ListOfConferencesOrBooths=المؤتمرات أو الأجنحة ضمن مشروع الفعالية
+SuggestConference = اقتراح مؤتمر جديد
+SuggestBooth = تقديم طلب جناح
+ViewAndVote = عرض المقترحات والتصويت عليها
+PublicAttendeeSubscriptionGlobalPage = الرابط العام للتسجيل في الفعالية
+PublicAttendeeSubscriptionPage = الرابط العام للتسجيل في هذه الفعالية فقط
+MissingOrBadSecureKey = مفتاح الأمان مفقود أو غير صالح
+EvntOrgWelcomeMessage = يتيح لك هذا النموذج التسجيل مشاركًا جديدًا في الفعالية
+EvntOrgDuration = يبدأ هذا المؤتمر في %s وينتهي في %s.
+ConferenceAttendeeFee = رسوم حضور المؤتمر ضمن الفعالية «%s» المقامة من %s إلى %s.
+BoothLocationFee = رسوم مساحة الجناح ضمن الفعالية «%s» المقامة من %s إلى %s
+EventType = نوع الفعالية
+LabelOfBooth=تسمية الجناح
+LabelOfconference=تسمية المؤتمر
+ConferenceIsNotConfirmed=التسجيل غير متاح لأن المؤتمر لم يُؤكَّد بعد
+EventRegistrationAreClosed=أُغلق التسجيل في الفعالية
+DateMustBeBeforeThan=يجب أن يكون %s قبل %s
+DateMustBeAfterThan=يجب أن يكون %s بعد %s
+MaxNbOfAttendeesReached=تم بلوغ الحد الأقصى لعدد المشاركين
+OrganizationEventConfRequestWasReceived=تم استلام اقتراحك لتقديم مؤتمر
+OrganizationEventBoothRequestWasReceived=تم استلام طلبك لحجز جناح
+OrganizationEventPaymentOfBoothWasReceived=تم تسجيل دفعة جناحك
+OrganizationEventPaymentOfRegistrationWasReceived=تم تسجيل دفعة تسجيلك في الفعالية
+OrganizationEventBulkMailToAttendees=This is a reminder about your participation in the event as an attendee
+OrganizationEventBulkMailToSpeakers=هذا تذكير بمشاركتك في الفعالية بصفتك متحدثًا
+OrganizationEventLinkToThirdParty=ربط بطرف ثالث (عميل أو مورد أو شريك)
+OrganizationEvenLabelName=الاسم المعروض للعامة للمؤتمر أو الجناح
+NewSuggestionOfBooth=طلب حجز جناح
+NewSuggestionOfConference=طلب تقديم مؤتمر
+EvntOrgRegistrationWelcomeMessage = مرحبًا بك في صفحة اقتراح مؤتمر أو تقديم طلب جناح.
+EvntOrgRegistrationConfWelcomeMessage = مرحبًا بك في صفحة اقتراح المؤتمرات.
+EvntOrgRegistrationBoothWelcomeMessage = مرحبًا بك في صفحة طلبات الأجنحة.
+EvntOrgVoteHelpMessage = يمكنك هنا عرض المقترحات الخاصة بالمشروع والتصويت عليها
+VoteOk = تم قبول تصويتك.
+AlreadyVoted = سبق أن صوّتَّ لهذه الفعالية.
+VoteError = حدث خطأ أثناء التصويت؛ يرجى المحاولة مجددًا.
+SubscriptionOk=تم تسجيل اشتراكك
+AmountOfRegistrationPaid=مبلغ التسجيل المدفوع
+ConfAttendeeSubscriptionConfirmation = تأكيد تسجيلك في فعالية
+Attendee = مشارك
+PaymentConferenceAttendee = دفعة حضور المؤتمر
+PaymentBoothLocation = دفعة حجز مساحة جناح
+DeleteConferenceOrBoothAttendee=إزالة المشارك
+RegistrationAndPaymentWereAlreadyRecorder=سبق تسجيل اشتراك ودفعة للبريد الإلكتروني <b>%s</b>
+EmailAttendee=بريد المشارك الإلكتروني
+EmailCompany=البريد الإلكتروني للشركة
+EmailCompanyForInvoice=البريد الإلكتروني للشركة (للفاتورة، إذا كان مختلفًا عن بريد المشارك الإلكتروني)
+ErrorSeveralCompaniesWithEmailContactUs=عُثر على عدة شركات مرتبطة بهذا البريد الإلكتروني، لذلك تعذر اعتماد تسجيلك تلقائيًا. يرجى التواصل معنا عبر %s لاعتماده يدويًا
+ErrorSeveralCompaniesWithNameContactUs=عُثر على عدة شركات بهذا الاسم، لذلك تعذر اعتماد تسجيلك تلقائيًا. يرجى التواصل معنا عبر %s لاعتماده يدويًا
+NoPublicActionsAllowedForThisEvent=لا تتوفر أي إجراءات عامة لهذه الفعالية
+MaxNbOfAttendees=الحد الأقصى لعدد المشاركين
+DateStartEvent=تاريخ بدء الفعالية
+DateEndEvent=تاريخ انتهاء الفعالية
+ModifyStatus=تعديل الحالة
+ConfirmModifyStatus=تأكيد تعديل الحالة
+ConfirmModifyStatusQuestion=هل أنت متأكد من تعديل السجلات المحددة وعددها %s؟
+RecordsUpdated=تم تحديث %s من السجلات
+RecordUpdated=تم تحديث السجل
+NoRecordUpdated=لم يُحدَّث أي سجل
+ProfitPerValidatedAttendee=الربح لكل مشارك معتمد
+Confirmed=مؤكَّد
+NotSelected=غير محدد
+TheLinkIsAvailableOnTheProjectEventCard=تتوفر روابط اقتراح مؤتمر أو التصويت عليه أو تقديم طلب لحجز جناح في بطاقة المشروع/الفعالية
+ShowedUp=حضر

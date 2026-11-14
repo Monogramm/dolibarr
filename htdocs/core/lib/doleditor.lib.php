@@ -2,6 +2,7 @@
 /* Copyright (C) 2006-2012	Laurent Destailleur	<eldy@users.sourceforge.net>
  * Copyright (C) 2010-2012	Regis Houssin		<regis.houssin@inodbox.com>
  * Copyright (C) 2015		Alexandre Spangaro	<aspangaro@open-dsi.fr>
+ * Copyright (C) 2026       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,7 +22,7 @@
 
 /**
  *	    \file       htdocs/core/lib/doleditor.lib.php
- *		\brief      Ensemble de fonctions de base pour la gestion des utilisaterus et groupes
+ *		\brief      Ensemble de functions de base pour la gestion des utilisaterus et groups
  */
 
 /**
@@ -40,7 +41,7 @@ function show_skin($fuser, $edit = 0)
 
 	$formother = new FormOther($db);
 
-	$dirskins = array('/includes/ckeditor/ckeditor/skins');
+	$dirskins = array('/public/includes/ckeditor/ckeditor/skins');
 	if (!empty($conf->modules_parts['theme'])) {		// Using this feature slow down application
 		foreach ($conf->modules_parts['theme'] as $reldir) {
 			$dirskins = array_merge($dirskins, (array) ($reldir.'theme'));
@@ -49,19 +50,14 @@ function show_skin($fuser, $edit = 0)
 	$dirskins = array_unique($dirskins);
 	// Now dir_themes=array('/themes') or dir_themes=array('/theme','/mymodule/theme')
 
-	$selected_theme = '';
-	if (empty($conf->global->FCKEDITOR_SKIN)) {
-		$selected_theme = 'moono-lisa';
-	} else {
-		$selected_theme = $conf->global->FCKEDITOR_SKIN;
-	}
+	$selected_theme = getDolGlobalString('FCKEDITOR_SKIN', 'moono-lisa');
 
 	$colspan = 2;
 
-	$thumbsbyrow = 6;
+
 	print '<table class="noborder centpercent">';
 
-	$var = false;
+	$var = 0;
 
 	// Title
 	print '<tr class="liste_titre"><th width="35%">'.$langs->trans("DefaultSkin").'</th>';
@@ -92,13 +88,13 @@ function show_skin($fuser, $edit = 0)
 			$handle = opendir($dirskin);
 			if (is_resource($handle)) {
 				while (($subdir = readdir($handle)) !== false) {
-					if (is_dir($dirskin."/".$subdir) && substr($subdir, 0, 1) <> '.'
-							&& substr($subdir, 0, 3) <> 'CVS' && !preg_match('/common|phones/i', $subdir)) {
+					if (is_dir($dirskin."/".$subdir) && substr($subdir, 0, 1) != '.'
+							&& substr($subdir, 0, 3) != 'CVS' && !preg_match('/common|phones/i', $subdir)) {
 						// Disable not stable themes (dir ends with _exp or _dev)
-						if ($conf->global->MAIN_FEATURES_LEVEL < 2 && preg_match('/_dev$/i', $subdir)) {
+						if (getDolGlobalInt('MAIN_FEATURES_LEVEL') < 2 && preg_match('/_dev$/i', $subdir)) {
 							continue;
 						}
-						if ($conf->global->MAIN_FEATURES_LEVEL < 1 && preg_match('/_exp$/i', $subdir)) {
+						if (getDolGlobalInt('MAIN_FEATURES_LEVEL') < 1 && preg_match('/_exp$/i', $subdir)) {
 							continue;
 						}
 

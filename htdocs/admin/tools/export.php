@@ -1,8 +1,11 @@
 <?php
-/* Copyright (C) 2006-2014  Laurent Destailleur <eldy@users.sourceforge.net>
- * Copyright (C) 2011       Juanjo Menent       <jmenent@2byte.es>
- * Copyright (C) 2015       Raphaël Doursenaud  <rdoursenaud@gpcsolutions.fr>
+/* Copyright (C) 2006-2014	Laurent Destailleur	<eldy@users.sourceforge.net>
+ * Copyright (C) 2011		Juanjo Menent		<jmenent@2byte.es>
+ * Copyright (C) 2015		Raphaël Doursenaud	<rdoursenaud@gpcsolutions.fr>
  * Copyright (C) 2021		Regis Houssin		<regis.houssin@inodbox.com>
+ * Copyright (C) 2024-2026  Frédéric France		<frederic.france@free.fr>
+ * Copyright (C) 2025		MDW					<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2025		Anthony Berton		<anthony.berton@bb2a.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,7 +26,17 @@
  *		\brief      Page to export a database into a dump file
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ *
+ * @var string	$dolibarr_main_restrict_os_commands
+ */
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/utils.class.php';
@@ -34,14 +47,14 @@ $langs->load("admin");
 $action = GETPOST('action', 'aZ09');
 $what = GETPOST('what', 'alpha');
 $export_type = GETPOST('export_type', 'alpha');
-$file = GETPOST('filename_template', 'alpha');
+$file = dol_sanitizeFileName(GETPOST('filename_template', 'alpha'));
 
 // Load variable for pagination
-$limit = GETPOST('limit', 'int') ?GETPOST('limit', 'int') : $conf->liste_limit;
+$limit = GETPOSTINT('limit') ? GETPOSTINT('limit') : $conf->liste_limit;
 $sortfield = GETPOST('sortfield', 'aZ09comma');
 $sortorder = GETPOST('sortorder', 'aZ09comma');
-$page = GETPOSTISSET('pageplusone') ? (GETPOST('pageplusone') - 1) : GETPOST("page", 'int');
-if (empty($page) || $page == -1 || GETPOST('button_search', 'alpha') || GETPOST('button_removefilter', 'alpha') || (empty($toselect) && $massaction === '0')) {
+$page = GETPOSTISSET('pageplusone') ? (GETPOSTINT('pageplusone') - 1) : GETPOSTINT("page");
+if (empty($page) || $page == -1 || GETPOST('button_search', 'alpha') || GETPOST('button_removefilter', 'alpha')) {
 	$page = 0;
 }     // If $page is not defined, or '' or -1 or if we click on clear filters or if we select empty mass action
 $offset = $limit * $page;
@@ -56,21 +69,23 @@ if (!$user->admin) {
 	accessforbidden();
 }
 
-if ($file && !$what) {
-	//print DOL_URL_ROOT.'/dolibarr_export.php';
-	header("Location: ".DOL_URL_ROOT.'/admin/tools/dolibarr_export.php?msg='.urlencode($langs->trans("ErrorFieldRequired", $langs->transnoentities("ExportMethod"))).(GETPOST('page_y', 'int') ? '&page_y='.GETPOST('page_y', 'int') : ''));
-	exit;
-}
-
 $errormsg = '';
+
+$utils = new Utils($db);
 
 
 /*
  * Actions
  */
 
+if ($file && !$what) {
+	//print DOL_URL_ROOT.'/dolibarr_export.php';
+	header("Location: ".DOL_URL_ROOT.'/admin/tools/dolibarr_export.php?msg='.urlencode($langs->trans("ErrorFieldRequired", $langs->transnoentities("ExportMethod"))).(GETPOSTINT('page_y') ? '&page_y='.GETPOSTINT('page_y') : '').(GETPOSTINT('allow_download_app') ? '&allow_download_app=1' : ''));
+	exit;
+}
+
 if ($action == 'delete') {
-	$file = $conf->admin->dir_output.'/'.GETPOST('urlfile');
+	$file = $conf->admin->dir_output.'/'.dol_sanitizeFileName(GETPOST('urlfile'));
 	$ret = dol_delete_file($file, 1);
 	if ($ret) {
 		setEventMessages($langs->trans("FileWasRemoved", GETPOST('urlfile')), null, 'mesgs');
@@ -79,11 +94,6 @@ if ($action == 'delete') {
 	}
 	$action = '';
 }
-
-
-/*
- * View
- */
 
 $_SESSION["commandbackuplastdone"] = '';
 $_SESSION["commandbackuptorun"] = '';
@@ -103,17 +113,6 @@ if (!empty($MemoryLimit)) {
 	@ini_set('memory_limit', $MemoryLimit);
 }
 
-
-//$help_url='EN:Backups|FR:Sauvegardes|ES:Copias_de_seguridad';
-//llxHeader('','',$help_url);
-
-//print load_fiche_titre($langs->trans("Backup"),'','title_setup');
-
-
-// Start with empty buffer
-$dump_buffer = '';
-$dump_buffer_len = 0;
-
 // We will send fake headers to avoid browser timeout when buffering
 $time_start = time();
 
@@ -122,38 +121,42 @@ $outputdir  = $conf->admin->dir_output.'/backup';
 $result = dol_mkdir($outputdir);
 
 
-$utils = new Utils($db);
+$lowmemorydump = (int) (GETPOSTISSET("lowmemorydump") ? GETPOSTINT("lowmemorydump") : getDolGlobalInt('MAIN_LOW_MEMORY_DUMP'));
 
 
 // MYSQL
 if ($what == 'mysql') {
 	$cmddump = GETPOST("mysqldump", 'none'); // Do not sanitize here with 'alpha', will be sanitize later by dol_sanitizePathName and escapeshellarg
-	$cmddump = dol_sanitizePathName($cmddump);
+	$cmddump = dol_sanitizePathName($cmddump);											// Sanitize path
+	$cmddump = dol_string_nospecial($cmddump, '', array("|", ";", "<", ">", "&", "+")); // Sanitize command
+	$basenamecmddump = basename(str_replace('\\', '/', $cmddump));
 
-	if (!empty($dolibarr_main_restrict_os_commands)) {
-		$arrayofallowedcommand = explode(',', $dolibarr_main_restrict_os_commands);
-		dol_syslog("Command are restricted to ".$dolibarr_main_restrict_os_commands.". We check that one of this command is inside ".$cmddump);
-		$basenamecmddump = basename($cmddump);
-		if (!in_array($basenamecmddump, $arrayofallowedcommand)) {	// the provided command $cmddump must be an allowed command
-			$errormsg = $langs->trans('CommandIsNotInsideAllowedCommands');
+	// Add a fallback when we detect something wrong with the path of the dump command
+	if (preg_match('/\//', str_replace('\\', '/', $cmddump))) {			// If command is a full path
+		if (!dol_is_file($cmddump)) {									// And if file not reachable with its full path
+			$reg = array();
+			if (preg_match('/mysqldump(\.exe)?$/', $cmddump, $reg)) {	// And if command ends with mysqldump
+				$cmddump = 'mysqldump'.(empty($reg[1]) ? '' : $reg[1]);	// Then we try the command with no forced path
+				$langs->load("errors");
+				setEventMessage($langs->trans("WarningFullPathWasNotFoundSoWeUseAnAlternativeValue", $cmddump), 'warnings');
+			}
 		}
 	}
 
-	if (!$errormsg && $cmddump) {
-		dolibarr_set_const($db, 'SYSTEMTOOLS_MYSQLDUMP', $cmddump, 'chaine', 0, '', $conf->entity);
+	if ($cmddump) {
+		dolibarr_set_const($db, 'SYSTEMTOOLS_MYSQLDUMP', $cmddump, 'chaine', 0, '', 0);
 	}
 
-	if (!$errormsg) {
-		$utils->dumpDatabase(GETPOST('compression', 'alpha'), $what, 0, $file);
-		$errormsg = $utils->error;
-		$_SESSION["commandbackuplastdone"] = $utils->result['commandbackuplastdone'];
-		$_SESSION["commandbackuptorun"] = $utils->result['commandbackuptorun'];
-	}
+	$result = $utils->dumpDatabase(GETPOST('compression', 'alpha'), $what, 0, $file, 0, 0, $lowmemorydump);
+
+	$errormsg = $utils->error;
+	$_SESSION["commandbackuplastdone"] = $utils->result['commandbackuplastdone'];
+	$_SESSION["commandbackuptorun"] = $utils->result['commandbackuptorun'];
 }
 
 // MYSQL NO BIN
 if ($what == 'mysqlnobin') {
-	$utils->dumpDatabase(GETPOST('compression', 'alpha'), $what, 0, $file);
+	$utils->dumpDatabase(GETPOST('compression', 'alpha'), $what, 0, $file, 0, 0, $lowmemorydump);
 
 	$errormsg = $utils->error;
 	$_SESSION["commandbackuplastdone"] = $utils->result['commandbackuplastdone'];
@@ -164,13 +167,15 @@ if ($what == 'mysqlnobin') {
 if ($what == 'postgresql') {
 	$cmddump = GETPOST("postgresqldump", 'none'); // Do not sanitize here with 'alpha', will be sanitize later by dol_sanitizePathName and escapeshellarg
 	$cmddump = dol_sanitizePathName($cmddump);
+	$cmddump = dol_string_nospecial($cmddump, '', array("|", ";", "<", ">", "&", "+")); // Sanitize command
 
 	/* Not required, the command is output on screen but not ran for pgsql
-	if (! empty($dolibarr_main_restrict_os_commands))
+	if (!empty($dolibarr_main_restrict_os_commands))
 	{
 		$arrayofallowedcommand=explode(',', $dolibarr_main_restrict_os_commands);
+		$arrayofallowedcommand = array_map('trim', $arrayofallowedcommand);
 		dol_syslog("Command are restricted to ".$dolibarr_main_restrict_os_commands.". We check that one of this command is inside ".$cmddump);
-		$basenamecmddump=basename($cmddump);
+		$basenamecmddump = basename(str_replace('\\', '/', $cmddump));
 		if (! in_array($basenamecmddump, $arrayofallowedcommand))	// the provided command $cmddump must be an allowed command
 		{
 			$errormsg=$langs->trans('CommandIsNotInsideAllowedCommands');
@@ -178,11 +183,11 @@ if ($what == 'postgresql') {
 	} */
 
 	if (!$errormsg && $cmddump) {
-		dolibarr_set_const($db, 'SYSTEMTOOLS_POSTGRESQLDUMP', $cmddump, 'chaine', 0, '', $conf->entity);
+		dolibarr_set_const($db, 'SYSTEMTOOLS_POSTGRESQLDUMP', $cmddump, 'chaine', 0, '', 0);
 	}
 
 	if (!$errormsg) {
-		$utils->dumpDatabase(GETPOST('compression', 'alpha'), $what, 0, $file);
+		$utils->dumpDatabase(GETPOST('compression', 'alpha'), $what, 0, $file, 0, 0, $lowmemorydump);
 		$errormsg = $utils->error;
 		$_SESSION["commandbackuplastdone"] = $utils->result['commandbackuplastdone'];
 		$_SESSION["commandbackuptorun"] = $utils->result['commandbackuptorun'];
@@ -206,7 +211,7 @@ if ($errormsg) {
 		$resultstring = '<div class="ok">';
 		$resultstring .= $langs->trans("BackupFileSuccessfullyCreated").'.<br>';
 		$resultstring .= $langs->trans("YouCanDownloadBackupFile");
-		$resultstring .= '<div>';
+		$resultstring .= '</div>';
 
 		$_SESSION["commandbackupresult"] = $resultstring;
 	}
@@ -216,7 +221,24 @@ if ($errormsg) {
 	}*/
 }
 
+
+
+/*
+ * View
+ */
+
+top_httphead();
+
 $db->close();
 
 // Redirect to backup page
-header("Location: dolibarr_export.php".(GETPOST('page_y', 'int') ? '?page_y='.GETPOST('page_y', 'int') : ''));
+$returnto = 'dolibarr_export.php';
+if (GETPOSTINT('page_y')) {
+	$returnto .= '?page_y='.GETPOSTINT('page_y');
+}
+if (GETPOSTINT('allow_download_app')) {
+	// Keep the parameter to keep the step to export the application files visible
+	$returnto .= (GETPOSTINT('page_y') ? '&' : '?').'allow_download_app=1';
+}
+header("Location: ".$returnto);
+exit();

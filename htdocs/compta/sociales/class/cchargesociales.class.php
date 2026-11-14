@@ -1,8 +1,11 @@
 <?php
-/* Copyright (C) 2016       Laurent Destailleur <eldy@users.sourceforge.net>
- * Copyright (C) 2014       Juanjo Menent       <jmenent@2byte.es>
- * Copyright (C) 2015       Florian Henry       <florian.henry@open-concept.pro>
- * Copyright (C) 2015       Raphaël Doursenaud  <rdoursenaud@gpcsolutions.fr>
+/* Copyright (C) 2016       Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2014       Juanjo Menent           <jmenent@2byte.es>
+ * Copyright (C) 2015       Florian Henry           <florian.henry@open-concept.pro>
+ * Copyright (C) 2015       Raphaël Doursenaud      <rdoursenaud@gpcsolutions.fr>
+ * Copyright (C) 2024-2025  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2026		Vincent de Grandpré		<vincent@de-grandpre.quebec>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,14 +29,23 @@
 
 // Put here all includes required by your class file
 //require_once DOL_DOCUMENT_ROOT . '/core/class/commonobject.class.php';
-//require_once DOL_DOCUMENT_ROOT . '/societe/class/societe.class.php';
-//require_once DOL_DOCUMENT_ROOT . '/product/class/product.class.php';
+
 
 /**
  * Class Cchargesociales
  */
 class Cchargesociales
 {
+	/**
+	 * @var DoliDB
+	 */
+	public $db;
+
+	/**
+	 * @var int
+	 */
+	public $id;
+
 	/**
 	 * @var string Id to identify managed objects
 	 */
@@ -46,7 +58,7 @@ class Cchargesociales
 
 	/**
 	 * @var string Label
-	 * @deprecated
+	 * @deprecated Use $label
 	 */
 	public $libelle;
 
@@ -55,12 +67,21 @@ class Cchargesociales
 	 */
 	public $label;
 
+	/**
+	 * @var string
+	 */
 	public $deductible;
+	/**
+	 * @var ?int<0,1>
+	 */
 	public $active;
+	/**
+	 * @var string
+	 */
 	public $code;
 
 	/**
-	 * @var int ID
+	 * @var ?int ID
 	 */
 	public $fk_pays;
 
@@ -68,13 +89,20 @@ class Cchargesociales
 	 * @var string module
 	 */
 	public $module;
+	/**
+	 * @var string
+	 */
 	public $accountancy_code;
 
+	/**
+	 * @var string[] array of errors
+	 */
+	public $errors = array();
 
 	/**
 	 * Constructor
 	 *
-	 * @param DoliDb $db Database handler
+	 * @param DoliDB $db Database handler
 	 */
 	public function __construct(DoliDB $db)
 	{
@@ -84,12 +112,11 @@ class Cchargesociales
 	/**
 	 * Create object into database
 	 *
-	 * @param  User $user      User that creates
-	 * @param  bool $notrigger false=launch triggers after, true=disable triggers
-	 *
-	 * @return int <0 if KO, Id of created object if OK
+	 * @param  User $user      	User that creates
+	 * @param  int 	$notrigger 	0=launch triggers after, 1=disable triggers
+	 * @return int 				Return integer <0 if KO, Id of created object if OK
 	 */
-	public function create(User $user, $notrigger = false)
+	public function create(User $user, $notrigger = 0)
 	{
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
@@ -100,13 +127,17 @@ class Cchargesociales
 			array(
 				'libelle',
 				'deductible',
-				'active',
 				'code',
-				'fk_pays',
 				'module',
 				'accountancy_code',
 			)
 		);
+		if (isset($this->fk_pays)) {
+			$this->fk_pays = (int) $this->fk_pays;
+		}
+		if (isset($this->active)) {
+			$this->active = (int) $this->active;
+		}
 
 		// Check parameters
 		// Put here code to add control on parameters values
@@ -118,14 +149,14 @@ class Cchargesociales
 		$sql .= 'active,';
 		$sql .= 'code,';
 		$sql .= 'fk_pays,';
-		$sql .= 'module';
+		$sql .= 'module,';
 		$sql .= 'accountancy_code';
 		$sql .= ') VALUES (';
 		$sql .= ' '.(!isset($this->libelle) ? 'NULL' : "'".$this->db->escape($this->libelle)."'").',';
-		$sql .= ' '.(!isset($this->deductible) ? 'NULL' : $this->deductible).',';
-		$sql .= ' '.(!isset($this->active) ? 'NULL' : $this->active).',';
+		$sql .= ' '.(!isset($this->deductible) ? 'NULL' : "'".$this->db->escape($this->deductible)."'").',';
+		$sql .= ' ' . (int) $this->active . ',';
 		$sql .= ' '.(!isset($this->code) ? 'NULL' : "'".$this->db->escape($this->code)."'").',';
-		$sql .= ' '.(!isset($this->fk_pays) ? 'NULL' : $this->fk_pays).',';
+		$sql .= ' '.(!isset($this->fk_pays) ? 'NULL' : ((int) $this->fk_pays)).',';
 		$sql .= ' '.(!isset($this->module) ? 'NULL' : "'".$this->db->escape($this->module)."'").',';
 		$sql .= ' '.(!isset($this->accountancy_code) ? 'NULL' : "'".$this->db->escape($this->accountancy_code)."'");
 		$sql .= ')';
@@ -136,20 +167,20 @@ class Cchargesociales
 		if (!$resql) {
 			$error++;
 			$this->errors[] = 'Error '.$this->db->lasterror();
-			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
 		}
 
 		if (!$error) {
 			$this->id = $this->db->last_insert_id(MAIN_DB_PREFIX.$this->table_element);
 
 			//if (!$notrigger) {
-				// Uncomment this and change MYOBJECT to your own tag if you
-				// want this action to call a trigger.
+			// Uncomment this and change MYOBJECT to your own tag if you
+			// want this action to call a trigger.
 
-				//// Call triggers
-				//$result=$this->call_trigger('MYOBJECT_CREATE',$user);
-				//if ($result < 0) $error++;
-				//// End call triggers
+			//// Call triggers
+			//$result=$this->call_trigger('MYOBJECT_CREATE',$user);
+			//if ($result < 0) $error++;
+			//// End call triggers
 			//}
 		}
 
@@ -171,7 +202,7 @@ class Cchargesociales
 	 * @param int    $id  Id object
 	 * @param string $ref Ref
 	 *
-	 * @return int <0 if KO, 0 if not found, >0 if OK
+	 * @return int Return integer <0 if KO, 0 if not found, >0 if OK
 	 */
 	public function fetch($id, $ref = null)
 	{
@@ -219,7 +250,7 @@ class Cchargesociales
 			}
 		} else {
 			$this->errors[] = 'Error '.$this->db->lasterror();
-			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
 
 			return -1;
 		}
@@ -228,12 +259,11 @@ class Cchargesociales
 	/**
 	 * Update object into database
 	 *
-	 * @param  User $user      User that modifies
-	 * @param  bool $notrigger false=launch triggers after, true=disable triggers
-	 *
-	 * @return int <0 if KO, >0 if OK
+	 * @param  User $user      	User that modifies
+	 * @param  int 	$notrigger 	0=launch triggers after, 1=disable triggers
+	 * @return int 				Return integer <0 if KO, >0 if OK
 	 */
-	public function update(User $user, $notrigger = false)
+	public function update(User $user, $notrigger = 0)
 	{
 		$error = 0;
 
@@ -245,14 +275,17 @@ class Cchargesociales
 			array(
 				'libelle',
 				'deductible',
-				'active',
 				'code',
-				'fk_pays',
 				'module',
 				'accountancy_code',
 			)
 		);
-
+		if (isset($this->fk_pays)) {
+			$this->fk_pays = (int) $this->fk_pays;
+		}
+		if (isset($this->active)) {
+			$this->active = (int) $this->active;
+		}
 
 		// Check parameters
 		// Put here code to add a control on parameters values
@@ -274,17 +307,17 @@ class Cchargesociales
 		if (!$resql) {
 			$error++;
 			$this->errors[] = 'Error '.$this->db->lasterror();
-			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
 		}
 
 		//if (!$error && !$notrigger) {
-			// Uncomment this and change MYOBJECT to your own tag if you
-			// want this action calls a trigger.
+		// Uncomment this and change MYOBJECT to your own tag if you
+		// want this action calls a trigger.
 
-			//// Call triggers
-			//$result=$this->call_trigger('MYOBJECT_MODIFY',$user);
-			//if ($result < 0) { $error++; //Do also what you must do to rollback action if trigger fail}
-			//// End call triggers
+		//// Call triggers
+		//$result=$this->call_trigger('MYOBJECT_MODIFY',$user);
+		//if ($result < 0) { $error++; //Do also what you must do to rollback action if trigger fail}
+		//// End call triggers
 		//}
 
 		// Commit or rollback
@@ -302,12 +335,11 @@ class Cchargesociales
 	/**
 	 * Delete object in database
 	 *
-	 * @param User $user      User that deletes
-	 * @param bool $notrigger false=launch triggers after, true=disable triggers
-	 *
-	 * @return int <0 if KO, >0 if OK
+	 * @param User 	$user      	User that deletes
+	 * @param int 	$notrigger 	0=launch triggers after, 1=disable triggers
+	 * @return int 				Return integer <0 if KO, >0 if OK
 	 */
-	public function delete(User $user, $notrigger = false)
+	public function delete(User $user, $notrigger = 0)
 	{
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
@@ -316,15 +348,15 @@ class Cchargesociales
 		$this->db->begin();
 
 		//if (!$error) {
-			//if (!$notrigger) {
-				// Uncomment this and change MYOBJECT to your own tag if you
-				// want this action calls a trigger.
+		//if (!$notrigger) {
+		// Uncomment this and change MYOBJECT to your own tag if you
+		// want this action calls a trigger.
 
-				//// Call triggers
-				//$result=$this->call_trigger('MYOBJECT_DELETE',$user);
-				//if ($result < 0) { $error++; //Do also what you must do to rollback action if trigger fail}
-				//// End call triggers
-			//}
+		//// Call triggers
+		//$result=$this->call_trigger('MYOBJECT_DELETE',$user);
+		//if ($result < 0) { $error++; //Do also what you must do to rollback action if trigger fail}
+		//// End call triggers
+		//}
 		//}
 
 		if (!$error) {
@@ -335,7 +367,7 @@ class Cchargesociales
 			if (!$resql) {
 				$error++;
 				$this->errors[] = 'Error '.$this->db->lasterror();
-				dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
+				dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
 			}
 		}
 
@@ -358,7 +390,7 @@ class Cchargesociales
 	 * @param   int     $fromid     Id of object to clone
 	 * @return  int                 New id of clone
 	 */
-	public function createFromClone(User $user, $fromid)
+	/*public function createFromClone(User $user, $fromid)
 	{
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
@@ -383,7 +415,7 @@ class Cchargesociales
 		if ($result < 0) {
 			$error++;
 			$this->errors = $object->errors;
-			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
 		}
 
 		unset($this->context['createfromclone']);
@@ -398,10 +430,10 @@ class Cchargesociales
 
 			return -1;
 		}
-	}
+	}*/
 
 	/**
-	 *  Return a link to the user card (with optionaly the picto)
+	 *  Return a link to the user card (with optionally the picto)
 	 * 	Use this->id,this->lastname, this->firstname
 	 *
 	 *	@param	int		$withpicto			Include picto in link (0=No picto, 1=Include picto into link, 2=Only picto)
@@ -411,7 +443,7 @@ class Cchargesociales
 	 *  @param  string  $morecss            Add more css on link
 	 *	@return	string						String with URL
 	 */
-	public function getNomUrl($withpicto = 0, $option = '', $notooltip = 0, $maxlen = 24, $morecss = '')
+	/*public function getNomUrl($withpicto = 0, $option = '', $notooltip = 0, $maxlen = 24, $morecss = '')
 	{
 		global $langs, $conf, $db;
 		global $dolibarr_main_authentication, $dolibarr_main_demo;
@@ -438,26 +470,26 @@ class Cchargesociales
 		}
 		$result .= $link.$this->ref.$linkend;
 		return $result;
-	}
+	}*/
 
 	/**
-	 *  Retourne le libelle du status d'un user (actif, inactif)
+	 *  Return the label of the status
 	 *
-	 *  @param	int		$mode          0=libelle long, 1=libelle court, 2=Picto + Libelle court, 3=Picto, 4=Picto + Libelle long, 5=Libelle court + Picto
+	 *  @param  int		$mode          0=long label, 1=short label, 2=Picto + short label, 3=Picto, 4=Picto + long label, 5=Short label + Picto, 6=Long label + Picto
 	 *  @return	string 			       Label of status
 	 */
-	public function getLibStatut($mode = 0)
+	/*public function getLibStatut($mode = 0)
 	{
 		return $this->LibStatut($this->status, $mode);
-	}
+	}*/
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
 	/**
-	 *  Renvoi le libelle d'un status donne
+	 *  Return the label of a given status
 	 *
-	 *  @param	int		$status        	Id status
-	 *  @param  int		$mode          	0=libelle long, 1=libelle court, 2=Picto + Libelle court, 3=Picto, 4=Picto + Libelle long, 5=Libelle court + Picto
-	 *  @return string 			       	Label of status
+	 *  @param	int		$status        Id status
+	 *  @param  int		$mode          0=long label, 1=short label, 2=Picto + short label, 3=Picto, 4=Picto + long label, 5=Short label + Picto, 6=Long label + Picto
+	 *  @return string 			       Label of status
 	 */
 	public function LibStatut($status, $mode = 0)
 	{
@@ -501,6 +533,7 @@ class Cchargesociales
 				return $langs->trans('Disabled').' '.img_picto($langs->trans('Disabled'), 'statut5');
 			}
 		}
+		return "";
 	}
 
 
@@ -508,20 +541,21 @@ class Cchargesociales
 	 * Initialise object with example values
 	 * Id must be 0 if object instance is a specimen
 	 *
-	 * @return void
+	 * @return int
 	 */
 	public function initAsSpecimen()
 	{
 		$this->id = 0;
-
 		$this->libelle = '';
 		$this->label = '';
 		$this->deductible = '';
-		$this->active = '';
+		$this->active = 0;
 		$this->code = '';
-		$this->fk_pays = '';
+		$this->fk_pays = 0;
 		$this->module = '';
 		$this->accountancy_code = '';
+
+		return 1;
 	}
 
 	/**

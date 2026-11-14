@@ -1,6 +1,9 @@
 <?php
 /* Copyright (C) 2015   Jean-François Ferry     <jfefe@aternatik.fr>
  * Copyright (C) 2016   Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2025-2026	MDW					<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2025       Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2026		William Mead			<william@m34d.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,9 +22,12 @@
 use Luracast\Restler\RestException;
 
 require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.commande.class.php';
+require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
 
 /**
  * API class for supplier orders
+ *
+ * @since	6.0.0	Initial implementation
  *
  * @access protected
  * @class  DolibarrApiAccess {@requires user,external}
@@ -29,15 +35,14 @@ require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.commande.class.php';
 class SupplierOrders extends DolibarrApi
 {
 	/**
-	 *
-	 * @var array   $FIELDS     Mandatory fields, checked when create and update object
+	 * @var string[]       Mandatory fields, checked when create and update object
 	 */
 	public static $FIELDS = array(
 		'socid'
 	);
 
 	/**
-	 * @var CommandeFournisseur $order {@type CommandeFournisseur}
+	 * @var CommandeFournisseur {@type CommandeFournisseur}
 	 */
 	public $order;
 
@@ -56,15 +61,17 @@ class SupplierOrders extends DolibarrApi
 	 *
 	 * Return an array with supplier order information
 	 *
-	 * @param 	int 	$id ID of supplier order
-	 * @return 	array|mixed data without useless information
+	 * @since	6.0.0	Initial implementation
 	 *
-	 * @throws 	RestException
+	 * @param	int		$id ID of supplier order
+	 * @return	array|mixed data without useless information
+	 *
+	 * @throws	RestException
 	 */
 	public function get($id)
 	{
-		if (!DolibarrApiAccess::$user->rights->fournisseur->commande->lire) {
-			throw new RestException(401);
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "lire")) {
+			throw new RestException(403);
 		}
 
 		$result = $this->order->fetch($id);
@@ -73,7 +80,7 @@ class SupplierOrders extends DolibarrApi
 		}
 
 		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
-			throw new RestException(401, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
 		}
 
 		$this->order->fetchObjectLinked();
@@ -85,65 +92,62 @@ class SupplierOrders extends DolibarrApi
 	 *
 	 * Get a list of supplier orders
 	 *
-	 * @param string	$sortfield	      Sort field
-	 * @param string	$sortorder	      Sort order
-	 * @param int		$limit		      Limit for list
-	 * @param int		$page		      Page number
-	 * @param string   	$thirdparty_ids	  Thirdparty ids to filter orders of (example '1' or '1,2,3') {@pattern /^[0-9,]*$/i}
-	 * @param string   	$product_ids	  Product ids to filter orders of (example '1' or '1,2,3') {@pattern /^[0-9,]*$/i}
-	 * @param string	$status		      Filter by order status : draft | validated | approved | running | received_start | received_end | cancelled | refused
+	 * @since	6.0.0	Initial implementation
+	 * @since	12.0.0	Added product_ids parameter
+	 * @since	19.0.0	Added sqlfilterlines and properties parameters
+	 * @since	21.0.0	Added pagination_data parameter
+	 *
+	 * @param string	$sortfield		  Sort field
+	 * @param string	$sortorder		  Sort order
+	 * @param int		$limit			  Limit for list
+	 * @param int		$page			  Page number
+	 * @param string	$thirdparty_ids	  Thirdparty ids to filter orders of (example '1' or '1,2,3') {@pattern /^[0-9,]*$/i}
+	 * @param string	$product_ids	  Product ids to filter orders of (example '1' or '1,2,3') {@pattern /^[0-9,]*$/i}
+	 * @param string	$status			  Filter by order status : draft | validated | approved | running | received_start | received_end | cancelled | refused
 	 * @param string    $sqlfilters       Other criteria to filter answers separated by a comma. Syntax example "(t.ref:like:'SO-%') and (t.datec:<:'20160101')"
+	 * @param string    $sqlfilterlines   Other criteria to filter answers separated by a comma. Syntax example "(tl.fk_product:=:'17') and (tl.price:<:'250')"
+	 * @param string    $properties		  Restrict the data returned to these properties. Ignored if empty. Comma separated list of properties names
+	 * @param bool      $pagination_data  If this parameter is set to true the response will include pagination data. Default value is false. Page starts from 0*
 	 * @return array                      Array of order objects
+	 * @phan-return CommandeFournisseur[]|array{data:CommandeFournisseur[],pagination:array{total:int,page:int,page_count:int,limit:int}}
+	 * @phpstan-return CommandeFournisseur[]|array{data:CommandeFournisseur[],pagination:array{total:int,page:int,page_count:int,limit:int}}
 	 *
 	 * @throws RestException
 	 */
-	public function index($sortfield = "t.rowid", $sortorder = 'ASC', $limit = 100, $page = 0, $thirdparty_ids = '', $product_ids = '', $status = '', $sqlfilters = '')
+	public function index($sortfield = "t.rowid", $sortorder = 'ASC', $limit = 100, $page = 0, $thirdparty_ids = '', $product_ids = '', $status = '', $sqlfilters = '', $sqlfilterlines = '', $properties = '', $pagination_data = false)
 	{
-		global $db, $conf;
-
-		if (!DolibarrApiAccess::$user->rights->fournisseur->commande->lire) {
-			throw new RestException(401);
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "lire")) {
+			throw new RestException(403);
 		}
 
 		$obj_ret = array();
 
 		// case of external user, $thirdparty_ids param is ignored and replaced by user's socid
-		$socids = DolibarrApiAccess::$user->socid ? DolibarrApiAccess::$user->socid : $thirdparty_ids;
+		$socids = DolibarrApiAccess::$user->socid ?: $thirdparty_ids;
 
 		// If the internal user must only see his customers, force searching by him
 		$search_sale = 0;
-		if (!DolibarrApiAccess::$user->rights->societe->client->voir && !$socids) {
+		if (!DolibarrApiAccess::$user->hasRight("societe", "client", "voir") && !empty($socids)) {
 			$search_sale = DolibarrApiAccess::$user->id;
 		}
 
 		$sql = "SELECT t.rowid";
-		if ((!DolibarrApiAccess::$user->rights->societe->client->voir && !$socids) || $search_sale > 0) {
-			$sql .= ", sc.fk_soc, sc.fk_user"; // We need these fields in order to filter by sale (including the case where the user can only see his prospects)
-		}
-		$sql .= " FROM ".MAIN_DB_PREFIX."commande_fournisseur as t";
-
-		if ((!DolibarrApiAccess::$user->rights->societe->client->voir && !$socids) || $search_sale > 0) {
-			$sql .= ", ".MAIN_DB_PREFIX."societe_commerciaux as sc"; // We need this table joined to the select in order to filter by sale
-		}
-
+		$sql .= " FROM ".MAIN_DB_PREFIX."commande_fournisseur AS t";
+		$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."commande_fournisseur_extrafields AS ef ON (ef.fk_object = t.rowid)"; // Modification VMR Global Solutions to include extrafields as search parameters in the API GET call, so we will be able to filter on extrafields
 		if (!empty($product_ids)) {
 			$sql .= ", ".MAIN_DB_PREFIX."commande_fournisseurdet as cd"; // We need this table joined to the select in order to filter by product
 		}
-
 		$sql .= ' WHERE t.entity IN ('.getEntity('supplier_order').')';
-		if ((!DolibarrApiAccess::$user->rights->societe->client->voir && !$socids) || $search_sale > 0) {
-			$sql .= " AND t.fk_soc = sc.fk_soc";
-		}
 		if (!empty($product_ids)) {
 			$sql .= " AND cd.fk_commande = t.rowid AND cd.fk_product IN (".$this->db->sanitize($product_ids).")";
 		}
 		if ($socids) {
 			$sql .= " AND t.fk_soc IN (".$this->db->sanitize($socids).")";
 		}
-		if ($search_sale > 0) {
-			$sql .= " AND t.rowid = sc.fk_soc"; // Join for the needed table to filter by sale
+		// An unknown value used to be ignored, so the whole list came back as if it were the filtered one
+		if ((string) $status !== '' && !in_array($status, array('draft', 'validated', 'approved', 'running', 'received_start', 'received_end', 'cancelled', 'refused'), true)) {
+			throw new RestException(400, "Bad value for parameter status. Expected one of: draft, validated, approved, running, received_start, received_end, cancelled, refused");
 		}
-
 		// Filter by status
 		if ($status == 'draft') {
 			$sql .= " AND t.fk_statut IN (0)";
@@ -169,19 +173,35 @@ class SupplierOrders extends DolibarrApi
 		if ($status == 'refused') {
 			$sql .= " AND t.fk_statut IN (9)";
 		}
-		// Insert sale filter
-		if ($search_sale > 0) {
-			$sql .= " AND sc.fk_user = ".((int) $search_sale);
+		// Search on sale representative
+		if ($search_sale && $search_sale != '-1') {
+			if ($search_sale == -2) {
+				$sql .= " AND ".getSalesRepresentativeSqlFilter('t.fk_soc', 0, 1);
+			} elseif ($search_sale > 0) {
+				$sql .= " AND ".getSalesRepresentativeSqlFilter('t.fk_soc', (int) $search_sale);
+			}
 		}
 		// Add sql filters
 		if ($sqlfilters) {
 			$errormessage = '';
-			if (!DolibarrApi::_checkFilters($sqlfilters, $errormessage)) {
-				throw new RestException(503, 'Error when validating parameter sqlfilters -> '.$errormessage);
+			$sql .= forgeSQLFromUniversalSearchCriteria($sqlfilters, $errormessage);
+			if ($errormessage) {
+				throw new RestException(400, 'Error when validating parameter sqlfilters -> '.$errormessage);
 			}
-			$regexstring = '\(([^:\'\(\)]+:[^:\'\(\)]+:[^\(\)]+)\)';
-			$sql .= " AND (".preg_replace_callback('/'.$regexstring.'/', 'DolibarrApi::_forge_criteria_callback', $sqlfilters).")";
 		}
+		// Add sql filters for lines
+		if ($sqlfilterlines) {
+			$errormessage = '';
+			$sql .= " AND EXISTS (SELECT tl.rowid FROM ".MAIN_DB_PREFIX."commande_fournisseurdet AS tl WHERE tl.fk_commande = t.rowid";
+			$sql .= forgeSQLFromUniversalSearchCriteria($sqlfilterlines, $errormessage);
+			$sql .=	")";
+			if ($errormessage) {
+				throw new RestException(400, 'Error when validating parameter sqlfilterlines -> '.$errormessage);
+			}
+		}
+
+		//this query will return total supplier orders with the filters given
+		$sqlTotals = str_replace('SELECT t.rowid', 'SELECT count(t.rowid) as total', $sql);
 
 		$sql .= $this->db->order($sortfield, $sortorder);
 		if ($limit) {
@@ -202,16 +222,31 @@ class SupplierOrders extends DolibarrApi
 				$obj = $this->db->fetch_object($result);
 				$order_static = new CommandeFournisseur($this->db);
 				if ($order_static->fetch($obj->rowid)) {
-					$obj_ret[] = $this->_cleanObjectDatas($order_static);
+					$obj_ret[] = $this->_filterObjectProperties($this->_cleanObjectDatas($order_static), $properties);
 				}
 				$i++;
 			}
 		} else {
 			throw new RestException(503, 'Error when retrieve supplier order list : '.$this->db->lasterror());
 		}
-		if (!count($obj_ret)) {
-			throw new RestException(404, 'No supplier order found');
+
+		//if $pagination_data is true the response will contain element data with all values and element pagination with pagination data(total,page,limit)
+		if ($pagination_data) {
+			$totalsResult = $this->db->query($sqlTotals);
+			$total = $this->db->fetch_object($totalsResult)->total;
+
+			$tmp = $obj_ret;
+			$obj_ret = [];
+
+			$obj_ret['data'] = $tmp;
+			$obj_ret['pagination'] = [
+				'total' => (int) $total,
+				'page' => $page, //count starts from 0
+				'page_count' => (int) ceil((int) $total / $limit),
+				'limit' => $limit
+			];
 		}
+
 		return $obj_ret;
 	}
 
@@ -220,21 +255,36 @@ class SupplierOrders extends DolibarrApi
 	 *
 	 * Example: {"ref": "auto", "ref_supplier": "1234", "socid": "1", "multicurrency_code": "SEK", "multicurrency_tx": 1, "tva_tx": 25, "note": "Imported via the REST API"}
 	 *
-	 * @param array $request_data   Request datas
+	 * @since	6.0.0	Initial implementation
+	 *
+	 * @param array $request_data   Request data
+	 * @phan-param ?array<string,string> $request_data
+	 * @phpstan-param ?array<string,string> $request_data
 	 * @return int  ID of supplier order
 	 */
 	public function post($request_data = null)
 	{
-		if (empty(DolibarrApiAccess::$user->rights->fournisseur->commande->creer) && empty(DolibarrApiAccess::$user->rights->supplier_order->creer)) {
-			throw new RestException(401, "Insuffisant rights");
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer") && !DolibarrApiAccess::$user->hasRight("supplier_order", "creer")) {
+			throw new RestException(403, "Insufficiant rights");
 		}
-		// Check mandatory fields
-		$result = $this->_validate($request_data);
+
+		if (!is_array($request_data)) {
+			$request_data = array();
+		}
+
+		// Check mandatory fields (not using output, only possible exception is important)
+		$this->_validate($request_data);
 
 		foreach ($request_data as $field => $value) {
-			$this->order->$field = $value;
+			if ($field === 'caller') {
+				// Add a mention of caller so on trigger called after action, we can filter to avoid a loop if we try to sync back again with the caller
+				$this->order->context['caller'] = sanitizeVal($request_data['caller'], 'aZ09');
+				continue;
+			}
+
+			$this->order->$field = $this->_checkValForAPI($field, $value, $this->order);
 		}
-		if (!array_keys($request_data, 'date')) {
+		if (!array_key_exists('date', $request_data)) {
 			$this->order->date = dol_now();
 		}
 		/* We keep lines as an array
@@ -255,14 +305,22 @@ class SupplierOrders extends DolibarrApi
 	/**
 	 * Update supplier order
 	 *
-	 * @param int   $id             Id of supplier order to update
-	 * @param array $request_data   Datas
-	 * @return int
+	 * @since	6.0.0	Initial implementation
+	 *
+	 * @param 	int   	$id             	Id of supplier order to update
+	 * @param 	array 	$request_data   	Data
+	 * @phan-param ?array<string,string> $request_data
+	 * @phpstan-param ?array<string,string> $request_data
+	 * @return 	Object						Updated object
+	 *
+	 * @throws RestException 403
+	 * @throws RestException 404
+	 * @throws RestException 500 System error
 	 */
 	public function put($id, $request_data = null)
 	{
-		if (empty(DolibarrApiAccess::$user->rights->fournisseur->commande->creer) && empty(DolibarrApiAccess::$user->rights->supplier_order->creer)) {
-			throw new RestException(401);
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer") && !DolibarrApiAccess::$user->hasRight("supplier_order", "creer")) {
+			throw new RestException(403);
 		}
 
 		$result = $this->order->fetch($id);
@@ -271,33 +329,499 @@ class SupplierOrders extends DolibarrApi
 		}
 
 		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
-			throw new RestException(401, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		if (!is_array($request_data)) {
+			$request_data = array();
 		}
 
 		foreach ($request_data as $field => $value) {
 			if ($field == 'id') {
 				continue;
 			}
-			$this->order->$field = $value;
+			if ($field === 'caller') {
+				// Add a mention of caller so on trigger called after action, we can filter to avoid a loop if we try to sync back again with the caller
+				$this->order->context['caller'] = sanitizeVal($request_data['caller'], 'aZ09');
+				continue;
+			}
+			if ($field == 'array_options' && is_array($value)) {
+				foreach ($value as $index => $val) {
+					$this->order->array_options[$index] = $this->_checkValExtrafieldsForAPI($index, $val, $this->order);
+				}
+				continue;
+			}
+
+			$this->order->$field = $this->_checkValForAPI($field, $value, $this->order);
 		}
 
-		if ($this->order->update(DolibarrApiAccess::$user)) {
+		if ($this->order->update(DolibarrApiAccess::$user) > 0) {
 			return $this->get($id);
+		} else {
+			throw new RestException(500, $this->order->errorsToString());
+		}
+	}
+
+	/**
+	 * Add a line to a given supplier order
+	 *
+	 * @since	23.0.0	Initial implementation
+	 *
+	 * @param int   $id             Id of order to update
+	 * @param array $request_data   OrderLine data
+	 * @phan-param ?array<string,string> $request_data
+	 * @phpstan-param ?array<string,string> $request_data
+	 *
+	 * @url	POST {id}/lines
+	 *
+	 * @return int
+	 */
+	public function postLine($id, $request_data = null)
+	{
+		if (!DolibarrApiAccess::$user->hasRight('fournisseur', 'commande', 'creer')) {
+			throw new RestException(403);
 		}
 
-		return false;
+		$result = $this->order->fetch($id);
+		if (!$result) {
+			throw new RestException(404, 'Supplier order not found');
+		}
+
+		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		$request_data = (object) $request_data;
+
+		$request_data->desc = sanitizeVal($request_data->desc, 'restricthtml');
+
+		$updateRes = $this->order->addline(
+			$request_data->desc,
+			$request_data->subprice,
+			$request_data->qty,
+			$request_data->tva_tx,
+			$request_data->localtax1_tx,
+			$request_data->localtax2_tx,
+			$request_data->fk_product,
+			$request_data->fk_prod_fourn_price,
+			$request_data->ref_fourn,
+			$request_data->remise_percent,
+			$request_data->price_base_type ? $request_data->price_base_type : 'HT',
+			$request_data->pu_ttc,
+			$request_data->product_type,
+			$request_data->info_bits,
+			$request_data->notrigger,
+			$request_data->date_start,
+			$request_data->date_end,
+			$request_data->array_options,
+			$request_data->fk_unit,
+			$request_data->multicurrency_subprice,
+			$request_data->origin,
+			$request_data->origin_id,
+			// -1 is the "append at the end" value of addline(). An absent rang is null, which empty() turns into 0,
+			// so without this every line added through the API is stored with rang 0 instead of being appended.
+			isset($request_data->rang) ? $request_data->rang : -1,
+			$request_data->special_code
+		);
+
+		if ($updateRes > 0) {
+			return $updateRes;
+		} else {
+			throw new RestException(400, $this->order->errorsToString());
+		}
+	}
+
+	/**
+	 * Get one supplier order line after checking access to its parent.
+	 *
+	 * @since	25.0.0	Initial implementation
+	 *
+	 * @param int $id Supplier order ID
+	 * @param int $lineid Line ID
+	 * @return CommandeFournisseurLigne Order line
+	 * @url GET {id}/lines/{lineid}
+	 */
+	public function getLine($id, $lineid)
+	{
+		$line = clone $this->loadLineForOperation($id, $lineid);
+		$this->_cleanObjectDatas($line);
+		return $line;
+	}
+
+	/**
+	 * Update selected fields of a draft supplier order line.
+	 *
+	 * Omitted fields keep their current value. Dates are Unix timestamps or null.
+	 * Give only one price, in company currency (HT or TTC) or order currency (HT).
+	 *
+	 * @since	25.0.0	Initial implementation
+	 *
+	 * @param int $id Supplier order ID
+	 * @param int $lineid Line ID
+	 * @param array $request_data Fields to change
+	 * @phan-param ?array<string,mixed> $request_data
+	 * @phpstan-param ?array<string,mixed> $request_data
+	 * @return CommandeFournisseurLigne Updated line
+	 * @url PUT {id}/lines/{lineid}
+	 */
+	public function putLine($id, $lineid, $request_data = null)
+	{
+		if (!DolibarrApiAccess::$user->hasRight('fournisseur', 'commande', 'creer')) {
+			throw new RestException(403, 'Write permission is required');
+		}
+		$line = $this->loadLineForOperation($id, $lineid);
+		if ((int) $this->order->status !== CommandeFournisseur::STATUS_DRAFT) {
+			throw new RestException(409, 'Only draft supplier orders accept line changes');
+		}
+		$line = $this->prepareLineUpdate($line, $request_data);
+		$includingtax = isset($request_data['subprice_ttc']) || (!isset($request_data['subprice']) && $line->wasEnteredIncludingTax());
+		if (isset($request_data['multicurrency_subprice'])) {
+			$line->subprice = 0;
+			$includingtax = false;
+		} elseif ($includingtax || isset($request_data['subprice'])) {
+			$line->multicurrency_subprice = 0;
+		}
+		$vatrate = $line->tva_tx;
+		if (!isset($request_data['tva_tx']) && !empty($line->vat_src_code)) {
+			$vatrate .= ' ('.$line->vat_src_code.')';
+		}
+		if ($this->order->fetch_thirdparty() <= 0) {
+			throw new RestException(500, 'Unable to load supplier for tax calculations');
+		}
+		$result = $this->order->updateline(
+			$lineid, $line->desc, $includingtax ? $line->subprice_ttc : $line->subprice,
+			$line->qty, $line->remise_percent, $vatrate, $line->localtax1_tx, $line->localtax2_tx,
+			$includingtax ? 'TTC' : 'HT', $line->info_bits, $line->product_type, 0,
+			(int) $line->date_start, (int) $line->date_end, $line->array_options, $line->fk_unit,
+			$line->multicurrency_subprice, $line->ref_supplier
+		);
+		if ($result <= 0) {
+			throw new RestException(400, $this->order->errorsToString());
+		}
+
+		$line = new CommandeFournisseurLigne($this->db);
+		if ($line->fetch($lineid) <= 0) {
+			throw new RestException(500, 'Failed to reload the updated line');
+		}
+
+		$this->_cleanObjectDatas($line);
+		return $line;
+	}
+
+	/**
+	 * Deletes a line of a given draft supplier order
+	 *
+	 * A line that has already been received cannot be deleted.
+	 *
+	 * @since	25.0.0	Initial implementation
+	 * @param	int		$id			Id of supplier order
+	 * @param	int		$lineid		Id of the line to delete
+	 *
+	 * @url	DELETE {id}/lines/{lineid}
+	 *
+	 * @return	array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * @throws RestException 400 Bad parameters
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Not found
+	 * @throws RestException 405 Error
+	 */
+	public function deleteLine($id, $lineid)
+	{
+		if (empty($lineid)) {
+			throw new RestException(400, 'Line ID is mandatory');
+		}
+
+		if (!DolibarrApiAccess::$user->hasRight('fournisseur', 'commande', 'creer')) {
+			throw new RestException(403);
+		}
+
+		// Checks read permission and access to the order, and that the line belongs to it
+		$this->loadLineForOperation($id, $lineid);
+
+		if ((int) $this->order->status !== CommandeFournisseur::STATUS_DRAFT) {
+			throw new RestException(405, 'Supplier order must be in draft status to delete lines');
+		}
+
+		$updateRes = $this->order->deleteLine((int) $lineid);
+		if ($updateRes > 0) {
+			return array(
+				'success' => array(
+					'code' => 200,
+					'message' => 'line '.$lineid.' deleted'
+				)
+			);
+		} else {
+			throw new RestException(405, $this->order->errorsToString());
+		}
+	}
+
+	/**
+	 * Prepare a partial update without changing the original line or writing data.
+	 *
+	 * @param CommandeFournisseurLigne $line Current line
+	 * @param array<string,mixed>|null $request_data Fields to change
+	 * @return CommandeFournisseurLigne Prepared line
+	 */
+	protected function prepareLineUpdate($line, $request_data)
+	{
+		if (!is_array($request_data) || empty($request_data)) {
+			throw new RestException(400, 'A non-empty object of line changes is required');
+		}
+		$pricefields = array_intersect(array_keys($request_data), array('subprice', 'subprice_ttc', 'multicurrency_subprice'));
+		if (count($pricefields) > 1) {
+			throw new RestException(400, 'Give only one unit price: subprice, subprice_ttc or multicurrency_subprice');
+		}
+		$line = clone $line;
+		$allowed = array('desc', 'subprice', 'subprice_ttc', 'qty', 'remise_percent', 'tva_tx', 'localtax1_tx', 'localtax2_tx', 'date_start', 'date_end', 'array_options', 'fk_unit', 'multicurrency_subprice', 'ref_supplier');
+		foreach ($request_data as $field => $value) {
+			if (!in_array($field, $allowed, true)) {
+				throw new RestException(400, 'Unsupported line field: '.$field);
+			}
+			if ($field === 'array_options') {
+				if (!is_array($value)) {
+					throw new RestException(400, 'array_options must be an object');
+				}
+				foreach ($value as $key => $optional) {
+					$line->array_options[$key] = $this->_checkValExtrafieldsForAPI($key, $optional, $line);
+				}
+			} elseif (in_array($field, array('date_start', 'date_end', 'fk_unit'), true)) {
+				if ($value !== null && (!is_numeric($value) || (int) $value != $value || $value < ($field === 'fk_unit' ? 1 : 0))) {
+					throw new RestException(400, 'Expected a valid integer or null for '.$field);
+				}
+				$line->$field = $value === null ? null : (int) $value;
+			} elseif (in_array($field, array('desc', 'ref_supplier'), true)) {
+				if (!is_string($value)) {
+					throw new RestException(400, 'Expected a string for '.$field);
+				}
+				$line->$field = $this->_checkValForAPI($field, $value, $line);
+			} elseif (!is_numeric($value) || !is_finite((float) $value)) {
+				throw new RestException(400, 'Expected a finite numeric value for '.$field);
+			} else {
+				$line->$field = $value;
+			}
+		}
+		if ((float) $line->qty == 0) {
+			throw new RestException(400, 'Quantity must not be zero');
+		}
+		if ($line->date_start && $line->date_end && $line->date_start > $line->date_end) {
+			throw new RestException(400, 'Start date must not be later than end date');
+		}
+		return $line;
+	}
+
+	/**
+	 * Load an authorised order without sanitising its live database handle.
+	 *
+	 * @param int $id Supplier order ID
+	 * @return void
+	 */
+	protected function loadOrderForOperation($id)
+	{
+		if (!DolibarrApiAccess::$user->hasRight('fournisseur', 'commande', 'lire')) {
+			throw new RestException(403, 'Read permission is required');
+		}
+		if ($this->order->fetch($id) <= 0) {
+			throw new RestException(404, 'Supplier order not found');
+		}
+		if (!static::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access denied to supplier order');
+		}
+	}
+
+	/**
+	 * Load the complete line after checking its parent and ownership.
+	 *
+	 * @param int $id Supplier order ID
+	 * @param int $lineid Line ID
+	 * @return CommandeFournisseurLigne Order line
+	 */
+	protected function loadLineForOperation($id, $lineid)
+	{
+		$this->loadOrderForOperation($id);
+		foreach ($this->order->lines as $line) {
+			if ((int) $line->id === (int) $lineid) {
+				return $line;
+			}
+		}
+		throw new RestException(404, 'Line not found in this supplier order');
+	}
+
+	/**
+	 * Get contacts of given supplier order
+	 *
+	 * Return an array with contact information
+	 *
+	 * @since	18.0.0	Initial implementation
+	 *
+	 * @param	int					$id			ID of supplier order
+	 * @param	string				$source		Source of the contact (internal, external, all).
+	 * @param	string				$type		Type of the contact (BILLING, SHIPPING, CUSTOMER, SALESREPFOLL, ...)
+	 * @return	array<int,mixed>				Array of contacts
+	 *
+	 * @url	GET {id}/contacts
+	 *
+	 * @throws	RestException
+	 */
+	public function getContacts($id, $source, $type = '')
+	{
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "lire")) {
+			throw new RestException(403);
+		}
+
+		$result = $this->order->fetch($id);
+		if (!$result) {
+			throw new RestException(404, 'Supplier order not found');
+		}
+
+		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+		$contacts = array();
+
+		if ($source == 'all' || $source == 'external') {
+			$tmpContacts = $this->order->liste_contact(-1, 'external', 0, $type);
+			$contacts =	array_merge($contacts, $tmpContacts);
+		}
+
+		if ($source == 'all' || $source == 'internal') {
+			$tmpContacts = $this->order->liste_contact(-1, 'internal', 0, $type);
+			$contacts = array_merge($contacts, $tmpContacts);
+		}
+
+		return $contacts;
+	}
+
+	/**
+	 * Add a contact type of given supplier order
+	 *
+	 * @since	18.0.0	Initial implementation
+	 *
+	 * @param int		$id				Id of supplier order to update
+	 * @param int		$contactid		Id of contact/user to add
+	 * @param string	$type			Type of the contact (BILLING, SHIPPING, CUSTOMER, SALESREPFOLL, ...)
+	 * @param string	$source			Source of the contact (external, internal)
+	 * @return array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * @url	POST {id}/contact/{contactid}/{type}/{source}
+	 *
+	 * @throws RestException 401
+	 * @throws RestException 404
+	 */
+	public function postContact($id, $contactid, $type, $source)
+	{
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer")) {
+			throw new RestException(403);
+		}
+
+		$result = $this->order->fetch($id);
+		if (!$result) {
+			throw new RestException(404, 'Supplier order not found');
+		}
+
+		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		$result = $this->order->add_contact($contactid, $type, $source);
+
+		if ($result < 0) {
+			throw new RestException(500, 'Error when added the contact');
+		}
+
+		if ($result == 0) {
+			throw new RestException(304, 'contact already added');
+		}
+
+		return array(
+			'success' => array(
+				'code' => 200,
+				'message' => 'Contact linked to the order'
+			)
+		);
+	}
+
+	/**
+	 * Unlink a contact type of given supplier order
+	 *
+	 * @since	18.0.0	Initial implementation
+	 *
+	 * @param	int		$id             Id of supplier order to update
+	 * @param	int		$contactid      Id of contact/user to add
+	 * @param	string	$type           Type of the contact (BILLING, SHIPPING, CUSTOMER, SALESREPFOLL, ...).
+	 * @param	string	$source			Source of the contact (internal, external).
+	 *
+	 * @url	DELETE {id}/contact/{contactid}/{type}/{source}
+	 *
+	 * @return array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * @throws RestException 401
+	 * @throws RestException 404
+	 * @throws RestException 500 System error
+	 */
+	public function deleteContact($id, $contactid, $type, $source)
+	{
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer")) {
+			throw new RestException(403);
+		}
+
+		$result = $this->order->fetch($id);
+		if (!$result) {
+			throw new RestException(404, 'Supplier order not found');
+		}
+
+		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		$contacts = $this->order->liste_contact(-1, $source, 0, $type);
+
+		$contactToUnlink = 0;
+		foreach ($contacts as $contact) {
+			if ($contact['id'] == $contactid && $contact['code'] == $type) {
+				$contactToUnlink = $contact['rowid'];
+				break;
+			}
+		}
+
+		if ($contactToUnlink == 0) {
+			throw new RestException(404, 'Linked contact not found');
+		}
+
+		$result = $this->order->delete_contact($contactToUnlink);
+
+		if ($result < 0) {
+			throw new RestException(500, 'Error when deleting the contact: '.$this->order->errorsToString());
+		}
+
+		return array(
+			'success' => array(
+				'code' => 200,
+				'message' => 'Contact unlinked from supplier order'
+			)
+		);
 	}
 
 	/**
 	 * Delete supplier order
 	 *
-	 * @param int   	$id 	Supplier order ID
+	 * @since	6.0.0	Initial implementation
+	 *
+	 * @param int		$id		Supplier order ID
 	 * @return array			Array of result
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
 	 */
 	public function delete($id)
 	{
-		if (!DolibarrApiAccess::$user->rights->fournisseur->commande->supprimer) {
-			throw new RestException(401);
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "supprimer")) {
+			throw new RestException(403);
 		}
 		$result = $this->order->fetch($id);
 		if (!$result) {
@@ -305,7 +829,7 @@ class SupplierOrders extends DolibarrApi
 		}
 
 		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
-			throw new RestException(401, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
 		}
 
 		if ($this->order->delete(DolibarrApiAccess::$user) < 0) {
@@ -324,6 +848,8 @@ class SupplierOrders extends DolibarrApi
 	/**
 	 * Validate an order
 	 *
+	 * @since	6.0.0	Initial implementation
+	 *
 	 * @param   int $id             Order ID
 	 * @param   int $idwarehouse    Warehouse ID
 	 * @param   int $notrigger      1=Does not execute triggers, 0= execute triggers
@@ -331,6 +857,9 @@ class SupplierOrders extends DolibarrApi
 	 * @url POST    {id}/validate
 	 *
 	 * @return  array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
 	 * FIXME An error 403 is returned if the request has an empty body.
 	 * Error message: "Forbidden: Content type `text/plain` is not supported."
 	 * Workaround: send this in the body
@@ -341,8 +870,8 @@ class SupplierOrders extends DolibarrApi
 	 */
 	public function validate($id, $idwarehouse = 0, $notrigger = 0)
 	{
-		if (empty(DolibarrApiAccess::$user->rights->fournisseur->commande->creer) && empty(DolibarrApiAccess::$user->rights->supplier_order->creer)) {
-			throw new RestException(401);
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer") && !DolibarrApiAccess::$user->hasRight("supplier_order", "creer")) {
+			throw new RestException(403);
 		}
 		$result = $this->order->fetch($id);
 		if (!$result) {
@@ -350,7 +879,7 @@ class SupplierOrders extends DolibarrApi
 		}
 
 		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
-			throw new RestException(401, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
 		}
 
 		$result = $this->order->valid(DolibarrApiAccess::$user, $idwarehouse, $notrigger);
@@ -358,7 +887,7 @@ class SupplierOrders extends DolibarrApi
 			throw new RestException(304, 'Error nothing done. May be object is already validated');
 		}
 		if ($result < 0) {
-			throw new RestException(500, 'Error when validating Order: '.$this->order->error);
+			throw new RestException(500, 'Error when validating Order: '.$this->order->errorsToString());
 		}
 
 		return array(
@@ -370,7 +899,74 @@ class SupplierOrders extends DolibarrApi
 	}
 
 	/**
+	 * Set a validated or approved order back to draft
+	 *
+	 * @since	25.0.0	Initial implementation
+	 *
+	 * @param   int		$id			Order ID
+	 *
+	 * @url POST    {id}/settodraft
+	 *
+	 * @return  array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Not found
+	 * @throws RestException 405 Order is not validated or approved
+	 * @throws RestException 500 Error
+	 */
+	public function settodraft($id)
+	{
+		// Same right as checked by the supplier order card before calling CommandeFournisseur::setReopen()
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer") && !DolibarrApiAccess::$user->hasRight("supplier_order", "creer")) {
+			throw new RestException(403);
+		}
+		$result = $this->order->fetch($id);
+		if (!$result) {
+			throw new RestException(404, 'Order not found');
+		}
+
+		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		// Other statuses are reopened one step back by CommandeFournisseur::setReopen(), not set to draft
+		$status = (int) $this->order->status;
+		if ($status !== CommandeFournisseur::STATUS_VALIDATED && $status !== CommandeFournisseur::STATUS_ACCEPTED) {
+			throw new RestException(405, 'Only validated or approved supplier orders can be set back to draft');
+		}
+
+		// Same rights as the ones showing the "Modify" (validated) and "Disapprove" (approved) buttons on the supplier order card
+		if ($status === CommandeFournisseur::STATUS_VALIDATED) {
+			$allowed = DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "commander");
+		} else {
+			$allowed = (DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "approuver")
+					&& (!getDolGlobalString('SUPPLIER_ORDER_REOPEN_BY_APPROVER_ONLY') || DolibarrApiAccess::$user->id == $this->order->user_approve_id))
+				|| (DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "approve2") && getDolGlobalString('SUPPLIER_ORDER_3_STEPS_TO_BE_APPROVED')
+					&& (!getDolGlobalString('SUPPLIER_ORDER_REOPEN_BY_APPROVER2_ONLY') || DolibarrApiAccess::$user->id == $this->order->user_approve_id2));
+		}
+		if (!$allowed) {
+			throw new RestException(403, 'Not allowed to set this supplier order back to draft');
+		}
+
+		$result = $this->order->setReopen(DolibarrApiAccess::$user);
+		if ($result <= 0) {
+			throw new RestException(500, 'Error when setting Order to draft: '.$this->order->errorsToString());
+		}
+
+		return array(
+			'success' => array(
+				'code' => 200,
+				'message' => 'Order set to draft (Ref='.$this->order->ref.')'
+			)
+		);
+	}
+
+	/**
 	 * Approve an order
+	 *
+	 * @since	15.0.0	Initial implementation
 	 *
 	 * @param   int $id             Order ID
 	 * @param   int $idwarehouse    Warehouse ID
@@ -379,6 +975,9 @@ class SupplierOrders extends DolibarrApi
 	 * @url POST    {id}/approve
 	 *
 	 * @return  array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
 	 * FIXME An error 403 is returned if the request has an empty body.
 	 * Error message: "Forbidden: Content type `text/plain` is not supported."
 	 * Workaround: send this in the body
@@ -389,8 +988,8 @@ class SupplierOrders extends DolibarrApi
 	 */
 	public function approve($id, $idwarehouse = 0, $secondlevel = 0)
 	{
-		if (empty(DolibarrApiAccess::$user->rights->fournisseur->commande->creer) && empty(DolibarrApiAccess::$user->rights->supplier_order->creer)) {
-			throw new RestException(401);
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer") && !DolibarrApiAccess::$user->hasRight("supplier_order", "creer")) {
+			throw new RestException(403);
 		}
 		$result = $this->order->fetch($id);
 		if (!$result) {
@@ -398,7 +997,7 @@ class SupplierOrders extends DolibarrApi
 		}
 
 		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
-			throw new RestException(401, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
 		}
 
 		$result = $this->order->approve(DolibarrApiAccess::$user, $idwarehouse, $secondlevel);
@@ -406,7 +1005,7 @@ class SupplierOrders extends DolibarrApi
 			throw new RestException(304, 'Error nothing done. May be object is already approved');
 		}
 		if ($result < 0) {
-			throw new RestException(500, 'Error when approve Order: '.$this->order->error);
+			throw new RestException(500, 'Error when approve Order: '.$this->order->errorsToString());
 		}
 
 		return array(
@@ -417,9 +1016,73 @@ class SupplierOrders extends DolibarrApi
 		);
 	}
 
+	/**
+	 * Refuse a validated order that is waiting for approval
+	 *
+	 * @since	25.0.0	Initial implementation
+	 *
+	 * @param   int		$id			Order ID
+	 * @param   string	$comment	Reason of the refusal, added to the agenda event {@required false}
+	 *
+	 * @url POST    {id}/refuse
+	 *
+	 * @return  array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Not found
+	 * @throws RestException 405 Order is not waiting for approval
+	 * @throws RestException 500 Error
+	 *
+	 * FIXME An error 403 is returned if the request has an empty body.
+	 * Error message: "Forbidden: Content type `text/plain` is not supported."
+	 * Workaround: send this in the body
+	 * {
+	 *   "comment": ""
+	 * }
+	 */
+	public function refuse($id, $comment = '')
+	{
+		// Same right as checked by CommandeFournisseur::refuse(), which otherwise does nothing and returns 0
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "approuver")) {
+			throw new RestException(403);
+		}
+		$result = $this->order->fetch($id);
+		if (!$result) {
+			throw new RestException(404, 'Order not found');
+		}
+
+		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		if ((int) $this->order->status !== CommandeFournisseur::STATUS_VALIDATED) {
+			throw new RestException(405, 'Only validated supplier orders waiting for approval can be refused');
+		}
+
+		if ((string) $comment !== '') {
+			$this->order->refuse_note = $comment;
+		}
+
+		$result = $this->order->refuse(DolibarrApiAccess::$user);
+		if ($result < 0) {
+			throw new RestException(500, 'Error when refusing Order: '.$this->order->errorsToString());
+		}
+
+		return array(
+			'success' => array(
+				'code' => 200,
+				'message' => 'Order refused (Ref='.$this->order->ref.')'
+			)
+		);
+	}
+
 
 	/**
 	 * Sends an order to the vendor
+	 *
+	 * @since	15.0.0	Initial implementation
 	 *
 	 * @param   int		$id             Order ID
 	 * @param   integer	$date		Date (unix timestamp in sec)
@@ -429,6 +1092,11 @@ class SupplierOrders extends DolibarrApi
 	 * @url POST    {id}/makeorder
 	 *
 	 * @return  array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * @throws RestException 405 Order is not approved
+	 *
 	 * FIXME An error 403 is returned if the request has an empty body.
 	 * Error message: "Forbidden: Content type `text/plain` is not supported."
 	 * Workaround: send this in the body
@@ -440,8 +1108,8 @@ class SupplierOrders extends DolibarrApi
 	 */
 	public function makeOrder($id, $date, $method, $comment = '')
 	{
-		if (empty(DolibarrApiAccess::$user->rights->fournisseur->commande->creer) && empty(DolibarrApiAccess::$user->rights->supplier_order->creer)) {
-			throw new RestException(401);
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer") && !DolibarrApiAccess::$user->hasRight("supplier_order", "creer")) {
+			throw new RestException(403);
 		}
 		$result = $this->order->fetch($id);
 		if (!$result) {
@@ -449,7 +1117,12 @@ class SupplierOrders extends DolibarrApi
 		}
 
 		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
-			throw new RestException(401, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		// Same status as the one allowing the make order button on the supplier order card
+		if ((int) $this->order->status !== CommandeFournisseur::STATUS_ACCEPTED) {
+			throw new RestException(405, 'Only approved supplier orders can be sent to the vendor');
 		}
 
 		$result = $this->order->commande(DolibarrApiAccess::$user, $date, $method, $comment);
@@ -457,7 +1130,7 @@ class SupplierOrders extends DolibarrApi
 			throw new RestException(304, 'Error nothing done. May be object is already sent');
 		}
 		if ($result < 0) {
-			throw new RestException(500, 'Error when sending Order: '.$this->order->error);
+			throw new RestException(500, 'Error when sending Order: '.$this->order->errorsToString());
 		}
 
 		return array(
@@ -468,43 +1141,37 @@ class SupplierOrders extends DolibarrApi
 		);
 	}
 
-		/**
-	 * Receives the order, dispatches products.
-		 *
-	 * Example:
-	 * <code> {
-	 *   "closeopenorder": 1,
-	 *   "comment": "",
-		 *   "lines": [{
-		 *      "id": 14,
-		 *      "fk_product": 112,
-		 *      "qty": 18,
-		 *      "warehouse": 1,
-		 *      "price": 114,
-		 *      "comment": "",
-		 *      "eatby": 0,
-		 *      "sellby": 0,
-		 *      "batch": 0,
-		 *      "notrigger": 0
-		 *   }]
-	 * }</code>
-		 *
-	 * @param   int		$id             Order ID
-	 * @param   integer	$closeopenorder	Close order if everything is received {@required false}
-	 * @param   string	$comment	Comment {@required false}
-	 * @param   array	$lines		Array of product dispatches
+	/**
+	 * Cancel an approved order that has not been sent to the vendor yet
 	 *
-	 * @url POST    {id}/receive
+	 * @since	25.0.0	Initial implementation
+	 *
+	 * @param   int		$id			Order ID
+	 * @param   string	$comment	Reason of the cancellation, added to the agenda event {@required false}
+	 *
+	 * @url POST    {id}/cancel
 	 *
 	 * @return  array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Not found
+	 * @throws RestException 405 Order is not approved
+	 * @throws RestException 500 Error
+	 *
 	 * FIXME An error 403 is returned if the request has an empty body.
 	 * Error message: "Forbidden: Content type `text/plain` is not supported."
-	 *
+	 * Workaround: send this in the body
+	 * {
+	 *   "comment": ""
+	 * }
 	 */
-	public function receiveOrder($id, $closeopenorder, $comment, $lines)
+	public function cancel($id, $comment = '')
 	{
-		if (empty(DolibarrApiAccess::$user->rights->fournisseur->commande->creer) && empty(DolibarrApiAccess::$user->rights->supplier_order->creer)) {
-			throw new RestException(401);
+		// Same right as checked by CommandeFournisseur::cancel(), which otherwise returns -1 without error message
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "commander")) {
+			throw new RestException(403);
 		}
 		$result = $this->order->fetch($id);
 		if (!$result) {
@@ -512,26 +1179,216 @@ class SupplierOrders extends DolibarrApi
 		}
 
 		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
-			throw new RestException(401, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		// Same status as the one allowing the cancel button on the supplier order card
+		if ((int) $this->order->status !== CommandeFournisseur::STATUS_ACCEPTED) {
+			throw new RestException(405, 'Only approved supplier orders can be canceled');
+		}
+
+		if ((string) $comment !== '') {
+			$this->order->cancel_note = $comment;
+		}
+
+		$result = $this->order->cancel(DolibarrApiAccess::$user);
+		if ($result < 0) {
+			throw new RestException(500, 'Error when canceling Order: '.$this->order->errorsToString());
+		}
+
+		return array(
+			'success' => array(
+				'code' => 200,
+				'message' => 'Order canceled (Ref='.$this->order->ref.')'
+			)
+		);
+	}
+
+	/**
+	 * Classify an order as billed. Could be also called setbilled
+	 *
+	 * @since	25.0.0	Initial implementation
+	 *
+	 * @param   int		$id			Order ID
+	 *
+	 * @url POST    {id}/setinvoiced
+	 *
+	 * @return  array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Not found
+	 * @throws RestException 405 Order status does not allow it, or a supplier invoice is required
+	 * @throws RestException 500 Error
+	 */
+	public function setinvoiced($id)
+	{
+		// Same right as checked by the supplier order card before calling CommandeFournisseur::classifyBilled()
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer") && !DolibarrApiAccess::$user->hasRight("supplier_order", "creer")) {
+			throw new RestException(403);
+		}
+		$result = $this->order->fetch($id);
+		if (!$result) {
+			throw new RestException(404, 'Order not found');
+		}
+
+		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		// Same statuses as the ones showing the "Classify billed" button on the supplier order card
+		$status = (int) $this->order->status;
+		if ($status < CommandeFournisseur::STATUS_ACCEPTED || $status === CommandeFournisseur::STATUS_CANCELED_AFTER_ORDER) {
+			throw new RestException(405, 'Only approved supplier orders, or later statuses except canceled after order, can be classified as billed');
+		}
+
+		// Same rule as the supplier order card, which then requires at least one linked supplier invoice
+		if (isModEnabled('invoice') && getDolGlobalInt('SUPPLIER_ORDER_DISABLE_CLASSIFY_BILLED_FROM_SUPPLIER_ORDER')) {
+			$this->order->fetchObjectLinked();
+			if (empty($this->order->linkedObjectsIds['invoice_supplier'])) {
+				throw new RestException(405, 'At least one supplier invoice linked to the order is required to classify it as billed');
+			}
+		}
+
+		// CommandeFournisseur::classifyBilled() returns 0 when the order is already billed
+		$result = $this->order->classifyBilled(DolibarrApiAccess::$user);
+		if ($result < 0) {
+			throw new RestException(500, 'Error when classifying Order as billed: '.$this->order->errorsToString());
+		}
+
+		return array(
+			'success' => array(
+				'code' => 200,
+				'message' => ($result == 0 ? 'Order already classified as billed' : 'Order classified as billed').' (Ref='.$this->order->ref.')'
+			)
+		);
+	}
+
+	/**
+	 * Classify an order as unbilled. Could be also called setunbilled
+	 *
+	 * @since	25.0.0	Initial implementation
+	 *
+	 * @param   int		$id			Order ID
+	 *
+	 * @url POST    {id}/setuninvoiced
+	 *
+	 * @return  array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * @throws RestException 403 Not allowed
+	 * @throws RestException 404 Not found
+	 * @throws RestException 405 Order status does not allow it
+	 * @throws RestException 500 Error
+	 */
+	public function setuninvoiced($id)
+	{
+		// Same right as checked by the supplier order card before calling CommandeFournisseur::classifyUnBilled()
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer") && !DolibarrApiAccess::$user->hasRight("supplier_order", "creer")) {
+			throw new RestException(403);
+		}
+		$result = $this->order->fetch($id);
+		if (!$result) {
+			throw new RestException(404, 'Order not found');
+		}
+
+		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
+		}
+
+		// Same statuses as the ones showing the "Classify unbilled" button on the supplier order card
+		if ((int) $this->order->status <= CommandeFournisseur::STATUS_DRAFT) {
+			throw new RestException(405, 'A draft supplier order can not be classified as unbilled');
+		}
+
+		// CommandeFournisseur::classifyUnBilled() returns 0 when the order is not billed
+		$result = $this->order->classifyUnBilled(DolibarrApiAccess::$user);
+		if ($result < 0) {
+			throw new RestException(500, 'Error when classifying Order as unbilled: '.$this->order->errorsToString());
+		}
+
+		return array(
+			'success' => array(
+				'code' => 200,
+				'message' => ($result == 0 ? 'Order already classified as unbilled' : 'Order classified as unbilled').' (Ref='.$this->order->ref.')'
+			)
+		);
+	}
+
+	/**
+	 * Receives the order, dispatches products.
+	 *
+	 * Example:
+	 * <code> {
+	 *   "closeopenorder": 1,
+	 *   "comment": "",
+	 *   "lines": [{
+	 *      "id": 14,
+	 *      "fk_product": 112,
+	 *      "qty": 18,
+	 *      "warehouse": 1,
+	 *      "price": 114,
+	 *      "comment": "",
+	 *      "eatby": 0,
+	 *      "sellby": 0,
+	 *      "batch": 0,
+	 *      "notrigger": 0
+	 *   }]
+	 * }</code>
+	 *
+	 * @since	15.0.0	Initial implementation
+	 *
+	 * @param   int		$id             Order ID
+	 * @param   integer	$closeopenorder	Close order if everything is received {@required false}
+	 * @param   string	$comment	Comment {@required false}
+	 * @param   array	$lines		Array of product dispatches
+	 * @phan-param array<array{fk_product:string,qty:string,warehouse:string,price:string,comment:string,eatby:string,sellby:string,batch:string,id:string,notrigger:string}> $lines
+	 * @phpstan-param array<array{fk_product:string,qty:string,warehouse:string,price:string,comment:string,eatby:string,sellby:string,batch:string,id:string,notrigger:string}> $lines
+	 *
+	 * @url POST    {id}/receive
+	 *
+	 * @return  array
+	 * @phan-return array{success:array{code:int,message:string}}
+	 * @phpstan-return array{success:array{code:int,message:string}}
+	 *
+	 * FIXME An error 403 is returned if the request has an empty body.
+	 * Error message: "Forbidden: Content type `text/plain` is not supported."
+	 */
+	public function receiveOrder($id, $closeopenorder, $comment, $lines)
+	{
+		if (!DolibarrApiAccess::$user->hasRight("fournisseur", "commande", "creer") && !DolibarrApiAccess::$user->hasRight("supplier_order", "creer")) {
+			throw new RestException(403);
+		}
+		$result = $this->order->fetch($id);
+		if (!$result) {
+			throw new RestException(404, 'Order not found');
+		}
+
+		if (!DolibarrApi::_checkAccessToResource('fournisseur', $this->order->id, 'commande_fournisseur', 'commande')) {
+			throw new RestException(403, 'Access not allowed for login '.DolibarrApiAccess::$user->login);
 		}
 
 		foreach ($lines as $line) {
-			$lineObj =(object) $line;
+			$lineObj = (object) $line;
 
-			$result=$this->order->dispatchProduct(DolibarrApiAccess::$user,
-				  $lineObj->fk_product,
-				  $lineObj->qty,
-				  $lineObj->warehouse,
-				  $lineObj->price,
-				  $lineObj->comment,
-				  $lineObj->eatby,
-				  $lineObj->sellby,
-				  $lineObj->batch,
-				  $lineObj->id,
-				  $lineObj->notrigger);
+			$result = $this->order->dispatchProduct(
+				DolibarrApiAccess::$user,
+				$lineObj->fk_product,
+				$lineObj->qty,
+				$lineObj->warehouse,
+				$lineObj->price,
+				$lineObj->comment,
+				$lineObj->eatby,
+				$lineObj->sellby,
+				$lineObj->batch,
+				(int) $lineObj->id,
+				$lineObj->notrigger
+			);
 
 			if ($result < 0) {
-				throw new RestException(500, 'Error dispatch order line '.$line->id.': '.$this->order->error);
+				throw new RestException(500, 'Error dispatch order line '.$lineObj->id.': '.$this->order->errorsToString());
 			}
 		}
 
@@ -541,7 +1398,7 @@ class SupplierOrders extends DolibarrApi
 			throw new RestException(304, 'Error nothing done. May be object is already dispatched');
 		}
 		if ($result < 0) {
-			throw new RestException(500, 'Error when receivce order: '.$this->order->error);
+			throw new RestException(500, 'Error when receivce order: '.$this->order->errorsToString());
 		}
 
 		return array(
@@ -555,9 +1412,12 @@ class SupplierOrders extends DolibarrApi
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.PublicUnderscore
 	/**
 	 * Clean sensible object datas
+	 * @phpstan-template T
 	 *
 	 * @param   Object  $object     Object to clean
 	 * @return  Object              Object with cleaned properties
+	 * @phpstan-param T $object
+	 * @phpstan-return T
 	 */
 	protected function _cleanObjectDatas($object)
 	{
@@ -576,13 +1436,16 @@ class SupplierOrders extends DolibarrApi
 	/**
 	 * Validate fields before create or update object
 	 *
-	 * @param array $data   Datas to validate
-	 * @return array
+	 * @param ?array<string,string> $data   Data to validate
+	 * @return array<string,string>
 	 *
 	 * @throws RestException
 	 */
 	private function _validate($data)
 	{
+		if ($data === null) {
+			$data = array();
+		}
 		$order = array();
 		foreach (SupplierOrders::$FIELDS as $field) {
 			if (!isset($data[$field])) {

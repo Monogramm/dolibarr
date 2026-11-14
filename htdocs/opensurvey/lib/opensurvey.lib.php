@@ -1,6 +1,8 @@
 <?php
-/* Copyright (C) 2013 Laurent Destailleur  <eldy@users.sourceforge.net>
- * Copyright (C) 2014 Marcos García			<marcosgdf@gmail.com>
+/* Copyright (C) 2013 		Laurent Destailleur  	<eldy@users.sourceforge.net>
+ * Copyright (C) 2014 		Marcos García			<marcosgdf@gmail.com>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France			<frederic.france@free.fr>
  *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -17,7 +19,7 @@
 */
 
 /**
- *	\file       htdocs/opensurvey/fonctions.php
+ *	\file       htdocs/opensurvey/lib/opensurvey.lib.php
  *	\ingroup    opensurvey
  *	\brief      Functions for module
  */
@@ -27,7 +29,7 @@
  * It loads tabs from modules looking for the entity Opensurveyso
  *
  * @param Opensurveysondage $object Current viewing poll
- * @return array Tabs for the opensurvey section
+ * @return	array<array{0:string,1:string,2:string}>	Tabs for the opensurvey section
  */
 function opensurvey_prepare_head(Opensurveysondage $object)
 {
@@ -68,65 +70,33 @@ function opensurvey_prepare_head(Opensurveysondage $object)
  * @param 	string		$head				Head array
  * @param 	int    		$disablejs			More content into html header
  * @param 	int    		$disablehead		More content into html header
- * @param 	array  		$arrayofjs			Array of complementary js files
- * @param 	array  		$arrayofcss			Array of complementary css files
+ * @param 	string[]|string	$arrayofjs			Array of complementary js files
+ * @param 	string[]|string	$arrayofcss			Array of complementary css files
  * @param	string		$numsondage			Num survey
  * @return	void
  */
-function llxHeaderSurvey($title, $head = "", $disablejs = 0, $disablehead = 0, $arrayofjs = '', $arrayofcss = '', $numsondage = '')
+function llxHeaderSurvey($title, $head = "", $disablejs = 0, $disablehead = 0, $arrayofjs = [], $arrayofcss = [], $numsondage = '')
 {
-	global $conf, $langs, $mysoc;
-	global $dolibarr_main_url_root;
+	global $langs, $mysoc;
 
-	//$replacemainarea = (empty($conf->dol_hide_leftmenu) ? '<div>' : '').'<div>';
+	// $replacemainarea = (empty($conf->dol_hide_leftmenu) ? '<div>' : '').'<div>';
 
 	top_htmlhead($head, $title, $disablejs, $disablehead, $arrayofjs, $arrayofcss, 0, 1); // Show html headers
 
 	print '<body id="mainbody" class="publicnewmemberform">';
 
+	include_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
+	htmlPrintOnlineHeader($mysoc, $langs, 'OPENSURVEY_IMAGE_PUBLIC_INTERFACE');
+
 	print '<span id="dolpaymentspan"></span>'."\n";
 	print '<div class="center">'."\n";
+
 	print '<form name="formulaire" action="studs.php?sondage='.urlencode($numsondage).'#bas" method="POST">'."\n";
 	print '<input type="hidden" name="sondage" value="'.$numsondage.'"/>';
 	print '<input type="hidden" name="token" value="'.newToken().'">'."\n";
 	print "\n";
 
-	// Show logo (search order: logo defined by PAYMENT_LOGO_suffix, then PAYMENT_LOGO, then small company logo, large company logo, theme logo, common logo)
-	// Define logo and logosmall
-	$logosmall = $mysoc->logo_small;
-	$logo = $mysoc->logo;
-	//print '<!-- Show logo (logosmall='.$logosmall.' logo='.$logo.') -->'."\n";
-	// Define urllogo
-	$urllogo = '';
-	$urllogofull = '';
-	if (!empty($logosmall) && is_readable($conf->mycompany->dir_output.'/logos/thumbs/'.$logosmall)) {
-		$urllogo = DOL_URL_ROOT.'/viewimage.php?modulepart=mycompany&amp;entity='.$conf->entity.'&amp;file='.urlencode('logos/thumbs/'.$logosmall);
-		$urllogofull = $dolibarr_main_url_root.'/viewimage.php?modulepart=mycompany&entity='.$conf->entity.'&file='.urlencode('logos/thumbs/'.$logosmall);
-	} elseif (!empty($logo) && is_readable($conf->mycompany->dir_output.'/logos/'.$logo)) {
-		$urllogo = DOL_URL_ROOT.'/viewimage.php?modulepart=mycompany&amp;entity='.$conf->entity.'&amp;file='.urlencode('logos/'.$logo);
-		$urllogofull = $dolibarr_main_url_root.'/viewimage.php?modulepart=mycompany&entity='.$conf->entity.'&file='.urlencode('logos/'.$logo);
-	}
-
-	// Output html code for logo
-	if ($urllogo) {
-		print '<div class="backgreypublicpayment">';
-		print '<div class="logopublicpayment">';
-		print '<img id="dolpaymentlogo" src="'.$urllogo.'"';
-		print '>';
-		print '</div>';
-		if (empty($conf->global->MAIN_HIDE_POWERED_BY)) {
-			print '<div class="poweredbypublicpayment opacitymedium right"><a class="poweredbyhref" href="https://www.dolibarr.org?utm_medium=website&utm_source=poweredby" target="dolibarr" rel="noopener">'.$langs->trans("PoweredBy").'<br><img src="'.DOL_URL_ROOT.'/theme/dolibarr_logo.svg" width="80px"></a></div>';
-		}
-		print '</div>';
-	}
-
-	if (!empty($conf->global->OPENSURVEY_IMAGE_PUBLIC_INTERFACE)) {
-		print '<div class="backimagepublicopensurvey">';
-		print '<img id="idOPENSURVEY_IMAGE_PUBLIC_INTERFACE" src="'.$conf->global->OPENSURVEY_IMAGE_PUBLIC_INTERFACE.'">';
-		print '</div>';
-	}
-
-	print '<div style="margin-left: 50px; margin-right: 50px; text-align: start;"><br>';
+	print '<div class="survey_borders"><br><br>';
 }
 
 /**
@@ -165,18 +135,18 @@ function get_server_name()
 	$url = $urlwithouturlroot.dol_buildpath('/opensurvey/', 1);
 
 	if (!preg_match("|/$|", $url)) {
-		$url = $url."/";
+		$url .= "/";
 	}
 
 	return $url;
 }
 
 /**
- * Fonction vérifiant l'existance et la valeur non vide d'une clé d'un tableau
+ * Function to verify that an array key exists and is not empty.
  *
- * @param   string  $name       La clé à tester
- * @param   array   $tableau    Le tableau où rechercher la clé ($_POST par défaut)
- * @return  bool                Vrai si la clé existe et renvoie une valeur non vide
+ * @param   string  $name       Key to test
+ * @param   ?array<string,null|mixed|mixed[]>   $tableau    Array in which searching key ($_POST by default)
+ * @return  bool                True if key exists and return a non empty value
  */
 function issetAndNoEmpty($name, $tableau = null)
 {
@@ -184,16 +154,16 @@ function issetAndNoEmpty($name, $tableau = null)
 		$tableau = $_POST;
 	}
 
-	return (isset($tableau[$name]) === true && empty($tableau[$name]) === false);
+	return (isset($tableau[$name]) && !empty($tableau[$name]));
 }
 
 
 /**
- * Fonction permettant de générer les URL pour les sondage
+ * Function for generating URLs for surveys.
  *
- * @param   string    $id     L'identifiant du sondage
- * @param   bool      $admin  True pour générer une URL pour l'administration d'un sondage, False pour un URL publique
- * @return  string            L'url pour le sondage
+ * @param   string    $id     Survey ID
+ * @param   bool      $admin  True to generate a URL for survey administration, False for a public URL
+ * @return  string            The url of the survey
  */
 function getUrlSondage($id, $admin = false)
 {
@@ -217,7 +187,7 @@ function dol_survey_random($car)
 {
 	$string = "";
 	$chaine = "abcdefghijklmnopqrstuvwxyz123456789";
-	mt_srand((double) microtime() * 1000000);
+	mt_srand((int) ((float) microtime() * 1000000));
 	for ($i = 0; $i < $car; $i++) {
 		$string .= $chaine[mt_rand() % strlen($chaine)];
 	}
@@ -227,13 +197,15 @@ function dol_survey_random($car)
 /**
  * Add a poll
  *
+ * @param	Opensurveyquestion[]	$questions	Questions of a poll of format 'F' (form), saved with the poll
  * @return	void
  */
-function ajouter_sondage()
+function ajouter_sondage($questions = array())
 {
 	global $db, $user;
 
 	require_once DOL_DOCUMENT_ROOT.'/opensurvey/class/opensurveysondage.class.php';
+	require_once DOL_DOCUMENT_ROOT.'/opensurvey/class/opensurveyquestion.class.php';
 
 	$sondage = dol_survey_random(16);
 
@@ -244,8 +216,8 @@ function ajouter_sondage()
 	$opensurveysondage = new Opensurveysondage($db);
 	$opensurveysondage->id_sondage = $sondage;
 	$opensurveysondage->description = $_SESSION['description'];
-	$opensurveysondage->mail_admin = $_SESSION['adresse'];
-	$opensurveysondage->nom_admin = $_SESSION['nom'];
+	$opensurveysondage->mail_admin = isset($_SESSION['adresse']) ? $_SESSION['adresse'] : '';
+	$opensurveysondage->nom_admin = isset($_SESSION['nom']) ? $_SESSION['nom'] : '';
 	$opensurveysondage->title = $_SESSION['title'];
 	$opensurveysondage->date_fin = $_SESSION['champdatefin'];
 	$opensurveysondage->format = $_SESSION['formatsondage'];
@@ -254,11 +226,26 @@ function ajouter_sondage()
 	$opensurveysondage->allow_spy = $allow_spy;
 	$opensurveysondage->sujet = $_SESSION['toutchoix'];
 
+	$db->begin();
+
 	$res = $opensurveysondage->create($user);
 
 	if ($res < 0) {
+		$db->rollback();
 		dol_print_error($db);
+		return;
 	}
+
+	foreach ($questions as $question) {
+		$question->id_sondage = $sondage;
+		if ($question->create() < 0) {
+			$db->rollback();
+			dol_print_error($db, $question->error);
+			return;
+		}
+	}
+
+	$db->commit();
 
 	unset($_SESSION["title"]);
 	unset($_SESSION["nom"]);
@@ -275,4 +262,42 @@ function ajouter_sondage()
 
 	header("Location: ".$urlback);
 	exit();
+}
+
+/**
+ * Send to the owner of a survey the email that says that somebody answered, if the survey asks for it
+ *
+ * @param	Opensurveysondage	$object		Survey
+ * @param	string				$nom		Name of the respondent
+ * @return	void
+ */
+function opensurveyNotifyNewVote($object, $nom)
+{
+	global $db, $conf, $langs;
+
+	if (empty($object->mailsonde)) {
+		return;
+	}
+
+	if ($object->fk_user_creat) {
+		$userstatic = new User($db);
+		$userstatic->fetch($object->fk_user_creat);
+		$email = $userstatic->email;
+	} else {
+		$email = $object->mail_admin;
+	}
+
+	// The linked user may not have an email set
+	if ($email) {
+		include_once DOL_DOCUMENT_ROOT.'/core/class/CMailFile.class.php';
+
+		$application = getDolGlobalString('MAIN_APPLICATION_TITLE', 'Dolibarr ERP/CRM');
+
+		$link = getUrlSondage($object->id_sondage, true);
+		$link = '<a href="'.$link.'">'.$link.'</a>';
+		$body = str_replace('\n', '<br>', $langs->transnoentities('EmailSomeoneVoted', $nom, $link));
+
+		$cmailfile = new CMailFile("[".$application."] ".$langs->trans("Poll").': '.$object->title, $email, getDolGlobalString('MAIN_MAIL_EMAIL_FROM'), $body, array(), array(), array(), '', '', 0, -1);
+		$cmailfile->sendfile();
+	}
 }

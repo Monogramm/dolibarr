@@ -1,8 +1,9 @@
 <?php
 /* Copyright (C) 2004-2018  Laurent Destailleur     <eldy@users.sourceforge.net>
  * Copyright (C) 2018-2019  Nicolas ZABOURI         <info@inovea-conseil.com>
- * Copyright (C) 2019-2021  Frédéric France         <frederic.france@netlogic.fr>
+ * Copyright (C) 2019-2026	Frédéric France         <frederic.france@free.fr>
  * Copyright (C) 2020 		Gauthier VERDOL <gauthier.verdol@atm-consulting.fr>
+ * Copyright (C) 2024-2026	MDW							<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,6 +42,7 @@ class modWorkstation extends DolibarrModules
 	public function __construct($db)
 	{
 		global $langs, $conf;
+
 		$this->db = $db;
 
 		// Id for module (must be unique).
@@ -62,7 +64,7 @@ class modWorkstation extends DolibarrModules
 		// Used only if file README.md and README-LL.md not found.
 		$this->descriptionlong = "WorkstationsDescription";
 		// Possible values for version are: 'development', 'experimental', 'dolibarr', 'dolibarr_deprecated' or a version string like 'x.y.z'
-		$this->version = 'experimental';
+		$this->version = 'dolibarr';
 		// Url to the file with your last numberversion of this module
 		//$this->url_last_version = 'http://www.example.com/versionmodule.txt';
 
@@ -119,24 +121,31 @@ class modWorkstation extends DolibarrModules
 		// Dependencies
 		// A condition to hide module
 		$this->hidden = false;
-		// List of module class names as string that must be enabled if this module is enabled. Example: array('always1'=>'modModuleToEnable1','always2'=>'modModuleToEnable2', 'FR1'=>'modModuleToEnableFR'...)
-		$this->depends = array();
+		// List of module class names as string that must be enabled if this module is enabled. Example: array('always'=>array('modModuleToEnable1','modModuleToEnable2'), 'FR'=>array('modModuleToEnableFR'...))
+		$this->depends = array('modMrp');
 		$this->requiredby = array(); // List of module class names as string to disable if this one is disabled. Example: array('modModuleToDisable1', ...)
 		$this->conflictwith = array(); // List of module class names as string this module is in conflict with. Example: array('modModuleToDisable1', ...)
 		$this->langfiles = array("mrp");
-		$this->phpmin = array(5, 6); // Minimum version of PHP required by module
+		$this->phpmin = array(7, 0); // Minimum version of PHP required by module
 		$this->need_dolibarr_version = array(11, -3); // Minimum version of Dolibarr required by module
-		$this->warnings_activation = array(); // Warning to show when we activate module. array('always'='text') or array('FR'='textfr','ES'='textes'...)
-		$this->warnings_activation_ext = array(); // Warning to show when we activate an external module. array('always'='text') or array('FR'='textfr','ES'='textes'...)
+		$this->warnings_activation = array();
+		$this->warnings_activation_ext = array();
 		//$this->automatic_activation = array('FR'=>'WorkstationWasAutomaticallyActivatedBecauseOfYourCountryChoice');
-		//$this->always_enabled = true;								// If true, can't be disabled
 
 		// Constants
 		// List of particular constants to add when module is enabled (key, 'chaine', value, desc, visible, 'current' or 'allentities', deleteonunactive)
 		// Example: $this->const=array(1 => array('WORKSTATION_MYNEWCONST1', 'chaine', 'myvalue', 'This is a constant to add', 1),
 		//                             2 => array('WORKSTATION_MYNEWCONST2', 'chaine', 'myvalue', 'This is another constant to add', 0, 'current', 1)
 		// );
-		$this->const = array();
+		$this->const = array(
+			array(
+				"WORKSTATION_ADDON_PDF_ODT_PATH",
+				"chaine",
+				"DOL_DATA_ROOT".($conf->entity > 1 ? '/'.$conf->entity : '')."/doctemplates/workstation",
+				"",
+				0,
+			),
+		);
 
 		// Some keys to add into the overwriting translation tables
 		/*$this->overwrite_translation = array(
@@ -164,9 +173,9 @@ class modWorkstation extends DolibarrModules
 		// 'intervention'     to add a tab in intervention view
 		// 'invoice'          to add a tab in customer invoice view
 		// 'invoice_supplier' to add a tab in supplier invoice view
-		// 'member'           to add a tab in fundation member view
+		// 'member'           to add a tab in foundation member view
 		// 'opensurveypoll'	  to add a tab in opensurvey poll view
-		// 'order'            to add a tab in customer order view
+		// 'order'            to add a tab in sales order view
 		// 'order_supplier'   to add a tab in supplier order view
 		// 'payment'		  to add a tab in payment view
 		// 'payment_supplier' to add a tab in supplier payment view
@@ -205,7 +214,7 @@ class modWorkstation extends DolibarrModules
 			//      'frequency' => 2,
 			//      'unitfrequency' => 3600,
 			//      'status' => 0,
-			//      'test' => '$conf->workstation->enabled',
+			//      'test' => 'isModEnabled('workstation')',
 			//      'priority' => 50,
 			//  ),
 		);
@@ -240,66 +249,66 @@ class modWorkstation extends DolibarrModules
 		$this->menu = array();
 		$r = 0;
 		// Add here entries to declare new menus
-		$this->menu[$r++]=array(
+		$this->menu[$r++] = array(
 			// '' if this is a top menu. For left menu, use 'fk_mainmenu=xxx' or 'fk_mainmenu=xxx,fk_leftmenu=yyy' where xxx is mainmenucode and yyy is a leftmenucode
-			'fk_menu'=>'fk_mainmenu=mrp',
+			'fk_menu' => 'fk_mainmenu=mrp',
 			// This is a Left menu entry
-			'type'=>'left',
-			'titre'=>'Workstations',
+			'type' => 'left',
+			'titre' => 'Workstations',
 			'prefix' => img_picto('', $this->picto, 'class="paddingright pictofixedwidth"'),
-			'mainmenu'=>'mrp',
-			'leftmenu'=>'workstation_workstation',
-			'url'=>'',
+			'mainmenu' => 'mrp',
+			'leftmenu' => 'workstation_workstation',
+			'url' => '',
 			// Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
-			'langs'=>'mrp',
-			'position'=>1100+$r,
+			'langs' => 'mrp',
+			'position' => 1100 + $r,
 			// Define condition to show or hide menu entry. Use '$conf->workstation->enabled' if entry must be visible if module is enabled. Use '$leftmenu==\'system\'' to show if leftmenu system is selected.
-			'enabled'=>'$conf->workstation->enabled',
+			'enabled' => 'isModEnabled("workstation")',
 			// Use 'perms'=>'$user->rights->workstation->level1->level2' if you want your menu with a permission rules
-			'perms'=>'$user->rights->workstation->workstation->read',
-			'target'=>'',
+			'perms' => '$user->hasRight("workstation", "workstation", "read")',
+			'target' => '',
 			// 0=Menu for internal users, 1=external users, 2=both
-			'user'=>2,
+			'user' => 2,
 		);
-		$this->menu[$r++]=array(
+		$this->menu[$r++] = array(
 			// '' if this is a top menu. For left menu, use 'fk_mainmenu=xxx' or 'fk_mainmenu=xxx,fk_leftmenu=yyy' where xxx is mainmenucode and yyy is a leftmenucode
-			'fk_menu'=>'fk_mainmenu=mrp,fk_leftmenu=workstation_workstation',
+			'fk_menu' => 'fk_mainmenu=mrp,fk_leftmenu=workstation_workstation',
 			// This is a Left menu entry
-			'type'=>'left',
-			'titre'=>'WorkstationCreate',
-			'mainmenu'=>'mrp',
-			'leftmenu'=>'workstation_workstation_left_create',
-			'url'=>'/workstation/workstation_card.php?action=create',
+			'type' => 'left',
+			'titre' => 'NewWorkstation',
+			'mainmenu' => 'mrp',
+			'leftmenu' => 'workstation_workstation_left_create',
+			'url' => '/workstation/workstation_card.php?action=create',
 			// Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
-			'langs'=>'mrp',
-			'position'=>1100+$r,
+			'langs' => 'mrp',
+			'position' => 1100 + $r,
 			// Define condition to show or hide menu entry. Use '$conf->workstation->enabled' if entry must be visible if module is enabled. Use '$leftmenu==\'system\'' to show if leftmenu system is selected.
-			'enabled'=>'$conf->workstation->enabled',
+			'enabled' => 'isModEnabled("workstation")',
 			// Use 'perms'=>'$user->rights->workstation->level1->level2' if you want your menu with a permission rules
-			'perms'=>'$user->rights->workstation->workstation->write',
-			'target'=>'',
+			'perms' => '$user->hasRight("workstation", "workstation", "write")',
+			'target' => '',
 			// 0=Menu for internal users, 1=external users, 2=both
-			'user'=>2
+			'user' => 2
 		);
-		$this->menu[$r++]=array(
+		$this->menu[$r++] = array(
 			// '' if this is a top menu. For left menu, use 'fk_mainmenu=xxx' or 'fk_mainmenu=xxx,fk_leftmenu=yyy' where xxx is mainmenucode and yyy is a leftmenucode
-			'fk_menu'=>'fk_mainmenu=mrp,fk_leftmenu=workstation_workstation',
+			'fk_menu' => 'fk_mainmenu=mrp,fk_leftmenu=workstation_workstation',
 			// This is a Left menu entry
-			'type'=>'left',
-			'titre'=>'List',
-			'mainmenu'=>'mrp',
-			'leftmenu'=>'workstation_workstation_left_list',
-			'url'=>'/workstation/workstation_list.php',
+			'type' => 'left',
+			'titre' => 'List',
+			'mainmenu' => 'mrp',
+			'leftmenu' => 'workstation_workstation_left_list',
+			'url' => '/workstation/workstation_list.php',
 			// Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
-			'langs'=>'mrp',
-			'position'=>1101+$r,
+			'langs' => 'mrp',
+			'position' => 1101 + $r,
 			// Define condition to show or hide menu entry. Use '$conf->workstation->enabled' if entry must be visible if module is enabled. Use '$leftmenu==\'system\'' to show if leftmenu system is selected.
-			'enabled'=>'$conf->workstation->enabled',
+			'enabled' => 'isModEnabled("workstation")',
 			// Use 'perms'=>'$user->rights->workstation->level1->level2' if you want your menu with a permission rules
-			'perms'=>'$user->rights->workstation->workstation->read',
-			'target'=>'',
+			'perms' => '$user->hasRight("workstation", "workstation", "read")',
+			'target' => '',
 			// 0=Menu for internal users, 1=external users, 2=both
-			'user'=>2
+			'user' => 2
 		);
 
 		/* END MODULEBUILDER LEFTMENU WORKSTATION */
@@ -386,39 +395,26 @@ class modWorkstation extends DolibarrModules
 
 		$sql = array();
 
-		// Document templates
-		$moduledir = 'workstation';
-		$myTmpObjects = array();
-		$myTmpObjects['Workstation'] = array('includerefgeneration'=>0, 'includedocgeneration'=>0);
+		// ODT template
+		$src = DOL_DOCUMENT_ROOT.'/install/doctemplates/workstation/template_workstations.odt';
+		$dirodt = DOL_DATA_ROOT.($conf->entity > 1 ? '/'.$conf->entity : '').'/doctemplates/workstation';
+		$dest = $dirodt.'/template_workstations.odt';
 
-		foreach ($myTmpObjects as $myTmpObjectKey => $myTmpObjectArray) {
-			if ($myTmpObjectKey == 'Workstation') {
-				continue;
-			}
-			if ($myTmpObjectArray['includerefgeneration']) {
-				$src = DOL_DOCUMENT_ROOT.'/install/doctemplates/workstation/template_workstations.odt';
-				$dirodt = DOL_DATA_ROOT.'/doctemplates/workstation';
-				$dest = $dirodt.'/template_workstations.odt';
-
-				if (file_exists($src) && !file_exists($dest)) {
-					require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
-					dol_mkdir($dirodt);
-					$result = dol_copy($src, $dest, 0, 0);
-					if ($result < 0) {
-						$langs->load("errors");
-						$this->error = $langs->trans('ErrorFailToCopyFile', $src, $dest);
-						return 0;
-					}
-				}
-
-				$sql = array_merge($sql, array(
-					"DELETE FROM ".MAIN_DB_PREFIX."document_model WHERE nom = 'standard_".strtolower($myTmpObjectKey)."' AND type = '".$this->db->escape(strtolower($myTmpObjectKey))."' AND entity = ".((int) $conf->entity),
-					"INSERT INTO ".MAIN_DB_PREFIX."document_model (nom, type, entity) VALUES('standard_".strtolower($myTmpObjectKey)."','".$this->db->escape(strtolower($myTmpObjectKey))."',".((int) $conf->entity).")",
-					"DELETE FROM ".MAIN_DB_PREFIX."document_model WHERE nom = 'generic_".strtolower($myTmpObjectKey)."_odt' AND type = '".$this->db->escape(strtolower($myTmpObjectKey))."' AND entity = ".((int) $conf->entity),
-					"INSERT INTO ".MAIN_DB_PREFIX."document_model (nom, type, entity) VALUES('generic_".strtolower($myTmpObjectKey)."_odt', '".$this->db->escape(strtolower($myTmpObjectKey))."', ".((int) $conf->entity).")"
-				));
+		if (file_exists($src) && !file_exists($dest)) {
+			require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+			dol_mkdir($dirodt);
+			$result = dol_copy($src, $dest, '0', 0);
+			if ($result < 0) {
+				$langs->load("errors");
+				$this->error = $langs->trans('ErrorFailToCopyFile', $src, $dest);
+				return 0;
 			}
 		}
+
+		$sql = array_merge($sql, array(
+			"DELETE FROM ".MAIN_DB_PREFIX."document_model WHERE nom = 'generic_workstation_odt' AND type = 'workstation' AND entity = ".((int) $conf->entity),
+			"INSERT INTO ".MAIN_DB_PREFIX."document_model (nom, type, entity) VALUES('generic_workstation_odt', 'workstation', ".((int) $conf->entity).")"
+		));
 
 		return $this->_init($sql, $options);
 	}

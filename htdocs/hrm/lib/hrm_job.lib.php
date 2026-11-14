@@ -3,6 +3,8 @@
  * Copyright (C) 2021 Greg Rastklan <greg.rastklan@atm-consulting.fr>
  * Copyright (C) 2021 Jean-Pascal BOUDET <jean-pascal.boudet@atm-consulting.fr>
  * Copyright (C) 2021 Grégory BLEMAND <gregory.blemand@atm-consulting.fr>
+ * Copyright (C) 2024		MDW					<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2026       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,7 +30,7 @@
  * Prepare array of tabs for Job
  *
  * @param	Job		$object		Job
- * @return 	array				Array of tabs
+ * @return	array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function jobPrepareHead($object)
 {
@@ -40,17 +42,41 @@ function jobPrepareHead($object)
 	$head = array();
 
 	$head[$h][0] = DOL_URL_ROOT."/hrm/job_card.php?id=".$object->id;
-	$head[$h][1] = $langs->trans("JobPosition");
+	$head[$h][1] = $langs->trans("JobProfile");
 	$head[$h][2] = 'job_card';
 	$h++;
 
 	$head[$h][0] = DOL_URL_ROOT."/hrm/skill_tab.php?id=".$object->id.'&objecttype=job';
 	$head[$h][1] = $langs->trans("RequiredSkills");
+	$nbResources = 0;
+	$sql = "SELECT COUNT(rowid) as nb FROM ".MAIN_DB_PREFIX."hrm_skillrank WHERE objecttype = 'job' AND fk_object = ".((int) $object->id);
+	$resql = $db->query($sql);
+	if ($resql) {
+		$obj = $db->fetch_object($resql);
+		if ($obj) {
+			$nbResources = $obj->nb;
+		}
+	}
+	if ($nbResources > 0) {
+		$head[$h][1] .= (!getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER') ? '<span class="badge marginleftonlyshort">'.($nbResources).'</span>' : '');
+	}
 	$head[$h][2] = 'skill_tab';
 	$h++;
 
-	$head[$h][0] = DOL_URL_ROOT."/hrm/position.php?fk_job=".$object->id;
-	$head[$h][1] = $langs->trans("EmployeesInThisPosition");
+	$head[$h][0] = DOL_URL_ROOT."/hrm/position.php?id=".$object->id;
+	$head[$h][1] = $langs->trans("PositionsWithThisProfile");
+	$nbResources = 0;
+	$sql = "SELECT COUNT(rowid) as nb FROM ".MAIN_DB_PREFIX."hrm_job_user WHERE fk_job = ".((int) $object->id);
+	$resql = $db->query($sql);
+	if ($resql) {
+		$obj = $db->fetch_object($resql);
+		if ($obj) {
+			$nbResources = $obj->nb;
+		}
+	}
+	if ($nbResources > 0) {
+		$head[$h][1] .= (!getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER') ? '<span class="badge marginleftonlyshort">'.($nbResources).'</span>' : '');
+	}
 	$head[$h][2] = 'position';
 	$h++;
 
@@ -63,10 +89,10 @@ function jobPrepareHead($object)
 		if (!empty($object->note_public)) {
 			$nbNote++;
 		}
-		$head[$h][0] = dol_buildpath('/hrm/job_note.php', 1).'?id='.$object->id;
+		$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/core/note.php', ['element' => 'job', 'id' => $object->id]);
 		$head[$h][1] = $langs->trans('Notes');
 		if ($nbNote > 0) {
-			$head[$h][1] .= (empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER) ? '<span class="badge marginleftonlyshort">'.$nbNote.'</span>' : '');
+			$head[$h][1] .= (!getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER') ? '<span class="badge marginleftonlyshort">'.$nbNote.'</span>' : '');
 		}
 		$head[$h][2] = 'note';
 		$h++;

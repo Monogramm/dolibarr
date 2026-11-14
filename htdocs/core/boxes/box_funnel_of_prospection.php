@@ -1,9 +1,10 @@
 <?php
 /* Copyright (C) 2012-2014 Charles-François BENKE <charles.fr@benke.fr>
- * Copyright (C) 2014      Marcos García          <marcosgdf@gmail.com>
- * Copyright (C) 2015      Frederic France        <frederic.france@free.fr>
- * Copyright (C) 2016      Juan José Menent       <jmenent@2byte.es>
- * Copyright (C) 2020      Pierre Ardoin          <mapiolca@me.com>
+ * Copyright (C) 2014       Marcos García           <marcosgdf@gmail.com>
+ * Copyright (C) 2015-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2016       Juan José Menent        <jmenent@2byte.es>
+ * Copyright (C) 2020       Pierre Ardoin           <mapiolca@me.com>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,27 +27,18 @@
  */
 include_once DOL_DOCUMENT_ROOT."/core/boxes/modules_boxes.php";
 
+
 /**
- * Class to manage the box to show last projet
+ * Class to manage the box to show funnel of prospections
  */
 class box_funnel_of_prospection extends ModeleBoxes
 {
-	public $boxcode = "FunnelOfProspection";
-	public $boximg = "object_projectpub";
+	public $boxcode  = "FunnelOfProspection";
+	public $boximg   = "object_projectpub";
 	public $boxlabel = "BoxTitleFunnelOfProspection";
-	public $depends = array("projet");
+	public $depends  = array("projet");
 
-	public $version = 'development';
-
-	/**
-	 * @var DoliDB Database handler.
-	 */
-	public $db;
-
-	public $param;
-
-	public $info_box_head = array();
-	public $info_box_contents = array();
+	public $version = 'dolibarr';
 
 	/**
 	 *  Constructor
@@ -54,18 +46,18 @@ class box_funnel_of_prospection extends ModeleBoxes
 	 *  @param  DoliDB  $db         Database handler
 	 *  @param  string  $param      More parameters
 	 */
-	public function __construct($db, $param = '')
+	public function __construct($db, $param = '')  // @phpstan-ignore constructor.unusedParameter
 	{
-		global $user, $langs, $conf;
+		global $user, $langs;
 
 		// Load translation files required by the page
 		$langs->loadLangs(array('boxes', 'projects'));
 
 		$this->db = $db;
 
-		$this->enabled = ($conf->global->MAIN_FEATURES_LEVEL >= 1 ? 1 : 0); // Not enabled by default, still need some work
+		$this->enabled = getDolGlobalInt('PROJECT_USE_OPPORTUNITIES');
 
-		$this->hidden = empty($user->rights->projet->lire);
+		$this->hidden = !$user->hasRight('projet', 'lire');
 	}
 
 	/**
@@ -91,19 +83,23 @@ class box_funnel_of_prospection extends ModeleBoxes
 		$badgeStatus7 = '#baa32b';
 		$badgeStatus8 = '#993013';
 		$badgeStatus9 = '#e7f0f0';
-		if (file_exists(DOL_DOCUMENT_ROOT.'/theme/'.$conf->theme.'/theme_vars.inc.php')) {
-			include DOL_DOCUMENT_ROOT.'/theme/'.$conf->theme.'/theme_vars.inc.php';
+		$theme_vars_file = dol_getThemeFilePath('theme_vars.inc.php');
+		if ($theme_vars_file) {
+			include $theme_vars_file;
 		}
+
 		$listofoppstatus = array();
 		$listofopplabel = array();
-		$listofoppcode = array();
+		$listofoppposition = array();
+
 		$colorseriesstat = array();
-		$bordercolorseries = array();
-		$sql = "SELECT cls.rowid, cls.code, cls.percent, cls.label";
+
+		$sql = "SELECT cls.rowid, cls.code, cls.percent, cls.label, cls.position";
 		$sql .= " FROM ".MAIN_DB_PREFIX."c_lead_status as cls";
-		$sql .= " WHERE active=1";
-		$sql .= " AND cls.code <> 'LOST'";
-		$sql .= $this->db->order('cls.rowid', 'ASC');
+		$sql .= " WHERE active = 1";
+		$sql .= " AND cls.code NOT IN ('LOST', 'WON')";
+		$sql .= $this->db->order('cls.position,cls.rowid', 'ASC,ASC');
+
 		$resql = $this->db->query($sql);
 		if ($resql) {
 			$num = $this->db->num_rows($resql);
@@ -111,29 +107,23 @@ class box_funnel_of_prospection extends ModeleBoxes
 
 			while ($i < $num) {
 				$objp = $this->db->fetch_object($resql);
+
 				$listofoppstatus[$objp->rowid] = $objp->percent;
 				$listofopplabel[$objp->rowid] = $objp->label;
-				$listofoppcode[$objp->rowid] = $objp->code;
+				$listofoppposition[$objp->rowid] = $objp->position;
+
 				switch ($objp->code) {
 					case 'PROSP':
-						$colorseriesstat[$objp->rowid] = '#FFFFFF';
-						$bordercolorseries[$objp->rowid] = $badgeStatus0;
+						$colorseriesstat[$objp->rowid] = '-'.$badgeStatus0;
 						break;
 					case 'QUAL':
-						$colorseriesstat[$objp->rowid] = '#FFFFFF';
-						$bordercolorseries[$objp->rowid] = $badgeStatus1;
+						$colorseriesstat[$objp->rowid] = '-'.$badgeStatus1;
 						break;
 					case 'PROPO':
 						$colorseriesstat[$objp->rowid] = $badgeStatus1;
-						$bordercolorseries[$objp->rowid] = $badgeStatus1;
 						break;
 					case 'NEGO':
 						$colorseriesstat[$objp->rowid] = $badgeStatus4;
-						$bordercolorseries[$objp->rowid] = $badgeStatus4;
-						break;
-					case 'WON':
-						$colorseriesstat[$objp->rowid] = $badgeStatus6;
-						$bordercolorseries[$objp->rowid] = $badgeStatus6;
 						break;
 					default:
 						break;
@@ -148,18 +138,22 @@ class box_funnel_of_prospection extends ModeleBoxes
 		$this->max = $max;
 
 		$this->info_box_head = array(
-			'text' => $langs->trans("Statistics").' - '.$langs->trans("BoxTitleFunnelOfProspection"),
-			'graph' => '1'
+			'text' => $langs->trans("Opportunities").' - '.$langs->trans("BoxTitleFunnelOfProspection"),
+			'nbcol' => 2,
+			'graph' => 1
 		);
 
-		if ($user->rights->projet->lire || !empty($conf->global->PROJECT_USE_OPPORTUNITIES)) {
-			$sql = "SELECT p.fk_opp_status as opp_status, cls.code, COUNT(p.rowid) as nb, SUM(p.opp_amount) as opp_amount, SUM(p.opp_amount * p.opp_percent) as ponderated_opp_amount";
+		if ($user->hasRight('projet', 'lire') || getDolGlobalString('PROJECT_USE_OPPORTUNITIES')) {
+			$sql = "SELECT p.fk_opp_status as opp_status, cls.code, cls.position, COUNT(p.rowid) as nb, SUM(p.opp_amount) as opp_amount, SUM(p.opp_amount * p.opp_percent) as ponderated_opp_amount";
 			$sql .= " FROM ".MAIN_DB_PREFIX."projet as p, ".MAIN_DB_PREFIX."c_lead_status as cls";
 			$sql .= " WHERE p.entity IN (".getEntity('project').")";
 			$sql .= " AND p.fk_opp_status = cls.rowid";
-			$sql .= " AND p.fk_statut = 1"; // Opend projects only
-			$sql .= " AND cls.code NOT IN ('LOST')";
-			$sql .= " GROUP BY p.fk_opp_status, cls.code";
+			$sql .= " AND p.fk_statut = 1"; // Opened projects only
+			$sql .= " AND cls.active = 1"; 	// Active opportunities status only
+			$sql .= " AND cls.code NOT IN ('LOST', 'WON')";
+			$sql .= " GROUP BY p.fk_opp_status, cls.code, cls.position";
+			$sql .= " ORDER BY cls.position, p.fk_opp_status, cls.code";
+
 			$resql = $this->db->query($sql);
 
 			$form = new Form($this->db);
@@ -167,20 +161,20 @@ class box_funnel_of_prospection extends ModeleBoxes
 				$num = $this->db->num_rows($resql);
 				$i = 0;
 
-				$totalnb = 0;
+				//$totalnb = 0;
 				$totaloppnb = 0;
 				$totalamount = 0;
 				$ponderated_opp_amount = 0;
-				$valsnb = array();
+				//$valsnb = array();
 				$valsamount = array();
 				$dataseries = array();
 
 				while ($i < $num) {
 					$obj = $this->db->fetch_object($resql);
 					if ($obj) {
-						$valsnb[$obj->opp_status] = $obj->nb;
+						//$valsnb[$obj->opp_status] = $obj->nb;
 						$valsamount[$obj->opp_status] = $obj->opp_amount;
-						$totalnb += $obj->nb;
+						//$totalnb += $obj->nb;
 						if ($obj->opp_status) {
 							$totaloppnb += $obj->nb;
 						}
@@ -192,7 +186,8 @@ class box_funnel_of_prospection extends ModeleBoxes
 					$i++;
 				}
 				$this->db->free($resql);
-				$ponderated_opp_amount = $ponderated_opp_amount / 100;
+
+				$ponderated_opp_amount /= 100;
 
 				$stringtoprint = '';
 				$stringtoprint .= '<div class="div-table-responsive-no-min ">';
@@ -200,31 +195,73 @@ class box_funnel_of_prospection extends ModeleBoxes
 				$liststatus = array();
 				$data = array('');
 				$customlabels = array();
-				$total = 0;
+				// Set array $data that contains the length of the bar (not the real value)
+				// and the array $customlabels that contains the real value to show
+				$maxamount = 0;
+
 				foreach ($listofstatus as $status) {
 					$customlabel = '';
 					$labelStatus = '';
-					if ($status != 7) {
-						$code = dol_getIdFromCode($this->db, $status, 'c_lead_status', 'rowid', 'code');
-						if ($code) {
-							$labelStatus = $langs->transnoentitiesnoconv("OppStatus".$code);
-						}
-						if (empty($labelStatus)) {
-							$labelStatus = $listofopplabel[$status];
-						}
-						$amount = (isset($valsamount[$status]) ? (float) $valsamount[$status] : 0);
-						$data[] = $amount;
-						$customlabel = $amount;
-						$liststatus[] = $labelStatus;
-						if (!$conf->use_javascript_ajax) {
-							$stringtoprint .= '<tr class="oddeven">';
-							$stringtoprint .= '<td>'.$labelStatus.'</td>';
-							$stringtoprint .= '<td class="nowraponall right amount"><a href="list.php?statut='.$status.'">'.price((isset($valsamount[$status]) ? (float) $valsamount[$status] : 0), 0, '', 1, -1, -1, $conf->currency).'</a></td>';
-							$stringtoprint .= "</tr>\n";
-						}
+					$customlabelmore = '';
+
+					$code = dol_getIdFromCode($this->db, $status, 'c_lead_status', 'rowid', 'code');
+					if ($code) {
+						$labelStatus = $langs->transnoentitiesnoconv("OppStatus".$code);
 					}
-					$customlabels[] = $customlabel;
+					if (empty($labelStatus)) {
+						$labelStatus = $listofopplabel[$status];
+					}
+					$amount = (isset($valsamount[$status]) ? (float) $valsamount[$status] : 0);
+					$customlabel = price($amount, 0, $langs, 1, -1, 'MT', $conf->currency);
+
+					$amountforgraph = $amount;
+					if (getDolGlobalString('PROJECT_OPPORTUNITIES_CUMULATIVE_MODE')) {
+						// Add all other amount for next levels
+						$amountafter = 0;
+						foreach ($listofstatus as $status2) {
+							if ($listofoppposition[$status2] > $listofoppposition[$status]) {
+								$amountafter += $valsamount[$status2];
+							}
+						}
+						$amountforgraph += $amountafter;
+						//var_dump("For current status ".$status." the amountforgraph=".$amountforgraph);
+						$customlabelmore = price($amountafter, 0, $langs, 1, -1, 'MT', $conf->currency);
+					}
+
+					$data[] = $amountforgraph;
+					$liststatus[] = $labelStatus;
+					if (!$conf->use_javascript_ajax) {
+						$stringtoprint .= '<tr class="oddeven">';
+						$stringtoprint .= '<td>'.$labelStatus.'</td>';
+						$stringtoprint .= '<td class="nowraponall right amount"><a href="list.php?statut='.$status.'">'.price((isset($valsamount[$status]) ? (float) $valsamount[$status] : 0), 0, '', 1, -1, -1, $conf->currency).'</a></td>';
+						$stringtoprint .= "</tr>\n";
+					}
+
+					if (getDolGlobalString('PROJECT_OPPORTUNITIES_CUMULATIVE_MODE')) {
+						$customlabels[] = $customlabel.' + '.$customlabelmore;
+					} else {
+						$customlabels[] = $customlabel;
+					}
+
+					if ($maxamount < $amountforgraph) {
+						$maxamount = $amountforgraph;
+					}
 				}
+
+				// Permit to have a bar if value inferior to a certain value
+				$valuetoaddtomindata = $maxamount / 100;
+				foreach ($data as $key => $value) {
+					if ($value != "") {
+						$data[$key] = $valuetoaddtomindata + $value;
+					}
+				}
+				foreach ($data as $key => $value) {
+					if ($data[$key] == 0) {
+						$data[$key] = $valuetoaddtomindata;
+					}
+				}
+
+
 				$dataseries[] = $data;
 				if ($conf->use_javascript_ajax) {
 					include_once DOL_DOCUMENT_ROOT.'/core/class/dolgraph.class.php';
@@ -232,37 +269,28 @@ class box_funnel_of_prospection extends ModeleBoxes
 					$dolgraph->SetMinValue(0);
 					$dolgraph->SetData($dataseries);
 					$dolgraph->SetLegend($liststatus);
-					$dolgraph->setHideXValues(true);
+					$dolgraph->setHideXValues(false);
+					$dolgraph->setHideYValues(true);
 					$dolgraph->SetDataColor(array_values($colorseriesstat));
-					$dolgraph->setBorderColor(array_values($bordercolorseries));
 					$dolgraph->setShowLegend(2);
-					if (!empty($conf->dol_optimize_smallscreen)) {
-						$dolgraph->SetWidth(320);
-					}
 					$dolgraph->setShowPercent(1);
 					$dolgraph->setMirrorGraphValues(true);
 					$dolgraph->setBorderWidth(2);
+					$dolgraph->setBorderSkip('false');
 					$dolgraph->SetType(array('horizontalbars'));
-					$dolgraph->SetHeight('200');
-					$dolgraph->SetWidth('600');
+					$dolgraph->SetHeight('150');
+					$dolgraph->SetWidth($conf->dol_optimize_smallscreen ? '300' : ((empty($_SESSION["dol_screenwidth"]) || $_SESSION["dol_screenwidth"] > 1600) ? '600' : '500'));
 					$dolgraph->setTooltipsTitles($liststatus);
 					$dolgraph->setTooltipsLabels($customlabels);
 					$dolgraph->mode = 'depth';
 					$dolgraph->draw('idgraphleadfunnel');
+
 					$stringtoprint .= $dolgraph->show($totaloppnb ? 0 : 1);
 				}
 				$stringtoprint .= '</div>';
 
 				$line = 0;
-				$this->info_box_contents[$line][] = array(
-					'tr' => 'class="nohover left "',
-					'text' => ''
-				);
-				$this->info_box_contents[$line][] = array(
-					'tr' => 'class="nohover left "',
-					'text' => ''
-				);
-				$line++;
+
 				$this->info_box_contents[$line][] = array(
 					'tr' => '',
 					'td' => 'class="center nopaddingleftimp nopaddingrightimp" colspan="2"',
@@ -273,7 +301,8 @@ class box_funnel_of_prospection extends ModeleBoxes
 					'tr' => 'class="oddeven"',
 					'td' => 'class="left "',
 					'maxlength' => 500,
-					'text' => $langs->trans("OpportunityTotalAmount").' ('.$langs->trans("WonLostExcluded").')'
+					'asis' => 1,
+					'text' => $langs->trans("OpportunityTotalAmount").'  <span class="opacitymedium hideonsmartphone">('.$langs->trans("WonLostExcluded").')</span>'
 				);
 				$this->info_box_contents[$line][] = array(
 					'tr' => 'class="oddeven"',
@@ -286,7 +315,8 @@ class box_funnel_of_prospection extends ModeleBoxes
 					'tr' => 'class="oddeven"',
 					'td' => 'class="left "',
 					'maxlength' => 500,
-					'text' => $form->textwithpicto($langs->trans("OpportunityPonderatedAmount").' ('.$langs->trans("WonLostExcluded").')', $langs->trans("OpportunityPonderatedAmountDesc"), 1)
+					'asis' => 1,
+					'text' => $form->textwithpicto($langs->trans("OpportunityPonderatedAmount").' <span class="opacitymedium hideonsmartphone">('.$langs->trans("WonLostExcluded").')</span>', $langs->trans("OpportunityPonderatedAmountDesc"), 1)
 
 				);
 				$this->info_box_contents[$line][] = array(
@@ -296,8 +326,8 @@ class box_funnel_of_prospection extends ModeleBoxes
 				);
 			} else {
 				$this->info_box_contents[0][0] = array(
-					'td' => 'class="center opacitymedium"',
-					'text' => $langs->trans("NoRecordedCustomers")
+					'td' => 'class="center"',
+					'text' => '<span class="opacitymedium">'.$langs->trans("NoRecordedCustomers").'</span>'
 				);
 			}
 		} else {
@@ -308,12 +338,14 @@ class box_funnel_of_prospection extends ModeleBoxes
 		}
 	}
 
+
+
 	/**
-	 *	Method to show box
+	 *	Method to show box.  Called when the box needs to be displayed.
 	 *
-	 *	@param	array	$head       Array with properties of box title
-	 *	@param  array	$contents   Array with properties of box lines
-	 *  @param	int		$nooutput	No $stringtoprint .=, only return string
+	 *	@param	?array<array{text?:string,sublink?:string,subtext?:string,subpicto?:?string,picto?:string,nbcol?:int,limit?:int,subclass?:string,graph?:int<0,1>,target?:string}>   $head       Array with properties of box title
+	 *	@param	?array<array{tr?:string,td?:string,target?:string,text?:string,text2?:string,textnoformat?:string,tooltip?:string,logo?:string,url?:string,maxlength?:int,asis?:int<0,1>}>   $contents   Array with properties of box lines
+	 *	@param	int<0,1>	$nooutput	No print, only return string
 	 *	@return	string
 	 */
 	public function showBox($head = null, $contents = null, $nooutput = 0)

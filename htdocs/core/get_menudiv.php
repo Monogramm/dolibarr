@@ -1,5 +1,7 @@
 <?php
-/* Copyright (C) 2005-2015 Laurent Destailleur  <eldy@users.sourceforge.net>
+/* Copyright (C) 2005-2023 Laurent Destailleur  <eldy@users.sourceforge.net>
+ * Copyright (C) 2024		MDW							<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
  *
  * This file is a modified version of datepicker.php from phpBSM to fix some
  * bugs, to add new features and to dramatically increase speed.
@@ -33,7 +35,6 @@ if (!defined('NOCSRFCHECK')) {
 if (!defined('NOTOKENRENEWAL')) {
 	define('NOTOKENRENEWAL', 1);
 }
-//if (! defined('NOLOGIN')) define('NOLOGIN',1);					// Not disabled cause need to load personalized language
 if (!defined('NOREQUIREMENU')) {
 	define('NOREQUIREMENU', 1);
 }
@@ -67,6 +68,13 @@ if (!defined('DISABLE_SELECT2')) {
 }
 
 require_once '../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 
 if (GETPOST('lang', 'aZ09')) {
 	$langs->setDefaultLang(GETPOST('lang', 'aZ09')); // If language was forced on URL by the main.inc.php
@@ -75,6 +83,7 @@ if (GETPOST('lang', 'aZ09')) {
 $langs->load("main");
 $right = ($langs->trans("DIRECTION") == 'rtl' ? 'left' : 'right');
 $left = ($langs->trans("DIRECTION") == 'rtl' ? 'right' : 'left');
+$urlarrow = DOL_URL_ROOT.'/theme/'.urlencode($conf->theme).'/img/next.png';
 
 
 /*
@@ -82,10 +91,10 @@ $left = ($langs->trans("DIRECTION") == 'rtl' ? 'right' : 'left');
  */
 
 // Important: Following code is to avoid page request by browser and PHP CPU at each Dolibarr page access.
-if (empty($dolibarr_nocache) && GETPOST('cache', 'int')) {
-	header('Cache-Control: max-age='.GETPOST('cache', 'int').', public, must-revalidate');
+if (GETPOSTINT('cache')) {
+	header('Cache-Control: max-age='.GETPOSTINT('cache').', public, must-revalidate');
 	// For a .php, we must set an Expires to avoid to have it forced to an expired value by the web server
-	header('Expires: '.gmdate('D, d M Y H:i:s', dol_now('gmt') + GETPOST('cache', 'int')).' GMT');
+	header('Expires: '.gmdate('D, d M Y H:i:s', dol_now('gmt') + GETPOSTINT('cache')).' GMT');
 	// HTTP/1.0
 	header('Pragma: token=public');
 } else {
@@ -101,42 +110,77 @@ $arrayofjs = array();
 $arrayofcss = array();
 top_htmlhead($head, $title, 0, 0, $arrayofjs, $arrayofcss);
 
-print '<body>'."\n";
+print '<body class="getmenudiv">'."\n";
 
-// Javascript to make menu active like Jmobile did.
+// JavaScript to make menu active like Jmobile did.
 print '
 <style>
-    /*Lets hide the non active LIs by default*/
     body {
         font-size: 16px;
     }
     body ul {
         margin: 0;
-        padding-left: 0;
+        padding-'.$left.': 0;
     }
     body ul li {
         list-style: none;
     }
+    /* Hide the non active LIs by default */
     body ul ul {
         display: none;
     }
 
+	.getmenudiv a:hover {
+		text-decoration: none;
+	}
+
+	.ulmenu li.lilevel0 {
+    	border-bottom: 1px solid #ccc;
+	}
+
+	.pictofixedwidth {
+    	text-align: left;
+    	padding-'.$right.': 8px !important;
+	}
+
+	li.lilevel1 > a, li.lilevel1 > i, li.lilevel1 > span {
+		padding-'.$left.': 30px !important;
+	}
+	li.lilevel2 a {
+		padding-'.$left.': 60px !important;
+	}
+	li.lilevel3 a {
+		padding-'.$left.': 40px !important;
+	}
+	li.lilevel4 a {
+		padding-'.$left.': 0px !important;
+	}
+	li.lilevel5 a {
+		padding-'.$left.': 0px !important;
+	}
+
     a.alilevel0, span.spanlilevel0 {
-        background-image: url(\''.DOL_URL_ROOT.'/theme/'.urlencode($conf->theme).'/img/next.png\') !important;
-        background-repeat: no-repeat !important;
-        background-position-x: 10px;
-        background-position-y: 16px;
-        padding: 1em 15px 1em 40px;
-		display: block;
-    }
-    li.lilevel0 font.vsmenudisabled {
-        background-repeat: no-repeat !important;
-        background-position-x: 10px;
-        background-position-y: 16px;
-        padding: 1em 15px 1em 40px;
-        background: #f8f8f8;
+        position: relative;
         display: block;
-        font-size: 16px !important;
+        padding-top: 1em;
+        padding-bottom: 1em;
+        padding-'.$left.': 40px;
+        padding-'.$right.': 15px;
+    }
+    /* Arrow of level 1 entries: points to the right when closed, to the bottom when open */
+    a.alilevel0::before, span.spanlilevel0::before {
+        content: "";
+        position: absolute;
+        top: 18px;
+        '.$left.': 10px;
+        width: 18px;
+        height: 18px;
+        background-image: url(\''.$urlarrow.'\');
+        background-repeat: no-repeat;
+        transition: transform 0.2s;
+    }
+    li.lilevel0.menuopen > a.alilevel0::before {
+        transform: rotate(90deg);
     }
     li.lilevel1 {
         padding: 1em 15px 0.5em 40px;
@@ -145,18 +189,19 @@ print '
     	margin-left: 0px;
         border-right: 0px ! important;
     }
-    li.lilevel1:first-child {
-        margin-right: 0px;
-        margin-left: 0px;
-    }
-    li.lilevel1 a {
+    li.lilevel1 a, li.lilevel1 > span {
         padding-bottom: 5px;
     }
-    li.lilevel1 a, li.lilevel1 {
+    li.lilevel1 a, li.lilevel1 > span, li.lilevel1 {
         color: #000;
         cursor: pointer;
         display: block;
     }
+	.fa.fa-does-not-exists {
+	    padding: 0px !important;
+	    margin: 0px;
+	    width: 0px;
+	}
     li.lilevel2 a {
         padding: 0.7em 15px 0.7em 40px;
         color: #000;
@@ -184,7 +229,7 @@ print '
     li.lilevel3:last-child {
         padding-bottom: 10px;
     }
-    a.alilevel0, li.lilevel1 a {
+    a.alilevel0, li.lilevel1 a, li.lilevel1 > span {
         text-overflow: ellipsis;
         overflow: hidden;
         white-space: nowrap;
@@ -195,16 +240,52 @@ print '
 	}
 </style>
 
-<script type="text/javascript">
+<script nonce="'.getNonce().'" type="text/javascript">
 $(document).ready(function(){
-    $("body ul").click(function(){
-        console.log("We click on body ul");
+    /* A click on a disabled (greyed) entry must do nothing (and not follow the link "#" that scrolls to top) */
+    $("a.vsmenudisabled").click(function(event){
+        event.preventDefault();
+    });
 
-        $(this).siblings().find("li ul").slideUp(0);
+    /* Only entries of level 1 (lilevel0) and level 2 (lilevel1) can be toggled */
+    $("li.lilevel0, li.lilevel1").click(function(event){
+        /* Ignore clicks coming from an entry of a submenu */
+        if ($(event.target).closest("li")[0] !== this) {
+            return;
+        }
 
-        $(this).find("li ul").slideToggle(200);
+        console.log("We click on a li");
 
-        target = $(this);
+        var target = $(this);
+        var childul = target.children("ul");
+
+        if (childul.length == 0) {
+            return;
+        }
+
+        /* The entry has a submenu: a click on it only toggles the submenu, the link of the entry is not followed */
+        event.preventDefault();
+
+        target.siblings().find("ul").slideUp(0);
+        target.siblings().removeClass("menuopen");
+
+        if (childul.is(":visible")) {
+            target.find("ul").slideUp(200);
+            target.removeClass("menuopen");
+        } else if (target.hasClass("lilevel0")) {
+            /* Click on level 1: show only the level 2, or all levels if there is only one entry of level 2 */
+            if (childul.children("li").length == 1) {
+                target.find("ul").slideDown(200);
+            } else {
+                target.find("ul ul").hide();
+                childul.slideDown(200);
+            }
+            target.addClass("menuopen");
+        } else {
+            /* Click on level 2: show all levels under it */
+            target.find("ul").slideDown(200);
+        }
+
         $(\'html, body\').animate({
           scrollTop: target.offset().top
         }, 300);
@@ -216,10 +297,9 @@ $(document).ready(function(){
 
 
 if (empty($user->socid)) {	// If internal user or not defined
-	$conf->standard_menu = (empty($conf->global->MAIN_MENU_STANDARD_FORCED) ? (empty($conf->global->MAIN_MENU_STANDARD) ? 'eldy_menu.php' : $conf->global->MAIN_MENU_STANDARD) : $conf->global->MAIN_MENU_STANDARD_FORCED);
-} else // If external user
-{
-	$conf->standard_menu = (empty($conf->global->MAIN_MENUFRONT_STANDARD_FORCED) ? (empty($conf->global->MAIN_MENUFRONT_STANDARD) ? 'eldy_menu.php' : $conf->global->MAIN_MENUFRONT_STANDARD) : $conf->global->MAIN_MENUFRONT_STANDARD_FORCED);
+	$conf->standard_menu = (!getDolGlobalString('MAIN_MENU_STANDARD_FORCED') ? (!getDolGlobalString('MAIN_MENU_STANDARD') ? 'eldy_menu.php' : $conf->global->MAIN_MENU_STANDARD) : $conf->global->MAIN_MENU_STANDARD_FORCED);
+} else { // If external user
+	$conf->standard_menu = (!getDolGlobalString('MAIN_MENUFRONT_STANDARD_FORCED') ? (!getDolGlobalString('MAIN_MENUFRONT_STANDARD') ? 'eldy_menu.php' : $conf->global->MAIN_MENUFRONT_STANDARD) : $conf->global->MAIN_MENUFRONT_STANDARD_FORCED);
 }
 
 // Load the menu manager (only if not already done)
@@ -231,7 +311,7 @@ if (!class_exists('MenuManager')) {
 	$menufound = 0;
 	$dirmenus = array_merge(array("/core/menus/"), (array) $conf->modules_parts['menus']);
 	foreach ($dirmenus as $dirmenu) {
-		$menufound = dol_include_once($dirmenu."standard/".$file_menu);
+		$menufound = dol_include_once($dirmenu."standard/".dol_sanitizeFileName($file_menu));
 		if ($menufound) {
 			break;
 		}
@@ -239,12 +319,15 @@ if (!class_exists('MenuManager')) {
 	if (!$menufound) {	// If failed to include, we try with standard
 		dol_syslog("You define a menu manager '".$file_menu."' that can not be loaded.", LOG_WARNING);
 		$file_menu = 'eldy_menu.php';
-		include_once DOL_DOCUMENT_ROOT."/core/menus/standard/".$file_menu;
+		include_once DOL_DOCUMENT_ROOT."/core/menus/standard/".dol_sanitizeFileName($file_menu);
 	}
 }
+// @phan-suppress-next-line PhanRedefinedClassReference
 $menumanager = new MenuManager($db, empty($user->socid) ? 0 : 1);
+// @phan-suppress-next-line PhanRedefinedClassReference
 $menumanager->loadMenu('all', 'all'); // Load this->tabMenu with sql menu entries
-//var_dump($menumanager);exit;
+
+// @phan-suppress-next-line PhanRedefinedClassReference
 $menumanager->showmenu('jmobile');
 
 print '</body>';

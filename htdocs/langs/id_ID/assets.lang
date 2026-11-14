@@ -1,67 +1,150 @@
-# Copyright (C) 2018      Alexandre Spangaro   <aspangaro@open-dsi.fr>
+# Copyright (C) 2018-2022  Alexandre Spangaro   <aspangaro@open-dsi.fr>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#
 # Generic
-#
-Assets = Aset
-NewAsset = Aset baru
-AccountancyCodeAsset = Kode akuntansi (aset)
-AccountancyCodeDepreciationAsset = Kode akuntansi (akun penyusutan aset)
-AccountancyCodeDepreciationExpense = Kode akuntansi (akun penyusutan pengeluaran)
-NewAssetType=Jenis aset baru
-AssetsTypeSetup=Pengaturan jenis aset
-AssetTypeModified=Jenis aset diubah
-AssetType=Jenis aset
-AssetsLines=Aset
-DeleteType=Hapus
-DeleteAnAssetType=Hapus jenis aset
-ConfirmDeleteAssetType=Anda yakin ingin menghapus jenis aset ini?
-ShowTypeCard=Tampilkan jenis '%s'
-
-# Module label 'ModuleAssetsName'
-ModuleAssetsName = Aset
-# Module description 'ModuleAssetsDesc'
-ModuleAssetsDesc = Deskripsi Aset
-
-#
-# Admin page
-#
-AssetsSetup = Pengaturan aset
-Settings = Pengaturan
-AssetsSetupPage = Halaman pengaturan aset
-ExtraFieldsAssetsType = Atribut pelengkap (jenis aset)
-AssetsType=Jenis aset
-AssetsTypeId=Id jenis aset
-AssetsTypeLabel=Label jenis aset
-AssetsTypes=Jenis aset
-
-#
-# Menu
-#
-MenuAssets = Aset
-MenuNewAsset = Aset baru
-MenuTypeAssets = Ketikkan aset
-MenuListAssets = Daftar
-MenuNewTypeAssets = Baru
-MenuListTypeAssets = Daftar
-
-#
-# Module
-#
-Asset=Aset
-NewAssetType=Jenis aset baru
 NewAsset=Aset baru
+AccountancyCodeAsset=Kode akuntansi (aset)
+AccountancyCodeDepreciationAsset=Kode akuntansi (akun penyusutan aset)
+AccountancyCodeDepreciationExpense=Kode akuntansi (akun penyusutan pengeluaran)
+AssetsLines=Aset
+ConfirmValidateAsset=Apakah Anda yakin ingin memvalidasi aset ini dengan referensi <b>%s</b>?
+DeleteAnAssetType=Hapus model aset
+ConfirmDeleteAssetType=Anda yakin ingin menghapus aset model ini?
+# Module label 'ModuleAssetsName'
+ModuleAssetsName=Aset
+# Module description 'ModuleAssetsDesc'
+ModuleAssetsDesc=Deskripsi Aset
+# Admin page
+AssetSetup=Pengaturan aset
+AssetSetupPage=Halaman pengaturan aset
+ExtraFieldsAssetModel=Additionnal fields (Asset's model)
+AssetsType=Model aset
+AssetsTypeId=Id model aset
+AssetsTypeLabel=Label model aset
+AssetsTypes=Model aset
+ASSET_ACCOUNTANCY_CATEGORY=Grup akuntansi aset tetap
+ASSET_DEPRECIATION_DURATION_PER_YEAR=Periode proporsional dalam hari untuk menghitung amortisasi selama satu tahun
+ASSET_DEPRECIATION_DAY_COUNT_CONVENTION=Day count convention of the prorata temporis
+ASSET_DEPRECIATION_DAY_COUNT_CONVENTIONTooltip=How the depreciation of a <b>partial</b> period is computed, which means the first and the last year of an asset. A full annuity is always the value divided by the duration and is never impacted by this setting.<br><br>A convention defines <b>both</b> how the days of the period are counted <b>and</b> by how many days a full year is divided. The two must always match: counting real calendar days and dividing them by 360 overestimates every partial period by about 1.39 percent.<br><br><b>30/360</b>: every month counts 30 days and every year 360 days. The convention applied by most accounting firms in France.<br><b>Real days / 365</b>: real calendar days of the period, divided by 365.<br><b>Real days / real year</b>: real calendar days, each year divided by its own real length, 365 or 366. The most accurate on a period covering a leap day.<br><br>Example on an asset of 13000 depreciated over 5 years, put in service on March 10th and sold on February 23rd of the fourth year, fiscal years running from August to July. Cumulated depreciation at the disposal: 7684.44 with 30/360, 7700.27 with real days / 365, 7697.29 with real days / real year.<br><br><b>Warning</b>: changing this setting does not recompute the plans already generated. Save the depreciation options of an asset again to regenerate its plan.
+AssetDayCountConventionThirty360=30/360 - every month counts 30 days, every year 360 days (usual in France)
+AssetDayCountConventionAct365=Real days / 365 - real calendar days divided by 365
+AssetDayCountConventionActAct=Real days / real year - real calendar days, each year divided by its own length (365 or 366)
+# Menu
+MenuAssets=Aset
+MenuNewAsset=Aset baru
+MenuAssetModels=Aset model
+MenuListAssets=Daftar
+MenuNewAssetModel=Model aset baru
+MenuListAssetModels=Daftar
+# Module
 ConfirmDeleteAsset=Anda yakin ingin menghapus aset ini?
+# Tab
+AssetDepreciationOptions=Pilihan depresiasi
+AssetAccountancyCodes=Akun akuntansi
+AssetDepreciation=Depresiasi
+# Asset
+Asset=Aset
+Assets=Aset
+AssetReversalAmountHT=Nilai pembalikan (tanpa pajak)
+AssetAcquisitionValueHT=Nilai akuisisi (tanpa pajak)
+AssetRecoveredVAT=PPN yang dipulihkan
+AssetReversalDate=Tanggal pembalikan
+AssetDateAcquisition=Tanggal perolehan
+AssetDateStart=Tanggal permulaan
+AssetAcquisitionType=Jenis akuisisi
+AssetAcquisitionTypeNew=Baru
+AssetAcquisitionTypeOccasion=Digunakan
+AssetType=Jenis aset
+AssetTypeIntangible=Tidak berwujud
+AssetTypeTangible=Berwujud
+AssetTypeInProgress=Dalam proses
+AssetTypeFinancial=Finansial
+AssetNotDepreciated=Tidak terdepresiasi
+AssetDisposal=Pembuangan
+AssetConfirmDisposalAsk=Anda yakin ingin membuang aset <b> %s </b>?
+AssetConfirmReOpenAsk=Anda yakin ingin membuka kembali aset <b> %s </b> ?
+# Asset status
+AssetInDraft=Konsep
+AssetInProgress=Dalam proses
+AssetDisposed=Dibuang
+AssetRecorded=Diperhitungkan
+# Asset disposal
+AssetDisposalDate=Tanggal dibuang
+AssetDisposalAmount=Nilai pembuangan
+AssetDisposalType=Jenis pembuangan
+AssetDisposalDepreciated=Depresiasi tahun transfer
+AssetDisposalSubjectToVat=Pembuangannya dikenakan PPN
+# Asset model
+AssetModel=Model aset
+AssetModels=Model aset
+# Asset depreciation options
+AssetDepreciationOptionEconomic=Depresiasi ekonomi
+AssetDepreciationOptionAcceleratedDepreciation=Penyusutan yang dipercepat (pajak)
+AssetDepreciationOptionDepreciationType=Jenis depresiasi
+AssetDepreciationOptionDepreciationTypeLinear=Garis lurus
+AssetDepreciationOptionDepreciationTypeDegressive=Menurun
+AssetDepreciationOptionDepreciationTypeExceptional=Pengecualian
+AssetDepreciationOptionDegressiveRate=Tingkat penurunan
+AssetDepreciationOptionDuration=Durasi
+AssetDepreciationOptionDurationType=Jenis durasi
+AssetDepreciationOptionDurationTypeAnnual=Tahunan
+AssetDepreciationOptionDurationTypeMonthly=Bulanan
+AssetDepreciationOptionDurationTypeDaily=Harian
+AssetDepreciationOptionRate=Nilai (%%)
+AssetDepreciationOptionAmountBaseDepreciationHT=Dasar depresiasi (tanpa PPN)
+AssetDepreciationOptionAmountBaseDeductibleHT=Dasar pengurangan (tanpa PPN)
+AssetDepreciationOptionTotalAmountLastDepreciationHT=Jumlah total penyusutan terakhir (tidak termasuk PPN)
+# Asset accountancy codes
+AssetAccountancyCodeDepreciationEconomic=Depresiasi ekonomi
+AssetAccountancyCodeAsset=Aset
+AssetAccountancyCodeDepreciationAsset=Depresiasi
+AssetAccountancyCodeDepreciationExpense=Biaya depresiasi
+AssetAccountancyCodeValueAssetSold=Nilai aset dibuang
+AssetAccountancyCodeReceivableOnAssignment=Piutang pada pelepasan
+AssetAccountancyCodeProceedsFromSales=Hasil dari pembuangan
+AssetAccountancyCodeVatCollected=PPN dipungut
+AssetAccountancyCodeVatDeductible=PPN yang dipulihkan atas aset
+AssetAccountancyCodeDepreciationAcceleratedDepreciation=Penyusutan yang dipercepat (pajak)
+AssetAccountancyCodeAcceleratedDepreciation=Akun
+AssetAccountancyCodeEndowmentAcceleratedDepreciation=Biaya depresiasi
+AssetAccountancyCodeProvisionAcceleratedDepreciation=Pengambilan Kembali/Penyediaan
+# Asset depreciation
+AssetBaseDepreciationHT=Dasar penyusutan (tidak termasuk PPN)
+AssetDepreciationBeginDate=Mulai depresiasi pada
+AssetDepreciationDuration=Durasi
+AssetDepreciationRate=Nilai (1%%)
+AssetDepreciationDate=Tanggal depresiasi
+AssetDepreciationHT=Depresiasi (tanpa PPN)
+AssetCumulativeDepreciationHT=Penyusutan kumulatif (tidak termasuk PPN)
+AssetResidualHT=Nilai sisa (tidak termasuk PPN)
+AssetDispatchedInBookkeeping=Penyusutan dicatat
+AssetFutureDepreciationLine=Depresiasi di masa depan
+AssetDepreciationReversal=Kemunduran
+# Errors
+AssetErrorAssetOrAssetModelIDNotProvide=Id aset atau model yang ditemukan belum disediakan
+AssetErrorFetchAccountancyCodesForMode=Kesalahan saat mengambil akun akuntansi untuk mode penyusutan '%s'
+AssetErrorDeleteAccountancyCodesForMode=Kesalahan saat menghapus akun akuntansi dari mode penyusutan '%s'
+AssetErrorInsertAccountancyCodesForMode=Kesalahan saat memasukkan akun akuntansi mode penyusutan '%s'
+AssetErrorFetchDepreciationOptionsForMode=Terjadi kesalahan saat mengambil opsi untuk mode penyusutan '%s'
+AssetErrorDeleteDepreciationOptionsForMode=Terjadi kesalahan saat menghapus opsi mode penyusutan '%s'
+AssetErrorInsertDepreciationOptionsForMode=Terjadi kesalahan saat memasukkan opsi mode penyusutan '%s'
+AssetErrorFetchDepreciationLines=Terjadi kesalahan saat mengambil garis penyusutan yang tercatat
+AssetErrorClearDepreciationLines=Kesalahan saat menghapus garis penyusutan yang tercatat (pembalikan dan masa depan)
+AssetErrorAddDepreciationLine=Kesalahan saat menambahkan garis penyusutan
+AssetErrorCalculationDepreciationLines=Kesalahan saat menghitung garis penyusutan (pemulihan dan masa depan)
+AssetErrorReversalDateNotProvidedForMode=Tanggal pembalikan tidak disediakan untuk metode penyusutan '%s'
+AssetErrorReversalDateNotGreaterThanCurrentBeginFiscalDateForMode=Tanggal pembalikan harus lebih besar atau sama dengan awal tahun fiskal berjalan untuk metode penyusutan '%s'
+AssetErrorReversalAmountNotProvidedForMode=Jumlah pembalikan tidak disediakan untuk mode penyusutan '%s'.
+AssetErrorDegressiveDailyDurationForMode=A degressive depreciation needs a duration in years or in months for the depreciation mode '%s'.
+AssetErrorFetchCumulativeDepreciation=Kesalahan saat mengambil jumlah akumulasi penyusutan dari garis penyusutan
+AssetErrorSetLastCumulativeDepreciation=Kesalahan saat mencatat jumlah akumulasi penyusutan terakhir

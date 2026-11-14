@@ -1,5 +1,7 @@
 <?php
 /* Copyright (C) 2007-2011 Laurent Destailleur  <eldy@users.sourceforge.net>
+ * Copyright (C) 2024-2026  Frédéric France			<frederic.france@free.fr>
+ * Copyright (C) 2024		MDW							<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,7 +23,8 @@
  *		\ingroup    core
  *		\brief      File with parent class for password generating classes
  */
-require_once DOL_DOCUMENT_ROOT.'/core/lib/functions.lib.php';
+
+require_once DOL_DOCUMENT_ROOT.'/core/lib/security2.lib.php'; // For isPasswordGenerationNoneForbidden()
 
 
 /**
@@ -30,7 +33,27 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/functions.lib.php';
 abstract class ModeleGenPassword
 {
 	/**
-	 * Flag to 1 if we must clean ambiguous charaters for the autogeneration of password (List of ambiguous char is in $this->Ambi)
+	 * @var string
+	 */
+	public $id;
+
+	/**
+	 * @var string
+	 */
+	public $version;
+
+	/**
+	 * @var int Position in list (used to sort list of modules)
+	 */
+	public $position = 50;
+
+	/**
+	 * @var string
+	 */
+	public $picto = 'generic';
+
+	/**
+	 * Flag to 1 if we must clean ambiguous characters for the autogeneration of password (List of ambiguous char is in $this->Ambi)
 	 *
 	 * @var integer
 	 */
@@ -40,6 +63,40 @@ abstract class ModeleGenPassword
 	 * @var string Error code (or message)
 	 */
 	public $error = '';
+
+	/**
+	 * @var DoliDB Database handler.
+	 */
+	public $db;
+
+	/**
+	 * @var Conf dolibarr conf
+	 */
+	public $conf;
+
+	/**
+	 * @var Translate Translate Object
+	 */
+	public $langs;
+
+	/**
+	 * @var User user
+	 */
+	public $user;
+
+	/**
+	 * Minimum length (text visible by end user)
+	 *
+	 * @var string
+	 */
+	public $length;
+
+	/**
+	 * Minimum length in number of characters
+	 *
+	 * @var integer
+	 */
+	public $length2;
 
 	/**
 	 * 		Return if a module can be used or not
@@ -95,5 +152,51 @@ abstract class ModeleGenPassword
 	public function validatePassword($password)
 	{
 		return 1;
+	}
+
+	/**
+	 * Locate, load and instantiate a password generator/validator model by its id (the value
+	 * stored in USER_PASSWORD_GENERATED, e.g. 'standard', 'PasswordGuard'). Scans
+	 * core/modules/security/generate/ plus, for each enabled module declaring
+	 * module_parts['models'], its own core/modules/security/generate/ subdirectory — the same
+	 * multi-root convention used by every numbering-module scan in Dolibarr (see e.g.
+	 * Facture::getNextNumRef()). This lets a module contribute its own modGeneratePassXxx class
+	 * from its own directory without any further core patch.
+	 *
+	 * @param	string		$id		Generator id (value of USER_PASSWORD_GENERATED), e.g. 'standard', 'PasswordGuard'
+	 * @param	DoliDB		$db		Database handler
+	 * @param	Conf		$conf	Handler de conf
+	 * @param	Translate	$langs	Handler de langue
+	 * @param	User		$user	Handler du user connected
+	 * @return	?ModeleGenPassword	The instantiated generator, or null if no matching class was found
+	 */
+	public static function loadAndInstantiate($id, $db, $conf, $langs, $user)
+	{
+		if (empty($id)) {
+			return null;
+		}
+
+		// The 'none' model applies no rule at all. When it is forbidden (conf.php lock),
+		// transparently fall back to the always-available 'standard' model so an installation still
+		// configured with 'none' enforces a real rule at generation and validation time, without
+		// having to rewrite the stored USER_PASSWORD_GENERATED value.
+		if (strtolower($id) === 'none' && isPasswordGenerationNoneForbidden()) {
+			$id = 'standard';
+		}
+
+		$classname = 'modGeneratePass'.ucfirst($id);
+
+		$dirmodels = array_merge(array('/'), (array) $conf->modules_parts['models']);
+		foreach ($dirmodels as $reldir) {
+			$file = dol_buildpath($reldir.'core/modules/security/generate/').$classname.'.class.php';
+			if (is_file($file)) {
+				require_once $file;
+				if (class_exists($classname)) {
+					return new $classname($db, $conf, $langs, $user);
+				}
+			}
+		}
+
+		return null;
 	}
 }

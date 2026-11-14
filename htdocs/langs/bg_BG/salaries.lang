@@ -1,26 +1,66 @@
-# Dolibarr language file - Source file is en_US - salaries
-SALARIES_ACCOUNTING_ACCOUNT_PAYMENT=Счетоводна сметка, използвана за служители на контрагенти
-SALARIES_ACCOUNTING_ACCOUNT_PAYMENT_Desc=Специализираната счетоводна сметка, дефинирана в картата на потребителя, ще се използва само за вторично счетоводно отчитане. Тя ще бъде използвана в регистъра на главната счетоводна книга и като стойност по подразбиране за вторично счетоводно отчитане, ако не е дефинирана специализирана потребителска счетоводна сметка за потребителя.
-SALARIES_ACCOUNTING_ACCOUNT_CHARGE=Счетоводна сметка по подразбиране за плащане на заплати
-CREATE_NEW_SALARY_WITHOUT_AUTO_PAYMENT=By default, leave empty the option "Automatically create a total payment" when creating a Salary
 Salary=Заплата
 Salaries=Заплати
-NewSalary=New salary
-AddSalary=Add salary
-NewSalaryPayment=New salary card
+NewSalary=Нова заплата
+AddSalary=Добавете заплата
+NewSalaryPayment=Нова карта за заплата
 AddSalaryPayment=Добавяне на плащане на заплата
 SalaryPayment=Плащане на заплата
 SalariesPayments=Плащания на заплати
-SalariesPaymentsOf=Salaries payments of %s
+SalariesPaymentsOf=Плащания на заплати на %s
 ShowSalaryPayment=Показване на плащане на заплата
-THM=Средна почасова ставка
-TJM=Средна дневна ставка
+SalaryID=Идентификационен номер на заплатата
+SalaryAmount=Размер на заплатата
+SalaryDate=Дата на заплатата
+SalaryPaid=Заплати платени
+SalaryNotPaid=Неплатена заплата
+
+SalarySlip=Фиш за заплата
+StandardSalaryDocModel=Стандартен документ за фиш за заплата
+
+BasicSalary=Основна заплата
+Bonus=Бонус
+Allowance=Добавка
+Overtime=Извънреден труд
+Deduction=Удръжка
+Deductions=Удръжки
+Earnings=Начисления
+TotalEarnings=Общо начисления
+TotalDeductions=Общо удръжки
+NetPaid=Платен (нето)
+GrossSalary=Gross salary
+
+# Accounting
+SALARIES_ACCOUNTING_ACCOUNT_PAYMENT=Сметка (от сметкоплана), използвана по подразбиране за „потребители“ на заплати
+SALARIES_ACCOUNTING_ACCOUNT_PAYMENT_Desc=Специализираната сметка, дефинирана в потребителската карта, ще се използва само за подкнига Счетоводство. Тази сметка ще се използва за главната книга, но също и като стойност по подразбиране за подкнига Счетоводство, ако за потребителя не е дефиниран специален потребителски акаунт Счетоводство.
+SALARIES_ACCOUNTING_ACCOUNT_CHARGE=Счетоводна сметка по подразбиране за плащане на заплати
+CREATE_NEW_SALARY_WITHOUT_AUTO_PAYMENT=По подразбиране оставете празна опцията „автоматично създайте обща сума плащане“, когато създавате заплата
+
+# Stats / Info
 CurrentSalary=Текуща заплата
-THMDescription=Тази стойност може да се използва за изчисляване на разходите за времето, което е отделено по проект, ако модула проекти се използва.
-TJMDescription=Тази стойност понастоящем е информативна и  не се използва за изчисления
-LastSalaries=Latest %s salaries
-AllSalaries=All salaries
+LastSalaries=Последни %s заплати
+AllSalaries=Всички заплати
 SalariesStatistics=Статистика на заплати
 SalariesAndPayments=Заплати и плащания
-ConfirmDeleteSalaryPayment=Do you want to delete this salary payment ?
-FillFieldFirst=Fill employee field first
+UserPaySlip=Фиш за заплата
+PayPeriod=Период на заплащане
+
+# THM / TJM
+THM=Средна почасова ставка
+THMDescription=Тази стойност може да се използва за изчисляване на разходите за времето, което е отделено по проект, ако модула проекти се използва.
+TJM=Средна дневна ставка
+TJMDescription=Тази стойност понастоящем е информативна и  не се използва за изчисления
+
+# Other actions
+ConfirmDeleteSalaryPayment=Искате ли да изтриете тази заплата плащане?
+FillFieldFirst=Първо попълнете полето Служител
+UpdateAmountWithLastSalary=Определете размера на последната заплата
+MakeTransferRequest=Направете превод Искане
+VirementOrder=Кредитен превод Искане
+FillEndOfMonth=Край на месеца
+
+# Shortcuts
+PreviousMonthShort=Предишен месец
+CurrentMonthShort=Текущ месец
+NextMonthShort=Следващ месец
+PreviousWeekShort=Предишната седмица
+CurrentWeekShort=Текуща седмица

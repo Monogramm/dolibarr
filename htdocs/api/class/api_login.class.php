@@ -1,6 +1,8 @@
 <?php
-/* Copyright (C) 2015   Jean-François Ferry     <jfefe@aternatik.fr>
- * Copyright (C) 2016	Laurent Destailleur		<eldy@users.sourceforge.net>
+/* Copyright (C) 2015   	Jean-François Ferry     <jfefe@aternatik.fr>
+ * Copyright (C) 2016		Laurent Destailleur		<eldy@users.sourceforge.net>
+ * Copyright (C) 2024-2025	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024		Frédéric France			<frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,6 +20,7 @@
 
 use Luracast\Restler\RestException;
 
+require_once DOL_DOCUMENT_ROOT.'/core/lib/security.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/user/class/user.class.php';
 
 /**
@@ -25,18 +28,21 @@ require_once DOL_DOCUMENT_ROOT.'/user/class/user.class.php';
  */
 class Login
 {
+	/**
+	 * @var DoliDB	Database handler
+	 */
+	public $db;
 
 	/**
 	 * Constructor of the class
 	 */
 	public function __construct()
 	{
-		global $conf, $db;
+		global $db;
 		$this->db = $db;
 
-		//$conf->global->MAIN_MODULE_API_LOGIN_DISABLED = 1;
-		if (!empty($conf->global->MAIN_MODULE_API_LOGIN_DISABLED)) {
-			throw new RestException(403, "Error login APIs are disabled. You must get the token from backoffice to be able to use APIs");
+		if (!getDolGlobalInt('API_ENABLE_LOGIN_API')) {
+			throw new RestException(403, "Error: The login APIs are disabled. It is recommended to call the APIs using the DOLAPIKEY token of an allowed user instead of the login/password. API key can be set from the user card. If you really need to get the API token from the login API, you can set the constant API_ENABLE_LOGIN_API.");
 		}
 	}
 
@@ -44,7 +50,7 @@ class Login
 	 * Login
 	 *
 	 * Request the API token for a couple username / password.
-	 * WARNING: You should NEVER use this API, like you should never use the similare API that uses the POST method. This will expose your password.
+	 * WARNING: You should NEVER use this API, like you should never use the similar API that uses the POST method. This will expose your password.
 	 * To use the APIs, you should instead set an API token to the user you want to allow to use API (This API token called DOLAPIKEY can be found/set on the user page) and use this token as credential for any API call.
 	 * From the API explorer, you can enter directly the "DOLAPIKEY" into the field at the top right of the page to get access to any allowed APIs.
 	 *
@@ -53,6 +59,8 @@ class Login
 	 * @param   string  $entity			Entity (when multicompany module is used). '' means 1=first company.
 	 * @param   int     $reset          Reset token (0=get current token, 1=ask a new token and canceled old token. This means access using current existing API token of user will fails: new token will be required for new access)
 	 * @return  array                   Response status and user token
+	 * @phan-return array{success:array{code:int,message:string,token:array{pass_encrypted:string,pass_encoding:string}|string,entity:int}}
+	 * @phpstan-return array{success:array{code:int,message:string,token:array{pass_encrypted:string,pass_encoding:string}|string,entity:int}}
 	 *
 	 * @throws RestException 403 Access denied
 	 * @throws RestException 500 System error
@@ -68,7 +76,7 @@ class Login
 	 * Login
 	 *
 	 * Request the API token for a couple username / password.
-	 * WARNING: You should NEVER use this API, like you should never use the similare API that uses the POST method. This will expose your password.
+	 * WARNING: You should NEVER use this API, like you should never use the similar API that uses the GET method. This will expose your password.
 	 * To use the APIs, you should instead set an API token to the user you want to allow to use API (This API token called DOLAPIKEY can be found/set on the user page) and use this token as credential for any API call.
 	 * From the API explorer, you can enter directly the "DOLAPIKEY" into the field at the top right of the page to get access to any allowed APIs.
 	 *
@@ -77,6 +85,8 @@ class Login
 	 * @param   string  $entity			Entity (when multicompany module is used). '' means 1=first company.
 	 * @param   int     $reset          Reset token (0=get current token, 1=ask a new token and canceled old token. This means access using current existing API token of user will fails: new token will be required for new access)
 	 * @return  array                   Response status and user token
+	 * @phan-return array{success:array{code:int,message:string,token:array{pass_encrypted:string,pass_encoding:string}|string,entity:int}}
+	 * @phpstan-return array{success:array{code:int,message:string,token:array{pass_encrypted:string,pass_encoding:string}|string,entity:int}}
 	 *
 	 * @throws RestException 403 Access denied
 	 * @throws RestException 500 System error
@@ -85,16 +95,16 @@ class Login
 	 */
 	public function index($login, $password, $entity = '', $reset = 0)
 	{
-		global $conf, $dolibarr_main_authentication, $dolibarr_auto_user;
+		global $dolibarr_main_authentication, $dolibarr_auto_user;
 
 		// Is the login API disabled ? The token must be generated from backoffice only.
-		if (! empty($conf->global->API_DISABLE_LOGIN_API)) {
-			dol_syslog("Warning: A try to use the login API has been done while the login API is disabled. You must generate or get the token from the backoffice.", LOG_WARNING);
-			throw new RestException(403, "Error, the login API has been disabled for security purpose. You must generate or get the token from the backoffice.");
+		if (!getDolGlobalString('API_ENABLE_LOGIN_API')) {
+			dol_syslog("Warning: A try to use the login API has been done while the login API is disabled (Option API_ENABLE_LOGIN_API is off). You must generate or get the DOLAPIKEY token from the backoffice instead of using the /login API.", LOG_WARNING);
+			throw new RestException(403, "Error, the login API has been disabled for security purpose (Option API_ENABLE_LOGIN_API is off). You must generate or get the DOLAPIKEY token from the backoffice instead of using the /login API.");
 		}
 
 		// Authentication mode
-		if (empty($dolibarr_main_authentication)) {
+		if (empty($dolibarr_main_authentication) || $dolibarr_main_authentication == 'openid_connect') {
 			$dolibarr_main_authentication = 'dolibarr';
 		}
 
@@ -121,6 +131,9 @@ class Login
 
 		include_once DOL_DOCUMENT_ROOT.'/core/lib/security2.lib.php';
 		$login = checkLoginPassEntity($login, $password, $entity, $authmode, 'api');		// Check credentials.
+		if ($login === '--bad-login-validity--') {
+			$login = '';
+		}
 		if (empty($login)) {
 			throw new RestException(403, 'Access denied');
 		}
@@ -128,15 +141,21 @@ class Login
 		$token = 'failedtogenerateorgettoken';
 
 		$tmpuser = new User($this->db);
-		$tmpuser->fetch(0, $login, 0, 0, $entity);
+		$tmpuser->fetch(0, $login, '0', 0, $entity);
 		if (empty($tmpuser->id)) {
 			throw new RestException(500, 'Failed to load user');
 		}
 
+		// A password alone must not be enough for a user with a two-factor authentication, or who must set one up: such a user gets the API key from the backoffice
+		if (!dolTotpIsDisabledByConf() && (dolTotpGetEnrollment($this->db, $tmpuser->id) !== null || dolTotpIsRequired($this->db, $tmpuser))) {
+			dol_syslog("Login API refused for ".$login.": two-factor authentication is enabled or required, the API key must be used", LOG_WARNING);
+			throw new RestException(403, 'Two-factor authentication is enabled or required for this user, the login API with a password is not allowed. Use the API key generated from the backoffice.');
+		}
+
 		// Renew the hash
 		if (empty($tmpuser->api_key) || $reset) {
-			$tmpuser->getrights();
-			if (empty($tmpuser->rights->user->self->creer)) {
+			$tmpuser->loadRights();
+			if (!$tmpuser->hasRight('user', 'self', 'creer')) {
 				if (empty($tmpuser->api_key)) {
 					throw new RestException(403, 'No API token set for this user and user need write permission on itself to reset its API token');
 				} else {
@@ -145,12 +164,12 @@ class Login
 			}
 
 			// Generate token for user
-			$token = dol_hash($login.uniqid().(empty($conf->global->MAIN_API_KEY)?'':$conf->global->MAIN_API_KEY), 1);
+			$token = dol_hash($login.bin2hex(random_bytes(32)).getDolGlobalString('MAIN_API_KEY'), 'hash');
 
 			// We store API token into database
 			$sql = "UPDATE ".MAIN_DB_PREFIX."user";
-			$sql .= " SET api_key = '".$this->db->escape($token)."'";
-			$sql .= " WHERE login = '".$this->db->escape($login)."'";
+			$sql .= " SET api_key = '".$this->db->escape(dolEncrypt($token, '', '', 'dolibarr'))."'";
+			$sql .= " WHERE rowid = ".((int) $tmpuser->id);
 
 			dol_syslog(get_class($this)."::login", LOG_DEBUG); // No log
 			$result = $this->db->query($sql);
@@ -159,6 +178,13 @@ class Login
 			}
 		} else {
 			$token = $tmpuser->api_key;
+			if (!utf8_check($token)) {
+				throw new RestException(500, 'Error, the API token of this user has a non valid value. Try to update it with a valid value.');
+			}
+		}
+
+		if (!ascii_check($token)) {
+			throw new RestException(500, 'Error the token for this user has not an hexa format. Try first to reset it.');
 		}
 
 		//return token
@@ -166,7 +192,7 @@ class Login
 			'success' => array(
 				'code' => 200,
 				'token' => $token,
-				'entity' => $tmpuser->entity,
+				'entity' => $tmpuser->entity ?? 1,
 				'message' => 'Welcome '.$login.($reset ? ' - Token is new' : ' - This is your token (recorded for your user). You can use it to make any REST API call, or enter it into the DOLAPIKEY field to use the Dolibarr API explorer.')
 			)
 		);

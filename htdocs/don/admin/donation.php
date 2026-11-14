@@ -1,10 +1,12 @@
 <?php
 /* Copyright (C) 2005-2010  Laurent Destailleur  	<eldy@users.sourceforge.net>
  * Copyright (C) 2012-2015  Juanjo Menent			<jmenent@2byte.es>
- * Copyright (C) 2013-2017  Philippe Grand			<philippe.grand@atoo-net.com>
+ * Copyright (C) 2013-2026  Philippe Grand			<philippe.grand@atoo-net.com>
  * Copyright (C) 2015-2020  Alexandre Spangaro		<aspangaro@open-dsi.fr>
  * Copyright (C) 2015       Benoit Bruchard			<benoitb21@gmail.com>
  * Copyright (C) 2019       Thibault FOUCART		<support@ptibogxiv.net>
+ * Copyright (C) 2024-2026	MDW							<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,11 +28,20 @@
  *  \brief      Page to setup the donation module
  */
 require '../../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ * @var Societe $mysoc
+ */
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/donation.lib.php';
+require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/don/class/don.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/doleditor.class.php';
-if (!empty($conf->accounting->enabled)) {
+if (isModEnabled('accounting')) {
 	require_once DOL_DOCUMENT_ROOT.'/core/class/html.formaccounting.class.php';
 }
 
@@ -48,10 +59,17 @@ $scandir = GETPOST('scan_dir', 'alpha');
 
 $type = 'donation';
 
+$dirmodels = array_merge(array('/'), (array) $conf->modules_parts['models']);
+
 
 /*
  * Action
  */
+$error = 0;
+
+$modulepart = GETPOST('modulepart', 'aZ09');	// Used by actions_setmoduleoptions.inc.php
+
+include DOL_DOCUMENT_ROOT.'/core/actions_setmoduleoptions.inc.php';
 
 if ($action == 'specimen') {
 	$modele = GETPOST('module', 'alpha');
@@ -60,16 +78,28 @@ if ($action == 'specimen') {
 	$don->initAsSpecimen();
 
 	// Search template files
-	$dir = DOL_DOCUMENT_ROOT."/core/modules/dons/";
-	$file = $modele.".modules.php";
-	if (file_exists($dir.$file)) {
-		$classname = $modele;
-		require_once $dir.$file;
+	$file = '';
+	if ($modele !== '') {
+		foreach ($dirmodels as $reldir) {
+			$file = dol_buildpath($reldir."core/modules/dons/".dol_sanitizeFileName($modele.".modules.php"), 0);
+			if (file_exists($file)) {
+				break;
+			}
+			$file = '';
+		}
+	}
+	if ($file !== '') {
+		require_once $file;
 
+		$classname = (string) $modele;
 		$obj = new $classname($db);
+		'@phan-var-force ModeleDon $obj';
+		/** @var ModeleDon $obj */
 
 		if ($obj->write_file($don, $langs) > 0) {
-			header("Location: ".DOL_URL_ROOT."/document.php?modulepart=donation&file=SPECIMEN.html");
+			// The specimen file is SPECIMEN.html or SPECIMEN.pdf according to the type of template
+			$specimenfile = empty($obj->result['fullpath']) ? 'SPECIMEN.html' : basename($obj->result['fullpath']);
+			header("Location: ".DOL_URL_ROOT."/document.php?modulepart=donation&file=".urlencode($specimenfile));
 			return;
 		} else {
 			setEventMessages($obj->error, $obj->errors, 'errors');
@@ -98,7 +128,7 @@ if ($action == 'specimen') {
 } elseif ($action == 'del') {
 	$ret = delDocumentModel($value, $type);
 	if ($ret > 0) {
-		if ($conf->global->DON_ADDON_MODEL == "$value") {
+		if (getDolGlobalString('DON_ADDON_MODEL') == "$value") {
 			dolibarr_del_const($db, 'DON_ADDON_MODEL', $conf->entity);
 		}
 	}
@@ -167,14 +197,17 @@ if (preg_match('/del_([a-z0-9_\-]+)/i', $action, $reg)) {
  * View
  */
 
-$dir = "../../core/modules/dons/";
 $form = new Form($db);
-if (!empty($conf->accounting->enabled)) {
+if (isModEnabled('accounting')) {
 	$formaccounting = new FormAccounting($db);
+} else {
+	$formaccounting = null;
 }
 
-llxHeader('', $langs->trans("DonationsSetup"), 'DonConfiguration');
-$linkback = '<a href="'.DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1">'.$langs->trans("BackToModuleList").'</a>';
+$help_url = '';
+llxHeader('', $langs->trans("DonationsSetup"), $help_url, '', 0, 0, '', '', '', 'mod-donation page-admin');
+
+$linkback = '<a href="'.dolBuildUrl(DOL_URL_ROOT.'/admin/modules.php', ['restore_lastsearch_values' => 1]).'">'.img_picto($langs->trans("BackToModuleList"), 'back', 'class="pictofixedwidth"').'<span class="hideonsmartphone">'.$langs->trans("BackToModuleList").'</span></a>';
 print load_fiche_titre($langs->trans("DonationsSetup"), $linkback, 'title_setup');
 
 $head = donation_admin_prepare_head();
@@ -197,7 +230,9 @@ if ($resql) {
 	$num_rows = $db->num_rows($resql);
 	while ($i < $num_rows) {
 		$array = $db->fetch_array($resql);
-		array_push($def, $array[0]);
+		if (is_array($array)) {
+			array_push($def, $array[0]);
+		}
 		$i++;
 	}
 } else {
@@ -216,84 +251,111 @@ print "</tr>\n";
 
 clearstatcache();
 
-$handle = opendir($dir);
+// Templates can be provided by Dolibarr or by external modules (dir core/modules/dons/ of the module)
+$filelist = array();
+foreach ($dirmodels as $reldir) {
+	$dir = dol_buildpath($reldir."core/modules/dons/");
+	if (is_dir($dir)) {
+		foreach (dol_dir_list($dir, 'files', 0, '\.modules\.php$', '', 'name', SORT_ASC, 0, 1) as $tmpfile) {
+			if (!isset($filelist[$tmpfile['name']])) {
+				$filelist[$tmpfile['name']] = $tmpfile['fullname'];
+			}
+		}
+	}
+}
 
-if (is_resource($handle)) {
-	while (($file = readdir($handle)) !== false) {
+if (count($filelist)) {
+	$arrayofmodels = array();
+
+	foreach ($filelist as $file => $fullpath) {
 		if (preg_match('/\.modules\.php$/i', $file)) {
-			$name = substr($file, 0, dol_strlen($file) - 12);
-			$classname = substr($file, 0, dol_strlen($file) - 12);
+			$name = dol_substr($file, 0, dol_strlen($file) - 12);
+			$classname = dol_substr($file, 0, dol_strlen($file) - 12);
 
-			require_once $dir.'/'.$file;
+			require_once $fullpath;
 			$module = new $classname($db);
+			'@phan-var-force ModeleDon $module';
+			/** @var ModeleDon $module */
 
 			// Show modules according to features level
-			if ($module->version == 'development' && $conf->global->MAIN_FEATURES_LEVEL < 2) {
+			if ($module->version == 'development' && getDolGlobalInt('MAIN_FEATURES_LEVEL') < 2) {
 				continue;
 			}
-			if ($module->version == 'experimental' && $conf->global->MAIN_FEATURES_LEVEL < 1) {
+			if ($module->version == 'experimental' && getDolGlobalInt('MAIN_FEATURES_LEVEL') < 1) {
 				continue;
 			}
 
 			if ($module->isEnabled()) {
-				print '<tr class="oddeven"><td width=\"100\">';
-				echo $module->name;
-				print '</td>';
-				print '<td>';
-				print $module->description;
-				print '</td>';
-
-				// Active
-				if (in_array($name, $def)) {
-					if ($conf->global->DON_ADDON_MODEL == $name) {
-						print "<td class=\"center\">\n";
-						print img_picto($langs->trans("Enabled"), 'switch_on');
-						print '</td>';
-					} else {
-						print "<td class=\"center\">\n";
-						print '<a href="'.$_SERVER["PHP_SELF"].'?action=setdoc&token='.newToken().'&value='.urlencode($name).'&scan_dir='.urlencode($module->scandir).'&label='.urlencode($module->name).'">'.img_picto($langs->trans("Enabled"), 'switch_on').'</a>';
-						print '</td>';
-					}
-				} else {
-					print "<td class=\"center\">\n";
-					print '<a href="'.$_SERVER["PHP_SELF"].'?action=set&token='.newToken().'&value='.urlencode($name).'&scan_dir='.urlencode($module->scandir).'&label='.urlencode($module->name).'">'.img_picto($langs->trans("Disabled"), 'switch_off').'</a>';
-					print "</td>";
-				}
-
-				// Default
-				if ($conf->global->DON_ADDON_MODEL == "$name") {
-					print "<td class=\"center\">";
-					print img_picto($langs->trans("Default"), 'on');
-					print '</td>';
-				} else {
-					print "<td class=\"center\">";
-					print '<a href="'.$_SERVER["PHP_SELF"].'?action=setdoc&token='.newToken().'&value='.urlencode($name).'&scan_dir='.urlencode($module->scandir).'&label='.urlencode($module->name).'" alt="'.$langs->trans("Default").'">'.img_picto($langs->trans("Disabled"), 'off').'</a>';
-					print '</td>';
-				}
-
-				// Info
-				$htmltooltip = ''.$langs->trans("Name").': '.$module->name;
-				$htmltooltip .= '<br>'.$langs->trans("Type").': '.($module->type ? $module->type : $langs->trans("Unknown"));
-				if ($module->type == 'pdf') {
-					$htmltooltip .= '<br>'.$langs->trans("Width").'/'.$langs->trans("Height").': '.$module->page_largeur.'/'.$module->page_hauteur;
-				}
-				$htmltooltip .= '<br><br><u>'.$langs->trans("FeaturesSupported").':</u>';
-				$htmltooltip .= '<br>'.$langs->trans("Logo").': '.yn($module->option_logo, 1, 1);
-				$htmltooltip .= '<br>'.$langs->trans("MultiLanguage").': '.yn($module->option_multilang, 1, 1);
-				print '<td class="center">';
-				print $form->textwithpicto('', $htmltooltip, -1, 0);
-				print '</td>';
-
-				// Preview
-				print '<td class="center">';
-				print '<a href="'.$_SERVER["PHP_SELF"].'?action=specimen&module='.$name.'" target="specimen">'.img_object($langs->trans("Preview"), 'generic').'</a>';
-				print '</td>';
-
-				print "</tr>\n";
+				$arrayofmodels[$name] = $module;
 			}
 		}
 	}
-	closedir($handle);
+
+	// Sort models by their position
+	$arrayofmodels = dol_sort_array($arrayofmodels, 'position');
+	'@phan-var-force array<string,ModeleDon> $arrayofmodels';
+
+	foreach ($arrayofmodels as $name => $module) {
+		print '<tr class="oddeven"><td width=\"100\">';
+		echo $module->name;
+		print '</td>';
+		print '<td>';
+		print $module->description;
+		print '</td>';
+
+		// Active
+		if (in_array($name, $def)) {
+			if (getDolGlobalString('DON_ADDON_MODEL') == $name) {
+				print "<td class=\"center\">\n";
+				print img_picto($langs->trans("Enabled"), 'switch_on');
+				print '</td>';
+			} else {
+				print "<td class=\"center\">\n";
+				print '<a href="'.$_SERVER["PHP_SELF"].'?action=del&token='.newToken().'&value='.urlencode($name).'&scan_dir='.urlencode($module->scandir).'&label='.urlencode($module->name).'">'.img_picto($langs->trans("Enabled"), 'switch_on').'</a>';
+				print '</td>';
+			}
+		} else {
+			print "<td class=\"center\">\n";
+			print '<a href="'.$_SERVER["PHP_SELF"].'?action=set&token='.newToken().'&value='.urlencode($name).'&scan_dir='.urlencode($module->scandir).'&label='.urlencode($module->name).'">'.img_picto($langs->trans("Disabled"), 'switch_off').'</a>';
+			print "</td>";
+		}
+
+		// Default
+		if (getDolGlobalString('DON_ADDON_MODEL') == "$name") {
+			print "<td class=\"center\">";
+			print img_picto($langs->trans("Default"), 'on');
+			print '</td>';
+		} else {
+			print "<td class=\"center\">";
+			print '<a href="'.$_SERVER["PHP_SELF"].'?action=setdoc&token='.newToken().'&value='.urlencode($name).'&scan_dir='.urlencode($module->scandir).'&label='.urlencode($module->name).'" alt="'.$langs->trans("Default").'">'.img_picto($langs->trans("Disabled"), 'off').'</a>';
+			print '</td>';
+		}
+
+		// Info
+		$htmltooltip = ''.$langs->trans("Name").': '.$module->name;
+		$htmltooltip .= '<br>'.$langs->trans("Type").': '.($module->type ? $module->type : $langs->trans("Unknown"));
+		if ($module->type == 'pdf') {
+			$htmltooltip .= '<br>'.$langs->trans("Width").'/'.$langs->trans("Height").': '.$module->page_largeur.'/'.$module->page_hauteur;
+		}
+		$htmltooltip .= '<br><br><u>'.$langs->trans("FeaturesSupported").':</u>';
+		$htmltooltip .= '<br>'.$langs->trans("Logo").': '.yn($module->option_logo, 1, 1);
+		$htmltooltip .= '<br>'.$langs->trans("MultiLanguage").': '.yn($module->option_multilang, 1, 1);
+		print '<td class="center">';
+		print $form->textwithpicto('', $htmltooltip, -1, 'info');
+		print '</td>';
+
+		// Preview
+		print '<td class="center">';
+		if ($module->type == 'pdf') {
+			// The PDF is sent as a download, a new window would stay empty
+			print '<a href="'.$_SERVER["PHP_SELF"].'?action=specimen&module='.urlencode($name).'">'.img_object($langs->trans("Preview"), 'pdf').'</a>';
+		} else {
+			print '<a href="'.$_SERVER["PHP_SELF"].'?action=specimen&module='.urlencode($name).'" target="specimen">'.img_object($langs->trans("Preview"), 'generic').'</a>';
+		}
+		print '</td>';
+
+		print "</tr>\n";
+	}
 }
 
 print '</table><br>';
@@ -310,7 +372,7 @@ print '<td width="60" class="center">'.$langs->trans("Value")."</td>\n";
 print '<td></td>';
 print "</tr>\n";
 
-if (!empty($conf->societe->enabled)) {
+if (isModEnabled("societe")) {
 	print '<tr class="oddeven">';
 	print '<td colspan="2">';
 	print $langs->trans("DonationUseThirdparties");
@@ -320,7 +382,7 @@ if (!empty($conf->societe->enabled)) {
 		print ajax_constantonoff('DONATION_USE_THIRDPARTIES');
 	} else {
 		$arrval = array('0' => $langs->trans("No"), '1' => $langs->trans("Yes"));
-		print $form->selectarray("DONATION_USE_THIRDPARTIES", $arrval, $conf->global->DONATION_USE_THIRDPARTIES);
+		print $form->selectarray("DONATION_USE_THIRDPARTIES", $arrval, getDolGlobalString('DONATION_USE_THIRDPARTIES'));
 	}
 	print "</td>\n";
 	print "</tr>\n";
@@ -335,10 +397,11 @@ print '<td>';
 $label = $langs->trans("AccountAccounting");
 print '<label for="DONATION_ACCOUNTINGACCOUNT">'.$label.'</label></td>';
 print '<td class="center">';
-if (!empty($conf->accounting->enabled)) {
-	print $formaccounting->select_account($conf->global->DONATION_ACCOUNTINGACCOUNT, 'DONATION_ACCOUNTINGACCOUNT', 1, '', 1, 1);
+if (isModEnabled('accounting') && is_object($formaccounting)) {
+	/** @var FormAccounting $formaccounting */
+	print $formaccounting->select_account(getDolGlobalString('DONATION_ACCOUNTINGACCOUNT'), 'DONATION_ACCOUNTINGACCOUNT', 1, array(), 1, 1);
 } else {
-	print '<input type="text" size="10" id="DONATION_ACCOUNTINGACCOUNT" name="DONATION_ACCOUNTINGACCOUNT" value="'.$conf->global->DONATION_ACCOUNTINGACCOUNT.'">';
+	print '<input type="text" size="10" id="DONATION_ACCOUNTINGACCOUNT" name="DONATION_ACCOUNTINGACCOUNT" value="' . getDolGlobalString('DONATION_ACCOUNTINGACCOUNT').'">';
 }
 print '</td><td class="center">';
 print '<input type="submit" class="button button-edit" value="'.$langs->trans("Modify").'" />';
@@ -351,7 +414,7 @@ print '<input type="hidden" name="action" value="set_DONATION_MESSAGE" />';
 
 print '<tr class="oddeven"><td colspan="2">';
 print $langs->trans("FreeTextOnDonations").' '.img_info($langs->trans("AddCRIfTooLong")).'<br>';
-print '<textarea name="DONATION_MESSAGE" class="flat" cols="80">'.$conf->global->DONATION_MESSAGE.'</textarea>';
+print '<textarea name="DONATION_MESSAGE" class="flat" cols="80">' . getDolGlobalString('DONATION_MESSAGE').'</textarea>';
 print '</td><td class="center">';
 print '<input type="submit" class="button button-edit" value="'.$langs->trans("Modify").'" />';
 print "</td></tr>\n";
@@ -360,9 +423,9 @@ print "</table>\n";
 print '</form>';
 
 /*
- *  French params
+ *  French only parameters
  */
-if (preg_match('/fr/i', $conf->global->MAIN_INFO_SOCIETE_COUNTRY)) {
+if (preg_match('/fr/i', $mysoc->country_code)) {
 	print '<br>';
 	print load_fiche_titre($langs->trans("FrenchOptions"), '', '');
 
@@ -379,7 +442,7 @@ if (preg_match('/fr/i', $conf->global->MAIN_INFO_SOCIETE_COUNTRY)) {
 		print ajax_constantonoff('DONATION_ART200');
 	} else {
 		$arrval = array('0' => $langs->trans("No"), '1' => $langs->trans("Yes"));
-		print $form->selectarray("DONATION_ART200", $arrval, $conf->global->DONATION_ART200);
+		print $form->selectarray("DONATION_ART200", $arrval, getDolGlobalString('DONATION_ART200'));
 	}
 	print '</td></tr>';
 
@@ -390,7 +453,7 @@ if (preg_match('/fr/i', $conf->global->MAIN_INFO_SOCIETE_COUNTRY)) {
 		print ajax_constantonoff('DONATION_ART238');
 	} else {
 		$arrval = array('0' => $langs->trans("No"), '1' => $langs->trans("Yes"));
-		print $form->selectarray("DONATION_ART238", $arrval, $conf->global->DONATION_ART238);
+		print $form->selectarray("DONATION_ART238", $arrval, getDolGlobalString('DONATION_ART238'));
 	}
 	print '</td></tr>';
 
@@ -401,7 +464,7 @@ if (preg_match('/fr/i', $conf->global->MAIN_INFO_SOCIETE_COUNTRY)) {
 		print ajax_constantonoff('DONATION_ART978');
 	} else {
 		$arrval = array('0' => $langs->trans("No"), '1' => $langs->trans("Yes"));
-		print $form->selectarray("DONATION_ART978", $arrval, $conf->global->DONATION_ART978);
+		print $form->selectarray("DONATION_ART978", $arrval, getDolGlobalString('DONATION_ART978'));
 	}
 	print '</td></tr>';
 	print "</table>\n";

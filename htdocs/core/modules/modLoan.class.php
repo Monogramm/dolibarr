@@ -1,5 +1,6 @@
 <?php
 /* Copyright (C) 2014		Alexandre Spangaro	 <aspangaro@open-dsi.fr>
+ * Copyright (C) 2026       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,7 +32,6 @@ include_once DOL_DOCUMENT_ROOT.'/core/modules/DolibarrModules.class.php';
  */
 class modLoan extends DolibarrModules
 {
-
 	/**
 	 *   Constructor. Define names, constants, directories, boxes, permissions
 	 *
@@ -39,7 +39,7 @@ class modLoan extends DolibarrModules
 	 */
 	public function __construct($db)
 	{
-		global $conf;
+		global $conf; // Required by the default value of LOAN_ADDON_PDF_ODT_PATH
 
 		$this->db = $db;
 		$this->numero = 520;
@@ -54,7 +54,7 @@ class modLoan extends DolibarrModules
 		$this->version = 'dolibarr';
 
 		$this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
-		$this->picto = 'money-bill-alt';
+		$this->picto = 'loan';
 
 		// Data directories to create when module is enabled
 		$this->dirs = array("/loan/temp");
@@ -67,26 +67,46 @@ class modLoan extends DolibarrModules
 		$this->depends = array(); // List of module class names as string that must be enabled if this module is enabled
 		$this->requiredby = array(); // List of module ids to disable if this one is disabled
 		$this->conflictwith = array(); // List of module class names as string this module is in conflict with
-		$this->phpmin = array(5, 6); // Minimum version of PHP required by module
 		$this->langfiles = array("loan");
 
 		// Constants
-		$this->const = array();
-		$this->const[0] = array(
+		$this->const = [
+			[
 				"LOAN_ACCOUNTING_ACCOUNT_CAPITAL",
 				"chaine",
-				"164"
-		);
-		$this->const[1] = array(
+				"164",
+				"",
+				0,
+			],
+			[
 				"LOAN_ACCOUNTING_ACCOUNT_INTEREST",
 				"chaine",
-				"6611"
-		);
-		$this->const[1] = array(
+				"6611",
+				"",
+				0,
+			],
+			[
 				"LOAN_ACCOUNTING_ACCOUNT_INSURANCE",
 				"chaine",
-				"6162"
-		);
+				"6162",
+				"",
+				0,
+			],
+			[
+				"LOAN_ADDON_PDF",
+				"chaine",
+				"generic_loan_odt",
+				'Name of document template of loan',
+				0,
+			],
+			[
+				"LOAN_ADDON_PDF_ODT_PATH",
+				"chaine",
+				"DOL_DATA_ROOT".($conf->entity > 1 ? '/'.$conf->entity : '')."/doctemplates/loan",
+				"",
+				0,
+			],
+		];
 
 		// Boxes
 		$this->boxes = array();
@@ -158,8 +178,6 @@ class modLoan extends DolibarrModules
 	 */
 	public function init($options = '')
 	{
-		global $conf;
-
 		$result = $this->_load_tables('/install/mysql/', 'loan');
 		if ($result < 0) {
 			return -1; // Do not activate module if error 'not allowed' returned when loading module SQL queries (the _load_table run sql with run_sql with the error allowed parameter set to 'default')

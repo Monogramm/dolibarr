@@ -2,7 +2,8 @@
 /* Copyright (C) 2012       Mikael Carlavan         <contact@mika-carl.fr>
  * Copyright (C) 2017       ATM Consulting          <contact@atm-consulting.fr>
  * Copyright (C) 2017       Pierre-Henry Favre      <phf@atm-consulting.fr>
- * Copyright (C) 2018-2019  Frédéric France         <frederic.france@netlogic.fr>
+ * Copyright (C) 2018-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024-2025	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,16 +26,25 @@
  *		\brief      Page to display expense tax ik
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/expensereport.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/expensereport/class/expensereport.class.php';
 require_once DOL_DOCUMENT_ROOT.'/expensereport/class/expensereport_rule.class.php';
 
-// Load translation files required by the page
-$langs->loadLangs(array("admin", "other", "trips", "errors", "dict"));
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 
-// Initialize technical object to manage hooks of page. Note that conf->hooks_modules contains array of hook context
+// Load translation files required by the page
+$langs->loadLangs(array("admin", "other", "trips", "dict"));
+
+// Initialize a technical object to manage hooks of page. Note that conf->hooks_modules contains an array of hook context
 $hookmanager->initHooks(array('admin', 'dictionaryadmin','expensereport_rules'));
 
 $object = new ExpenseReportRule($db);
@@ -49,6 +59,9 @@ if (!$user->admin) {
  */
 
 $parameters = array();
+$rules = array();
+$tab_apply = array();
+$tab_rules_type = array();
 $reshook = $hookmanager->executeHooks('doActions', $parameters, $object, $action); // Note that $action and $object may have been modified by some hooks
 if ($reshook < 0) {
 	setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
@@ -59,22 +72,22 @@ if (empty($reshook)) {
 	$error = false;
 
 	$action = GETPOST('action', 'aZ09');
-	$id = GETPOST('id', 'int');
+	$id = GETPOSTINT('id');
 
 	$apply_to = GETPOST('apply_to');
-	$fk_user = GETPOST('fk_user', 'int');
-	$fk_usergroup = GETPOST('fk_usergroup', 'int');
-	$restrictive = GETPOST('restrictive', 'int');
-	$fk_c_type_fees = GETPOST('fk_c_type_fees', 'int');
+	$fk_user = GETPOSTINT('fk_user');
+	$fk_usergroup = GETPOSTINT('fk_usergroup');
+	$restrictive = GETPOSTINT('restrictive');
+	$fk_c_type_fees = GETPOSTINT('fk_c_type_fees');
 	$code_expense_rules_type = GETPOST('code_expense_rules_type');
-	$dates = dol_mktime(12, 0, 0, GETPOST('startmonth'), GETPOST('startday'), GETPOST('startyear'));
-	$datee = dol_mktime(12, 0, 0, GETPOST('endmonth'), GETPOST('endday'), GETPOST('endyear'));
-	$amount = price2num(GETPOST('amount'), 'MT', 2);
+	$dates = dol_mktime(12, 0, 0, GETPOSTINT('startmonth'), GETPOSTINT('startday'), GETPOSTINT('startyear'));
+	$datee = dol_mktime(12, 0, 0, GETPOSTINT('endmonth'), GETPOSTINT('endday'), GETPOSTINT('endyear'));
+	$amount = (float) price2num(GETPOST('amount'), 'MT', 2);
 
 	if (!empty($id)) {
 		$result = $object->fetch($id);
 		if ($result < 0) {
-			dol_print_error('', $object->error, $object->errors);
+			dol_print_error(null, $object->error, $object->errors);
 		}
 	}
 
@@ -143,7 +156,7 @@ if (empty($reshook)) {
 			}
 
 			if (!$error) {
-				header('Location: ' . $_SERVER['PHP_SELF']);
+				header('Location: '.DOL_URL_ROOT.'/admin/expensereport_rules.php');
 				exit;
 			} else {
 				$action = '';
@@ -151,13 +164,14 @@ if (empty($reshook)) {
 		}
 	} elseif ($action == 'delete') {
 		// TODO add confirm
+		$object->oldcopy = dol_clone($object, 2);  // @phan-suppress-current-line PhanTypeMismatchProperty
 		$res = $object->delete($user);
 
 		if ($res < 0) {
 			dol_print_error($object->db);
 		}
 
-		header('Location: ' . $_SERVER['PHP_SELF']);
+		header('Location: ' . DOL_URL_ROOT.'/admin/expensereport_rules.php');
 		exit;
 	}
 
@@ -165,7 +179,7 @@ if (empty($reshook)) {
 
 	$tab_apply = array(
 		'A' => $langs->trans('All'),
-		'G' => $langs->trans('Group'),
+		'G' => $langs->trans('UserGroup'),
 		'U' => $langs->trans('User')
 	);
 	$tab_rules_type = array(
@@ -175,25 +189,28 @@ if (empty($reshook)) {
 		'EX_EXP' => $langs->trans('OnExpense')
 	);
 }
-	/*
-	 * View
-	 */
 
-	llxHeader('', $langs->trans("ExpenseReportsSetup"));
 
-	$form = new Form($db);
+/*
+ * View
+ */
 
-	$linkback = '<a href="' . DOL_URL_ROOT . '/admin/modules.php?restore_lastsearch_values=1">' . $langs->trans("BackToModuleList") . '</a>';
-	print load_fiche_titre($langs->trans("ExpenseReportsSetup"), $linkback, 'title_setup');
+llxHeader('', $langs->trans("ExpenseReportsSetup"), '', '', 0, 0, '', '', '', 'mod-admin page-expensereport_rules');
 
-	$head = expensereport_admin_prepare_head();
-	print dol_get_fiche_head($head, 'expenserules', $langs->trans("ExpenseReportsRules"), -1, 'trip');
+$form = new Form($db);
 
-	echo '<span class="opacitymedium">' . $langs->trans('ExpenseReportRulesDesc') . '</span>';
-	print '<br><br>';
+$linkback = '<a href="'.dolBuildUrl(DOL_URL_ROOT.'/admin/modules.php', ['restore_lastsearch_values' => 1]).'">'.img_picto($langs->trans("BackToModuleList"), 'back', 'class="pictofixedwidth"').'<span class="hideonsmartphone">'.$langs->trans("BackToModuleList").'</span></a>';
+
+print load_fiche_titre($langs->trans("ExpenseReportsSetup"), $linkback, 'title_setup');
+
+$head = expensereport_admin_prepare_head();
+print dol_get_fiche_head($head, 'expenserules', $langs->trans("ExpenseReportsRules"), -1, 'trip');
+
+echo '<span class="opacitymedium">' . $langs->trans('ExpenseReportRulesDesc') . '</span>';
+print '<br><br>';
 
 if ($action != 'edit') {
-	echo '<form action="' . $_SERVER['PHP_SELF'] . '" method="post">';
+	echo '<form action="' . $_SERVER['PHP_SELF'] . '" method="post" spellcheck="false">';
 	echo '<input type="hidden" name="token" value="' . newToken() . '" />';
 	echo '<input type="hidden" name="action" value="save" />';
 
@@ -214,13 +231,13 @@ if ($action != 'edit') {
 	echo '<td>';
 	echo '<div class="float linecolapplyto">' . $form->selectarray('apply_to', $tab_apply, '', 0) . '</div>';
 	echo '<div id="user" class="float linecoluser">' . $form->select_dolusers('', 'fk_user') . '</div>';
-	echo '<div id="group" class="float linecolgroup">' . $form->select_dolgroups('', 'fk_usergroup') . '</div>';
+	echo '<div id="group" class="float linecolgroup">' . $form->select_dolgroups(0, 'fk_usergroup') . '</div>';
 	echo '</td>';
 
-	echo '<td class="linecoltype">' . $form->selectExpense('', 'fk_c_type_fees', 0, 1, 1) . '</td>';
+	echo '<td class="linecoltype">' . $form->selectExpenseFees('', 'fk_c_type_fees', 0, 1, 1) . '</td>';
 	echo '<td class="linecoltyperule">' . $form->selectarray('code_expense_rules_type', $tab_rules_type, '', 0) . '</td>';
-	echo '<td class="linecoldatestart">' . $form->selectDate(strtotime(date('Y-m-01', dol_now())), 'start', '', '', 0, '', 1, 0) . '</td>';
-	echo '<td class="linecoldateend>' . $form->selectDate(strtotime(date('Y-m-t', dol_now())), 'end', '', '', 0, '', 1, 0) . '</td>';
+	echo '<td class="linecoldatestart">' . $form->selectDate(strtotime(date('Y-m-01', dol_now())), 'start', 0, 0, 0, '', 1, 0) . '</td>';
+	echo '<td class="linecoldateend">' . $form->selectDate(strtotime(date('Y-m-t', dol_now())), 'end', 0, 0, 0, '', 1, 0) . '</td>';
 	echo '<td class="linecolamount"><input type="text" value="" class="maxwidth100" name="amount" class="amount right" /></td>';
 	echo '<td class="linecolrestrictive">' . $form->selectyesno('restrictive', 0, 1) . '</td>';
 	echo '<td class="right linecolbutton"><input type="submit" class="button button-add" value="' . $langs->trans('Add') . '" /></td>';
@@ -231,26 +248,29 @@ if ($action != 'edit') {
 }
 
 
-	echo '<form action="' . $_SERVER['PHP_SELF'] . '" method="post">';
-	echo '<input type="hidden" name="token" value="' . newToken() . '" />';
+echo '<form action="' . $_SERVER['PHP_SELF'] . '" method="post" spellcheck="false">';
+echo '<input type="hidden" name="token" value="' . newToken() . '" />';
 
 if ($action == 'edit') {
 	echo '<input type="hidden" name="id" value="' . $object->id . '" />';
 	echo '<input type="hidden" name="action" value="save" />';
 }
 
-	echo '<table class="noborder centpercent">';
+print dol_get_fiche_end();
 
-	echo '<tr class="liste_titre expensereportrules">';
-	echo '<th class="linecolapplyto">' . $langs->trans('ExpenseReportApplyTo') . '</th>';
-	echo '<th class="linecoltype">' . $langs->trans('Type') . '</th>';
-	echo '<th class="linecollimiton">' . $langs->trans('ExpenseReportLimitOn') . '</th>';
-	echo '<th class="linecoldatestart">' . $langs->trans('ExpenseReportDateStart') . '</th>';
-	echo '<th class="linecoldateend">' . $langs->trans('ExpenseReportDateEnd') . '</th>';
-	echo '<th class="linecollimitamount">' . $langs->trans('ExpenseReportLimitAmount') . '</th>';
-	echo '<th class="linecolrestrictive">' . $langs->trans('ExpenseReportRestrictive') . '</th>';
-	echo '<th>&nbsp;</th>';
-	echo '</tr>';
+
+echo '<table class="noborder centpercent">';
+
+echo '<tr class="liste_titre expensereportrules">';
+echo '<th class="linecolapplyto">' . $langs->trans('ExpenseReportApplyTo') . '</th>';
+echo '<th class="linecoltype">' . $langs->trans('Type') . '</th>';
+echo '<th class="linecollimiton">' . $langs->trans('ExpenseReportLimitOn') . '</th>';
+echo '<th class="linecoldatestart">' . $langs->trans('ExpenseReportDateStart') . '</th>';
+echo '<th class="linecoldateend">' . $langs->trans('ExpenseReportDateEnd') . '</th>';
+echo '<th class="linecollimitamount">' . $langs->trans('ExpenseReportLimitAmount') . '</th>';
+echo '<th class="linecolrestrictive">' . $langs->trans('ExpenseReportRestrictive') . '</th>';
+echo '<th>&nbsp;</th>';
+echo '</tr>';
 
 foreach ($rules as $rule) {
 	echo '<tr class="oddeven linetrdata" id="'.$rule->id.'">';
@@ -272,10 +292,9 @@ foreach ($rules as $rule) {
 	}
 	echo '</td>';
 
-
 	echo '<td class="linecoltype">';
 	if ($action == 'edit' && $object->id == $rule->id) {
-		echo $form->selectExpense($object->fk_c_type_fees, 'fk_c_type_fees', 0, 1, 1);
+		echo $form->selectExpenseFees((string) $object->fk_c_type_fees, 'fk_c_type_fees', 0, 1, 1);
 	} else {
 		if ($rule->fk_c_type_fees == -1) {
 			echo $langs->trans('AllExpenseReport');
@@ -303,7 +322,7 @@ foreach ($rules as $rule) {
 
 	echo '<td class="linecoldatestart">';
 	if ($action == 'edit' && $object->id == $rule->id) {
-		print $form->selectDate(strtotime(date('Y-m-d', $object->dates)), 'start', '', '', 0, '', 1, 0);
+		print $form->selectDate(strtotime(date('Y-m-d', $object->dates)), 'start', 0, 0, 0, '', 1, 0);
 	} else {
 		echo dol_print_date($rule->dates, 'day');
 	}
@@ -312,7 +331,7 @@ foreach ($rules as $rule) {
 
 	echo '<td class="linecoldateend">';
 	if ($action == 'edit' && $object->id == $rule->id) {
-		print $form->selectDate(strtotime(date('Y-m-d', $object->datee)), 'end', '', '', 0, '', 1, 0);
+		print $form->selectDate(strtotime(date('Y-m-d', $object->datee)), 'end', 0, 0, 0, '', 1, 0);
 	} else {
 		echo dol_print_date($rule->datee, 'day');
 	}
@@ -323,7 +342,7 @@ foreach ($rules as $rule) {
 	if ($action == 'edit' && $object->id == $rule->id) {
 		echo '<input type="text" value="' . price2num($object->amount) . '" name="amount" class="amount width50 right" />';
 	} else {
-		echo price($rule->amount, 0, $langs, 1, -1, -1, $conf->currency);
+		echo price($rule->amount, 0, $langs, 1, -1, -1, getDolCurrency());
 	}
 	echo '</td>';
 
@@ -350,11 +369,14 @@ foreach ($rules as $rule) {
 	echo '</tr>';
 }
 
+if (!is_array($rules) || count($rules) == 0) {
+	print '<tr class="none"><td colspan="8"><span class="opacitymedium">'.$langs->trans("None").'</span></td></tr>';
+}
 
-	echo '</table>';
-	echo '</form>';
+echo '</table>';
+echo '</form>';
 
-	echo '<script type="text/javascript"> $(function() {
+echo '<script type="text/javascript"> $(function() {
 	$("#apply_to").change(function() {
 		var value = $(this).val();
 		if (value == "A") {

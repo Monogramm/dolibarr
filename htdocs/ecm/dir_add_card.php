@@ -1,7 +1,9 @@
 <?php
-/* Copyright (C) 2008-2017	Laurent Destailleur	<eldy@users.sourceforge.net>
- * Copyright (C) 2008-2012	Regis Houssin		<regis.houssin@inodbox.com>
- * Copyright (C) 2015-2016	Alexandre Spangaro	<aspangaro@open-dsi.fr>
+/* Copyright (C) 2008-2017	Laurent Destailleur			<eldy@users.sourceforge.net>
+ * Copyright (C) 2008-2012	Regis Houssin				<regis.houssin@inodbox.com>
+ * Copyright (C) 2015-2024	Alexandre Spangaro			<alexandre@inovea-conseil.com>
+ * Copyright (C) 2024-2026  Frédéric France			<frederic.france@free.fr>
+ * Copyright (C) 2025-2026	MDW							<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,26 +25,37 @@
  *	\brief		Main page for ECM section area
  */
 
-if (! defined('DISABLE_JS_GRAHP')) define('DISABLE_JS_GRAPH', 1);
+if (! defined('DISABLE_JS_GRAHP')) {
+	define('DISABLE_JS_GRAPH', 1);
+}
 
+// Load Dolibarr environment
 require '../main.inc.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 require_once DOL_DOCUMENT_ROOT.'/ecm/class/htmlecm.form.class.php';
 require_once DOL_DOCUMENT_ROOT.'/ecm/class/ecmdirectory.class.php';
 
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
+
 // Load translation files required by the page
 $langs->loadLangs(array("ecm", "companies", "other", "users", "orders", "propal", "bills", "contracts", "categories"));
 
 // Get parameters
-$socid      = GETPOST('socid', 'int');
+$socid      = GETPOSTINT('socid');
 $action     = GETPOST('action', 'alpha');
-$cancel     = GETPOST('cancel', 'aZ09');
+$cancel     = GETPOST('cancel');
 $backtopage = GETPOST('backtopage', 'alpha');
 $confirm    = GETPOST('confirm', 'alpha');
 
-$module  = GETPOST('module', 'alpha');
+$module  = GETPOST('module', 'aZ09arobase');
 $website = GETPOST('website', 'alpha');
-$pageid  = GETPOST('pageid', 'int');
+$pageid  = GETPOSTINT('pageid');
 if (empty($module)) {
 	$module = 'ecm';
 }
@@ -60,15 +73,14 @@ if (empty($urlsection)) {
 
 if ($module == 'ecm') {
 	$upload_dir = $conf->ecm->dir_output.'/'.$urlsection;
-} else // For example $module == 'medias'
-{
+} else { // For example $module == 'medias'
 	$upload_dir = $conf->medias->multidir_output[$conf->entity];
 }
 
-$limit = GETPOST('limit', 'int') ? GETPOST('limit', 'int') : $conf->liste_limit;
+$limit = GETPOSTINT('limit') ? GETPOSTINT('limit') : $conf->liste_limit;
 $sortfield = GETPOST('sortfield', 'aZ09comma');
 $sortorder = GETPOST('sortorder', 'aZ09comma');
-$page = GETPOSTISSET('pageplusone') ? (GETPOST('pageplusone') - 1) : GETPOST("page", 'int');
+$page = GETPOSTISSET('pageplusone') ? (GETPOSTINT('pageplusone') - 1) : GETPOSTINT("page");
 if (empty($page) || $page == -1) {
 	$page = 0;
 }     // If $page is not defined, or '' or -1
@@ -84,26 +96,29 @@ if (!$sortfield) {
 
 $ecmdir = new EcmDirectory($db);
 if (!empty($section)) {
-	$result = $ecmdir->fetch($section);
-	if (!$result > 0) {
+	$result = $ecmdir->fetch((int) $section);
+	if (!($result > 0)) {
 		dol_print_error($db, $ecmdir->error);
 		exit;
 	}
 }
 
 // Permissions
-$permtoadd = 0;
-$permtoupload = 0;
+$permissiontoadd = 0;
+$permissiontodelete = 0;
+$permissiontoupload = 0;
 if ($module == 'ecm') {
-	$permtoadd = $user->rights->ecm->setup;
-	$permtoupload = $user->rights->ecm->upload;
+	$permissiontoadd = $user->hasRight('ecm', 'setup');
+	$permissiontodelete = $user->hasRight('ecm', 'setup');
+	$permissiontoupload = $user->hasRight('ecm', 'upload');
 }
 if ($module == 'medias') {
-	$permtoadd = ($user->rights->mailing->creer || $user->rights->website->write);
-	$permtoupload = ($user->rights->mailing->creer || $user->rights->website->write);
+	$permissiontoadd = ($user->hasRight('mailing', 'creer') || $user->hasRight('website', 'write'));
+	$permissiontodelete = ($user->hasRight('mailing', 'creer') || $user->hasRight('website', 'write'));
+	$permissiontoupload = ($user->hasRight('mailing', 'creer') || $user->hasRight('website', 'write'));
 }
 
-if (!$permtoadd) {
+if (!$permissiontoadd) {
 	accessforbidden();
 }
 
@@ -113,14 +128,14 @@ if (!$permtoadd) {
  * Actions
  */
 
-// Action ajout d'un produit ou service
-if ($action == 'add' && $permtoadd) {
+// Action - add product or service
+if ($action == 'add' && $permissiontoadd) {
 	if ($cancel) {
 		if (!empty($backtopage)) {
 			header("Location: ".$backtopage);
 			exit;
 		} else {
-			header("Location: ".DOL_URL_ROOT.'/ecm/index.php?action=file_manager'.($module ? '&module='.$module : ''));
+			header("Location: ".DOL_URL_ROOT.'/ecm/index.php?action=file_manager&module='.$module);
 			exit;
 		}
 	}
@@ -162,7 +177,7 @@ if ($action == 'add' && $permtoadd) {
 			}
 			if (empty($dirfornewdir)) {
 				$error++;
-				dol_print_error('', 'Bad value for module. Not supported.');
+				dol_print_error(null, 'Bad value for module. Not supported.');
 			}
 
 			if (!$error) {
@@ -188,10 +203,14 @@ if ($action == 'add' && $permtoadd) {
 			exit;
 		}
 	}
-} elseif ($action == 'confirm_deletesection' && $confirm == 'yes' && $permtoadd) {
+} elseif ($action == 'confirm_deletesection' && $confirm == 'yes' && $permissiontodelete) {
 	// Deleting file
 	$result = $ecmdir->delete($user);
-	setEventMessages($langs->trans("ECMSectionWasRemoved", $ecmdir->label), null, 'mesgs');
+	if ($result > 0) {
+		setEventMessages($langs->trans("ECMSectionWasRemoved", $ecmdir->label), null, 'mesgs');
+	} else {
+		setEventMessages($ecmdir->error, $ecmdir->errors, 'errors');
+	}
 }
 
 
@@ -201,7 +220,7 @@ if ($action == 'add' && $permtoadd) {
  * View
  */
 
-llxHeader('', $langs->trans("ECMNewSection"));
+llxHeader('', $langs->trans("ECMNewSection"), '', '', 0, 0, '', '', '', 'mod-ecm page-dir_add_card');
 
 $form = new Form($db);
 $formecm = new FormEcm($db);
@@ -219,7 +238,17 @@ if ($action == 'create') {
 		print '<input type="hidden" name="website" value="'.dol_escape_htmltag($website).'">';
 	}
 	if ($pageid) {
-		print '<input type="hidden" name="pageid" value="'.dol_escape_htmltag($pageid).'">';
+		print '<input type="hidden" name="pageid" value="'.dol_escape_htmltag((string) $pageid).'">';
+	}
+	// Keep the popup mode (no menus) when page is open into a dialog popup
+	if (GETPOSTINT('dol_hide_topmenu')) {
+		print '<input type="hidden" name="dol_hide_topmenu" value="'.GETPOSTINT('dol_hide_topmenu').'">';
+	}
+	if (GETPOSTINT('dol_hide_leftmenu')) {
+		print '<input type="hidden" name="dol_hide_leftmenu" value="'.GETPOSTINT('dol_hide_leftmenu').'">';
+	}
+	if (GETPOST('dol_openinpopup', 'aZ09')) {
+		print '<input type="hidden" name="dol_openinpopup" value="'.dol_escape_htmltag(GETPOST('dol_openinpopup', 'aZ09')).'">';
 	}
 
 	$title = $langs->trans("ECMNewSection");
@@ -230,7 +259,8 @@ if ($action == 'create') {
 	print '<table class="border centpercent">';
 
 	// Label
-	print '<tr><td class="titlefieldcreate fieldrequired">'.$langs->trans("Label").'</td><td><input name="label" class="minwidth100" maxlength="32" value="'.$ecmdir->label.'" autofocus></td></tr>'."\n";
+	print '<tr><td class="titlefieldcreate fieldrequired">'.$langs->trans("Label").'</td><td>';
+	print '<input name="label" class="minwidth100" maxlength="32" value="'.GETPOST("label", 'alpha').'" autofocus></td></tr>'."\n";
 
 	print '<tr><td>'.$langs->trans("AddIn").'</td><td>';
 	print $formecm->selectAllSections((GETPOST("catParent", 'alpha') ? GETPOST("catParent", 'alpha') : $ecmdir->fk_parent), 'catParent', $module);
@@ -274,19 +304,18 @@ if (empty($action) || $action == 'delete_section') {
 	print "<br><br>";
 	*/
 
-	// Confirmation de la suppression d'une ligne categorie
+	// Generate form to confirm deletion of a category line
 	if ($action == 'delete_section') {
-		print $form->formconfirm($_SERVER["PHP_SELF"].'?section='.$section, $langs->trans('DeleteSection'), $langs->trans('ConfirmDeleteSection', $ecmdir->label), 'confirm_deletesection');
+		print $form->formconfirm(dolBuildUrl($_SERVER["PHP_SELF"], array('section' => $section)), $langs->trans('DeleteSection'), $langs->trans('ConfirmDeleteSection', $ecmdir->label), 'confirm_deletesection');
 	}
 
 
 	// Actions buttons
 	print '<div class="tabsAction">';
-	if ($user->rights->ecm->setup) {
-		print '<a class="butAction" href="'.$_SERVER['PHP_SELF'].'?action=delete_section&token='.newToken().'">'.$langs->trans('Delete').'</a>';
-	} else {
-		print '<a class="butActionRefused classfortooltip" href="#" title="'.$langs->trans("NotAllowed").'">'.$langs->trans('Delete').'</a>';
-	}
+
+	// Delete
+	print dolGetButtonAction($langs->trans('Delete'), $langs->trans('Delete'), 'delete', dolBuildUrl($_SERVER["PHP_SELF"], array('section' => $section, 'action' => 'delete_section'), true), '', $user->hasRight('ecm', 'setup'), array('attr' => array('class' => 'reposition')))."\n";
+
 	print '</div>';
 }
 

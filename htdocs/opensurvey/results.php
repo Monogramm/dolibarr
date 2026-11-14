@@ -1,7 +1,8 @@
 <?php
 /* Copyright (C) 2013-2020  Laurent Destailleur     <eldy@users.sourceforge.net>
  * Copyright (C) 2014       Marcos García           <marcosgdf@gmail.com>
- * Copyright (C) 2018       Frédéric France         <frederic.france@netlogic.fr>
+ * Copyright (C) 2018-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,25 +24,37 @@
  *	\brief      Page to preview votes of a survey
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
 require_once DOL_DOCUMENT_ROOT."/core/lib/admin.lib.php";
 require_once DOL_DOCUMENT_ROOT."/core/lib/files.lib.php";
 require_once DOL_DOCUMENT_ROOT."/opensurvey/class/opensurveysondage.class.php";
+require_once DOL_DOCUMENT_ROOT."/opensurvey/class/opensurveyquestion.class.php";
 require_once DOL_DOCUMENT_ROOT."/opensurvey/lib/opensurvey.lib.php";
 
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ *
+ * @var string $dolibarr_main_url_root
+ */
+
 // Security check
-if (empty($user->rights->opensurvey->read)) {
+if (!$user->hasRight('opensurvey', 'read')) {
 	accessforbidden();
 }
 
 // Init vars
 $action = GETPOST('action', 'aZ09');
-$numsondage = GETPOST("id");
+$numsondage = GETPOST("id", 'alphanohtml');
 
 $object = new Opensurveysondage($db);
-$result = $object->fetch(0, $numsondage);
+$result = $object->fetch('', $numsondage);
 if ($result <= 0) {
-	dol_print_error('', 'Failed to get survey id '.$numsondage);
+	dol_print_error(null, 'Failed to get survey id '.$numsondage);
 }
 
 $nblines = $object->fetch_lines();
@@ -50,10 +63,11 @@ $nblines = $object->fetch_lines();
 /*
  * Actions
  */
+$error = 0;
 
 // Return to the results
-if (GETPOST('retoursondage')) {
-	header('Location: results.php?id='.(GETPOSTISSET('id_sondage') ? GETPOST('id_sondage', 'aZ09') : GETPOST('id', 'int')));
+if (GETPOST('cancel')) {
+	header('Location: results.php?id='.(GETPOSTISSET('id_sondage') ? GETPOST('id_sondage', 'aZ09') : GETPOST('id', 'alphanohtml')));
 	exit;
 }
 
@@ -70,7 +84,7 @@ if (GETPOST("boutonp") || GETPOST("boutonp.x") || GETPOST("boutonp_x")) {		// bo
 				$nouveauchoix .= "1";
 			} elseif (GETPOSTISSET("choix$i") && GETPOST("choix$i") == '2') {
 				$nouveauchoix .= "2";
-			} else { // sinon c'est 0
+			} else { // else it's zero
 				$nouveauchoix .= "0";
 			}
 		}
@@ -88,8 +102,8 @@ if (GETPOST("boutonp") || GETPOST("boutonp.x") || GETPOST("boutonp_x")) {		// bo
 			setEventMessages($langs->trans("VoteNameAlreadyExists"), null, 'errors');
 			$error++;
 		} else {
-			$sql = 'INSERT INTO '.MAIN_DB_PREFIX.'opensurvey_user_studs (nom, id_sondage, reponses)';
-			$sql .= " VALUES ('".$db->escape($nom)."', '".$db->escape($numsondage)."','".$db->escape($nouveauchoix)."')";
+			$sql = 'INSERT INTO '.MAIN_DB_PREFIX.'opensurvey_user_studs (nom, id_sondage, reponses, date_creation)';
+			$sql .= " VALUES ('".$db->escape($nom)."', '".$db->escape($numsondage)."', '".$db->escape($nouveauchoix)."', '".$db->idate(dol_now())."')";
 			$resql = $db->query($sql);
 			if (!$resql) {
 				dol_print_error($db);
@@ -102,13 +116,14 @@ if (GETPOST("boutonp") || GETPOST("boutonp.x") || GETPOST("boutonp_x")) {		// bo
 $testmodifier = false;
 $testligneamodifier = false;
 $ligneamodifier = -1;
+$modifier = '';
 for ($i = 0; $i < $nblines; $i++) {
 	if (GETPOSTISSET('modifierligne'.$i)) {
 		$ligneamodifier = $i;
 		$testligneamodifier = true;
 	}
 
-	//test pour voir si une ligne est a modifier
+	// test to check if a line needs to be updated
 	if (GETPOSTISSET('validermodifier'.$i)) {
 		$modifier = $i;
 		$testmodifier = true;
@@ -116,7 +131,7 @@ for ($i = 0; $i < $nblines; $i++) {
 }
 if ($testmodifier) {
 	// Security check
-	if (!$user->rights->opensurvey->write) {
+	if (!$user->hasRight('opensurvey', 'write')) {
 		accessforbidden();
 	}
 
@@ -126,7 +141,7 @@ if ($testmodifier) {
 			$nouveauchoix .= "1";
 		} elseif (GETPOSTISSET("choix$i") && GETPOST("choix$i") == '2') {
 			$nouveauchoix .= "2";
-		} else { // sinon c'est 0
+		} else { // else it's zero
 			$nouveauchoix .= "0";
 		}
 	}
@@ -145,17 +160,17 @@ if ($testmodifier) {
 // Add column (not for date)
 if (GETPOST("ajoutercolonne") && GETPOST('nouvellecolonne') && $object->format == "A") {
 	// Security check
-	if (!$user->rights->opensurvey->write) {
+	if (!$user->hasRight('opensurvey', 'write')) {
 		accessforbidden();
 	}
 
 	$nouveauxsujets = $object->sujet;
 
-	//on rajoute la valeur a la fin de tous les sujets deja entrés
+	// We add the value to the end of all subjects already entered
 	$nouveauxsujets .= ',';
 	$nouveauxsujets .= str_replace(array(",", "@"), " ", GETPOST("nouvellecolonne")).(!GETPOST("typecolonne") ? '' : '@'.GETPOST("typecolonne"));
 
-	//mise a jour avec les nouveaux sujets dans la base
+	// update with new subjects in database
 	$sql = 'UPDATE '.MAIN_DB_PREFIX."opensurvey_sondage";
 	$sql .= " SET sujet = '".$db->escape($nouveauxsujets)."'";
 	$sql .= " WHERE id_sondage = '".$db->escape($numsondage)."'";
@@ -164,13 +179,14 @@ if (GETPOST("ajoutercolonne") && GETPOST('nouvellecolonne') && $object->format =
 		dol_print_error($db);
 	} else {
 		header('Location: results.php?id='.$object->id_sondage);
+		exit;
 	}
 }
 
 // Add column (with format date)
 if (GETPOSTISSET("ajoutercolonne") && $object->format == "D") {
 	// Security check
-	if (!$user->rights->opensurvey->write) {
+	if (!$user->hasRight('opensurvey', 'write')) {
 		accessforbidden();
 	}
 
@@ -179,7 +195,7 @@ if (GETPOSTISSET("ajoutercolonne") && $object->format == "D") {
 	if (GETPOSTISSET("nouveaujour") && GETPOST("nouveaujour") != "vide" &&
 		GETPOSTISSET("nouveaumois") && GETPOST("nouveaumois") != "vide" &&
 		GETPOSTISSET("nouvelleannee") && GETPOST("nouvelleannee") != "vide") {
-		$nouvelledate = dol_mktime(0, 0, 0, GETPOST("nouveaumois"), GETPOST("nouveaujour"), GETPOST("nouvelleannee"));
+		$nouvelledate = dol_mktime(0, 0, 0, GETPOSTINT("nouveaumois"), GETPOSTINT("nouveaujour"), GETPOSTINT("nouvelleannee"));
 
 		if (GETPOSTISSET("nouvelleheuredebut") && GETPOST("nouvelleheuredebut") != "vide") {
 			$nouvelledate .= "@";
@@ -209,11 +225,12 @@ if (GETPOSTISSET("ajoutercolonne") && $object->format == "D") {
 			$erreur_ajout_date = "yes";
 		}
 
-		//on rajoute la valeur dans les valeurs
+		// we add the value to the values
 		$datesbase = explode(",", $object->sujet);
 		$taillebase = count($datesbase);
+		$cleinsertion = -1;
 
-		//recherche de l'endroit de l'insertion de la nouvelle date dans les dates deja entrées dans le tableau
+		// Searching for the insertion point of the new date within the dates already entered in the table
 		if ($nouvelledate < $datesbase[0]) {
 			$cleinsertion = 0;
 		} elseif ($nouvelledate > $datesbase[$taillebase - 1]) {
@@ -240,7 +257,7 @@ if (GETPOSTISSET("ajoutercolonne") && $object->format == "D") {
 		$dateinsertion = substr("$dateinsertion", 1);
 
 		// update with new topics into database
-		if (isset($erreur_ajout_date) && empty($erreur_ajout_date)) {
+		if (empty($erreur_ajout_date)) {
 			$sql = 'UPDATE '.MAIN_DB_PREFIX."opensurvey_sondage";
 			$sql .= " SET sujet = '".$db->escape($dateinsertion)."'";
 			$sql .= " WHERE id_sondage = '".$db->escape($numsondage)."'";
@@ -270,7 +287,7 @@ if (GETPOSTISSET("ajoutercolonne") && $object->format == "D") {
 						$reponsesadd = str_split($obj->reponses);
 						$lengthresponses = count($reponsesadd);
 						for ($cpt = $lengthresponses; $cpt > $cleinsertion; $cpt--) {
-							$reponsesadd[$cpt] = $reponsesadd[$cpt-1];
+							$reponsesadd[$cpt] = $reponsesadd[$cpt - 1];
 						}
 						$reponsesadd[$cleinsertion] = '0';
 						$reponsesadd = implode($reponsesadd);
@@ -291,11 +308,28 @@ if (GETPOSTISSET("ajoutercolonne") && $object->format == "D") {
 	}
 }
 
+// Delete a respondent of a survey of format 'F' (form), with his answers
+if ($object->format == 'F' && $action == 'confirm_deleterespondent' && GETPOST('confirm', 'alpha') == 'yes') {	// Test on permission done later
+	// Security check
+	if (!$user->hasRight('opensurvey', 'write')) {
+		accessforbidden();
+	}
+
+	$resdelete = $object->deleteVoter(GETPOSTINT('idrespondent'));
+	if ($resdelete > 0) {
+		setEventMessages($langs->trans("OpenSurveyRespondentDeleted"), null, 'mesgs');
+	} else {
+		setEventMessages($object->error ? $object->error : $langs->trans("ErrorRecordNotFound"), null, 'errors');
+	}
+	header('Location: results.php?id='.urlencode($numsondage));
+	exit;
+}
+
 // Delete line
 for ($i = 0; $i < $nblines; $i++) {
 	if (GETPOST("effaceligne".$i) || GETPOST("effaceligne".$i."_x") || GETPOST("effaceligne".$i.".x")) {	// effacelignei for chrome, effacelignei_x for firefox
 		// Security check
-		if (!$user->rights->opensurvey->write) {
+		if (!$user->hasRight('opensurvey', 'write')) {
 			accessforbidden();
 		}
 
@@ -330,7 +364,7 @@ for ($i = 0; $i < $nbcolonnes; $i++) {
 	if ((GETPOST("effacecolonne".$i) || GETPOST("effacecolonne".$i."_x") || GETPOST("effacecolonne".$i.".x"))
 		&& $nbcolonnes > 1) {	// effacecolonnei for chrome, effacecolonnei_x for firefox
 		// Security check
-		if (!$user->rights->opensurvey->write) {
+		if (!$user->hasRight('opensurvey', 'write')) {
 			accessforbidden();
 		}
 
@@ -340,9 +374,9 @@ for ($i = 0; $i < $nbcolonnes; $i++) {
 		$j = 0;
 		$nouveauxsujets = '';
 
-		//parcours de tous les sujets actuels
+		// review of all current subjects
 		while (isset($toutsujet[$j])) {
-			//si le sujet n'est pas celui qui a été effacé alors on concatene
+			// If the subject is not the deleted subject, then concatenate the current subject
 			if ($i != $j) {
 				if (!empty($nouveauxsujets)) {
 					$nouveauxsujets .= ',';
@@ -353,7 +387,7 @@ for ($i = 0; $i < $nbcolonnes; $i++) {
 			$j++;
 		}
 
-		// Mise a jour des sujets dans la base
+		// Update subjects in database
 		$sql = 'UPDATE '.MAIN_DB_PREFIX."opensurvey_sondage";
 		$sql .= " SET sujet = '".$db->escape($nouveauxsujets)."' WHERE id_sondage = '".$db->escape($numsondage)."'";
 		$resql = $db->query($sql);
@@ -379,20 +413,19 @@ for ($i = 0; $i < $nbcolonnes; $i++) {
 			$newcar = '';
 			$ensemblereponses = $obj->reponses;
 
-			// parcours de toutes les réponses actuelles
+			// Review of all current answers
 			for ($j = 0; $j < $nbcolonnes; $j++) {
 				$car = substr($ensemblereponses, $j, 1);
-				//si les reponses ne concerne pas la colonne effacée, on concatene
+				// If the answers do not concern the erased column, we concatenate
 				if ($i != $j) {
 					$newcar .= $car;
 				}
 			}
 
-			// mise a jour des reponses utilisateurs dans la base
+			// Update user's answers in database
 			$sql2 = 'UPDATE '.MAIN_DB_PREFIX.'opensurvey_user_studs';
 			$sql2 .= " SET reponses = '".$db->escape($newcar)."'";
 			$sql2 .= " WHERE id_users = '".$db->escape($obj->id_users)."'";
-			//print $sql2;
 			dol_syslog('sql='.$sql2);
 			$resql2 = $db->query($sql2);
 
@@ -410,13 +443,14 @@ for ($i = 0; $i < $nbcolonnes; $i++) {
  */
 
 $form = new Form($db);
+$userstatic = null;
 
 if ($object->fk_user_creat) {
 	$userstatic = new User($db);
 	$userstatic->fetch($object->fk_user_creat);
 }
 
-$result = $object->fetch(0, $numsondage);
+$result = $object->fetch('', $numsondage);
 if ($result <= 0) {
 	dol_print_error($db, $object->error);
 	exit;
@@ -426,7 +460,8 @@ $title = $object->title." - ".$langs->trans('Card');
 $helpurl = '';
 $arrayofjs = array();
 $arrayofcss = array('/opensurvey/css/style.css');
-llxHeader('', $title, $helpurl, 0, 0, 0, $arrayofjs, $arrayofcss);
+
+llxHeader('', $title, $helpurl, '', 0, 0, $arrayofjs, $arrayofcss);
 
 
 // Define format of choices
@@ -434,7 +469,7 @@ $toutsujet = explode(",", $object->sujet);
 $listofanswers = array();
 foreach ($toutsujet as $value) {
 	$tmp = explode('@', $value);
-	$listofanswers[] = array('label'=>$tmp[0], 'format'=>($tmp[1] ? $tmp[1] : 'checkbox'));
+	$listofanswers[] = array('label' => $tmp[0], 'format' => (!empty($tmp[1]) ? $tmp[1] : 'checkbox'));
 }
 $toutsujet = str_replace("@", "<br>", $toutsujet);
 $toutsujet = str_replace("°", "'", $toutsujet);
@@ -442,10 +477,11 @@ $toutsujet = str_replace("°", "'", $toutsujet);
 
 print '<form name="formulaire4" action="#" method="POST">'."\n";
 print '<input type="hidden" name="token" value="'.newToken().'">';
+print '<input type="hidden" name="id" value="'.GETPOST('id').'">';
 
 $head = opensurvey_prepare_head($object);
 
-print dol_get_fiche_head($head, 'preview', $langs->trans("Survey"), -1, 'poll');
+print dol_get_fiche_head($head, 'preview', $langs->trans("Survey"), -1, $object->picto);
 
 $morehtmlref = '';
 
@@ -461,29 +497,29 @@ print '<div class="underbanner clearboth"></div>';
 print '<table class="border tableforfield centpercent">';
 
 // Type
-$type = ($object->format == "A") ? 'classic' : 'date';
+$type = ($object->format == "A") ? 'classic' : (($object->format == "F") ? 'form' : 'date');
 print '<tr><td class="titlefield">'.$langs->trans("Type").'</td><td>';
-print img_picto('', dol_buildpath('/opensurvey/img/'.($type == 'classic' ? 'chart-32.png' : 'calendar-32.png'), 1), 'width="16"', 1);
-print ' '.$langs->trans($type == 'classic' ? "TypeClassic" : "TypeDate").'</td></tr>';
+print img_picto('', dol_buildpath('/opensurvey/img/'.($type == 'date' ? 'calendar-32.png' : 'chart-32.png'), 1), 'width="16"', 1);
+print ' '.$langs->trans($type == 'classic' ? "TypeClassic" : ($type == 'form' ? "TypeForm" : "TypeDate")).'</td></tr>';
 
 // Title
 print '<tr><td>';
 $adresseadmin = $object->mail_admin;
 print $langs->trans("Title").'</td><td>';
 if ($action == 'edit') {
-	print '<input type="text" name="nouveautitre" size="40" value="'.dol_escape_htmltag(dol_htmlentities($object->title)).'">';
+	print '<input type="text" name="nouveautitre" size="40" value="'.dol_escape_htmltag($object->title).'">';
 } else {
 	print dol_htmlentities($object->title);
 }
 print '</td></tr>';
 
 // Description
-print '<tr><td class="tdtop">'.$langs->trans("Description").'</td><td>';
+print '<tr><td class="tdtop">'.$langs->trans("Description").'</td><td class="wordbreak">';
 if ($action == 'edit') {
-	$doleditor = new DolEditor('nouveauxcommentaires', $object->description, '', 120, 'dolibarr_notes', 'In', 1, 1, 1, ROWS_7, '90%');
+	$doleditor = new DolEditor('nouveauxcommentaires', $object->description, '', 120, 'dolibarr_notes', 'In', true, 1, 1, ROWS_7, '90%');
 	$doleditor->Create(0, '');
 } else {
-	print (dol_textishtml($object->description) ? $object->description : dol_nl2br($object->description, 1, true));
+	print(dol_textishtml($object->description) ? $object->description : dol_nl2br($object->description, 1, true));
 }
 print '</td></tr>';
 
@@ -492,7 +528,7 @@ print '</td></tr>';
 if (!$object->fk_user_creat) {
 	print '<tr><td>'.$langs->trans("EMail").'</td><td>';
 	if ($action == 'edit') {
-		print '<input type="text" name="nouvelleadresse" class="minwith200" value="'.$object->mail_admin.'">';
+		print '<input type="text" name="nouvelleadresse" class="minwidth200" value="'.$object->mail_admin.'">';
 	} else {
 		print dol_print_email($object->mail_admin, 0, 0, 1, 0, 1, 1);
 	}
@@ -507,11 +543,10 @@ print '<div class="underbanner clearboth"></div>';
 
 print '<table class="border tableforfield centpercent">';
 
-
 // Expire date
 print '<tr><td>'.$langs->trans('ExpireDate').'</td><td>';
 if ($action == 'edit') {
-	print $form->selectDate($expiredate ? $expiredate : $object->date_fin, 'expire', 0, 0, 0, '', 1, 0);
+	print $form->selectDate(!empty($expiredate) ? $expiredate : $object->date_fin, 'expire', 0, 0, 0, '', 1, 0);
 } else {
 	print dol_print_date($object->date_fin, 'day');
 	if ($object->date_fin && $object->date_fin < dol_now() && $object->status == Opensurveysondage::STATUS_VALIDATED) {
@@ -523,8 +558,8 @@ print '</td></tr>';
 // Author
 print '<tr><td>';
 print $langs->trans("Author").'</td><td>';
-if ($object->fk_user_creat) {
-	print $userstatic->getLoginUrl(1);
+if ($object->fk_user_creat && $userstatic !== null) {
+	print $userstatic->getLoginUrl(-1);
 } else {
 	print dol_htmlentities($object->nom_admin);
 }
@@ -539,7 +574,7 @@ $urlwithroot = $urlwithouturlroot.DOL_URL_ROOT; // This is to use external domai
 //$urlwithroot=DOL_MAIN_URL_ROOT;					// This is to use same domain name than current
 
 $url = $urlwithouturlroot.dol_buildpath('/public/opensurvey/studs.php', 1).'?sondage='.$object->id_sondage;
-$urllink = '<input type="text" class="quatrevingtpercent" '.($action == 'edit' ? 'disabled' : '').' id="opensurveyurl" name="opensurveyurl" value="'.$url.'">';
+$urllink = '<input type="text" class="quatrevingtpercent" '.($action == 'edit' ? 'disabled' : '').' id="opensurveyurl" name="opensurveyurl" value="'.$url.'" spellcheck="false">';
 print $urllink;
 if ($action != 'edit') {
 	print ajax_autoselect("opensurveyurl", $url, 'image');
@@ -566,17 +601,99 @@ print '<a class="butAction" href="exportcsv.php?id='.urlencode($numsondage).'">'
 
 print '</div>';
 
+// Results of a survey of format 'F' (form): the answers by question, then the answers of each respondent
+if ($object->format == 'F') {
+	$questionstatic = new Opensurveyquestion($db);
+	$formquestions = $questionstatic->fetchAllBySurvey($object->id_sondage);
+	$respondents = $questionstatic->fetchRespondents($object->id_sondage);
+	if (!is_array($formquestions) || !is_array($respondents)) {
+		dol_print_error($db, $questionstatic->error);
+		llxFooter();
+		$db->close();
+		exit;
+	}
+	$nbrespondents = count($respondents);
+
+	if ($action == 'ask_deleterespondent') {	// Test on permission not required, the delete is done after a confirmation that tests the permission
+		print $form->formconfirm($_SERVER["PHP_SELF"].'?id='.urlencode($numsondage).'&idrespondent='.GETPOSTINT('idrespondent'), $langs->trans("Delete"), $langs->trans("ConfirmDeleteRespondent"), 'confirm_deleterespondent', '', 0, 1);
+	}
+
+	print load_fiche_titre($langs->trans("OpenSurveyResultsByQuestion").' ('.$langs->trans("OpenSurveyNbRespondents", $nbrespondents).')', '', '');
+	foreach ($formquestions as $question) {
+		print '<div class="underbanner clearboth"></div>';
+		print '<strong>'.dol_escape_htmltag($question->question).'</strong><br>';
+		if (in_array($question->type, Opensurveyquestion::getTypesWithAnswers())) {
+			$result = $question->countAnswers($respondents);
+			print '<table class="noborder">';
+			foreach ($result['counts'] as $answer => $nb) {
+				$percent = ($result['answered'] > 0 ? round(100 * $nb / $result['answered']) : 0);
+				print '<tr class="oddeven"><td class="minwidth200">'.dol_escape_htmltag((string) $answer).'</td><td class="right">'.((int) $nb).'</td>';
+				print '<td class="right opacitymedium">'.((int) $percent).' %</td>';
+				print '<td><div style="background-color: #5a88c0; height: 10px; width: '.((int) $percent * 2).'px;"></div></td></tr>';
+			}
+			print '</table>';
+			print '<span class="opacitymedium">'.$langs->trans("OpenSurveyNbAnswers", $result['answered']).'</span>';
+		} else {
+			$nbanswers = 0;
+			print '<ul>';
+			foreach ($respondents as $respondent) {
+				if (isset($respondent['answers'][$question->id]) && $respondent['answers'][$question->id] !== '') {
+					$nbanswers++;
+					print '<li>'.dol_nl2br(dol_escape_htmltag($respondent['answers'][$question->id], 0, 1)).'</li>';
+				}
+			}
+			print '</ul>';
+			print '<span class="opacitymedium">'.$langs->trans("OpenSurveyNbAnswers", $nbanswers).'</span>';
+		}
+		print '<br><br>';
+	}
+
+	print load_fiche_titre($langs->trans("OpenSurveyAnswersOfRespondents"), '', '');
+	print '<div class="div-table-responsive">';
+	print '<table class="noborder centpercent">';
+	print '<tr class="liste_titre"><td>'.$langs->trans("Name").'</td><td>'.$langs->trans("Date").'</td>';
+	foreach ($formquestions as $question) {
+		print '<td>'.dol_escape_htmltag($question->question).'</td>';
+	}
+	print '<td></td></tr>';
+	foreach ($respondents as $respondent) {
+		print '<tr class="oddeven"><td>'.dol_escape_htmltag($respondent['name']).'</td>';
+		print '<td class="nowraponall">'.dol_print_date($respondent['date'], 'dayhour').'</td>';
+		foreach ($formquestions as $question) {
+			$value = isset($respondent['answers'][$question->id]) ? $respondent['answers'][$question->id] : '';
+			print '<td>'.dol_nl2br(dol_escape_htmltag($value, 0, 1)).'</td>';
+		}
+		print '<td class="right">';
+		if ($user->hasRight('opensurvey', 'write')) {
+			print '<a href="'.$_SERVER["PHP_SELF"].'?id='.urlencode($numsondage).'&action=ask_deleterespondent&idrespondent='.((int) $respondent['id']).'&token='.newToken().'">'.img_picto($langs->trans("Delete"), 'delete').'</a>';
+		}
+		print '</td></tr>';
+	}
+	if ($nbrespondents == 0) {
+		print '<tr><td colspan="'.(3 + count($formquestions)).'"><span class="opacitymedium">'.$langs->trans("OpenSurveyNoAnswer").'</span></td></tr>';
+	}
+	print '</table>';
+	print '</div>';
+
+	llxFooter();
+
+	$db->close();
+	exit;
+}
+
 
 // Show form to add a new field/column
 if (GETPOST('ajoutsujet')) {
 	// Security check
-	if (!$user->rights->opensurvey->write) {
+	if (!$user->hasRight('opensurvey', 'write')) {
 		accessforbidden();
 	}
 
-	print '<form name="formulaire" action="" method="POST">'."\n";
+	print '<form name="formulaire" action="'.$_SERVER["PHP_SELF"].'" method="POST">'."\n";
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="backtopage" value="'.GETPOST('backtopage', 'alpha').'">';
+	print '<input type="hidden" name="id" value="'.GETPOST('id', 'alpha').'">';
+	print '<input type="hidden" name="ajoutsujet" value="1">';
 
 	print '<div class="center">'."\n";
 	print "<br><br>\n";
@@ -585,23 +702,23 @@ if (GETPOST('ajoutsujet')) {
 	if ($object->format == "A") {
 		print $langs->trans("AddNewColumn").':<br><br>';
 		print $langs->trans("Title").' <input type="text" name="nouvellecolonne" size="40"><br>';
-		$tmparray = array('checkbox'=>$langs->trans("CheckBox"), 'yesno'=>$langs->trans("YesNoList"), 'foragainst'=>$langs->trans("PourContreList"));
+		$tmparray = array('checkbox' => $langs->trans("CheckBox"), 'yesno' => $langs->trans("YesNoList"), 'foragainst' => $langs->trans("PourContreList"));
 		print $langs->trans("Type").' '.$form->selectarray("typecolonne", $tmparray, GETPOST('typecolonne')).'<br><br>';
 		print '<input type="submit" class="button" name="ajoutercolonne" value="'.dol_escape_htmltag($langs->trans("Add")).'">';
 		print '<input type="hidden" name="id_sondage" value="'.dol_escape_htmltag($object->id_sondage).'">';
 		print ' &nbsp; &nbsp; ';
-		print '<input type="submit" class="button button-cancel" name="retoursondage" value="'.dol_escape_htmltag($langs->trans("Cancel")).'">';
+		print '<input type="submit" class="button button-cancel" name="cancel" value="'.dol_escape_htmltag($langs->trans("Cancel")).'">';
 		print '<br><br>'."\n";
 	} else {
 		require_once DOL_DOCUMENT_ROOT.'/core/class/html.formother.class.php';
 
 		$formother = new FormOther($db);
-		//ajout d'une date avec creneau horaire
+		// Adding a date with a time slot
 		print $langs->trans("AddADate").':<br><br>'."\n";
 		print '<select name="nouveaujour"> '."\n";
-		print '<OPTION VALUE="vide">&nbsp;</OPTION>'."\n";
+		print '<option value="vide">&nbsp;</option>'."\n";
 		for ($i = 1; $i < 32; $i++) {
-			print '<OPTION VALUE="'.$i.'">'.$i.'</OPTION>'."\n";
+			print '<option value="'.$i.'">'.$i.'</option>'."\n";
 		}
 		print '</select>'."\n";
 
@@ -613,37 +730,37 @@ if (GETPOST('ajoutsujet')) {
 
 		print '<br><br>'.$langs->trans("AddStartHour").': <br><br>'."\n";
 		print '<select name="nouvelleheuredebut"> '."\n";
-		print '<OPTION VALUE="vide">&nbsp;</OPTION>'."\n";
+		print '<option value="vide">&nbsp;</option>'."\n";
 		for ($i = 0; $i < 24; $i++) {
-			print '<OPTION VALUE="'.$i.'">'.$i.' H</OPTION>'."\n";
+			print '<option value="'.$i.'">'.$i.' H</option>'."\n";
 		}
 		print '</select>'."\n";
 		print '<select name="nouvelleminutedebut"> '."\n";
-		print '<OPTION VALUE="vide">&nbsp;</OPTION>'."\n";
-		print '<OPTION VALUE="00">00</OPTION>'."\n";
-		print '<OPTION VALUE="15">15</OPTION>'."\n";
-		print '<OPTION VALUE="30">30</OPTION>'."\n";
-		print '<OPTION VALUE="45">45</OPTION>'."\n";
+		print '<option value="vide">&nbsp;</option>'."\n";
+		print '<option value="00">00</option>'."\n";
+		print '<option value="15">15</option>'."\n";
+		print '<option value="30">30</option>'."\n";
+		print '<option value="45">45</option>'."\n";
 		print '</select>'."\n";
 		print '<br><br>'.$langs->trans("AddEndHour").': <br><br>'."\n";
 		print '<select name="nouvelleheurefin"> '."\n";
-		print '<OPTION VALUE="vide">&nbsp;</OPTION>'."\n";
+		print '<option value="vide">&nbsp;</option>'."\n";
 		for ($i = 0; $i < 24; $i++) {
-			print '<OPTION VALUE="'.$i.'">'.$i.' H</OPTION>'."\n";
+			print '<option value="'.$i.'">'.$i.' H</option>'."\n";
 		}
 		print '</SELECT>'."\n";
 		print '<select name="nouvelleminutefin"> '."\n";
-		print '<OPTION VALUE="vide">&nbsp;</OPTION>'."\n";
-		print '<OPTION VALUE="00">00</OPTION>'."\n";
-		print '<OPTION VALUE="15">15</OPTION>'."\n";
-		print '<OPTION VALUE="30">30</OPTION>'."\n";
-		print '<OPTION VALUE="45">45</OPTION>'."\n";
+		print '<option value="vide">&nbsp;</option>'."\n";
+		print '<option value="00">00</option>'."\n";
+		print '<option value="15">15</option>'."\n";
+		print '<option value="30">30</option>'."\n";
+		print '<option value="45">45</option>'."\n";
 		print '</select>'."\n";
 
 		print '<br><br>';
 		print' <input type="submit" class="button" name="ajoutercolonne" value="'.dol_escape_htmltag($langs->trans("Add")).'">'."\n";
 		print '&nbsp; &nbsp;';
-		print '<input type="submit" class="button button-cancel" name="retoursondage" value="'.$langs->trans("Cancel").'">';
+		print '<input type="submit" class="button button-cancel" name="cancel" value="'.$langs->trans("Cancel").'">';
 	}
 
 	print '</form>'."\n";
@@ -653,7 +770,7 @@ if (GETPOST('ajoutsujet')) {
 	exit;
 }
 
-if ($user->rights->opensurvey->write) {
+if ($user->hasRight('opensurvey', 'write')) {
 	print '<span class="opacitymedium">';
 	$s = $langs->trans("PollAdminDesc", '{s1}', $langs->trans("Add"));
 	print str_replace('{s1}', img_picto('', 'delete'), $s);
@@ -669,9 +786,9 @@ print '<input type="hidden" name="page_y" value="">';
 print '<div class="cadre div-table-responsive-no-min"> '."\n";
 
 // Start to show survey result
-print '<table class="resultats">'."\n";
+print '<table class="resultats margintoponly">'."\n";
 
-//reformatage des données des sujets du sondage
+// Reformatting the survey subject data
 $toutsujet = explode(",", $object->sujet);
 $toutsujet = str_replace("°", "'", $toutsujet);
 
@@ -680,9 +797,9 @@ print '<td></td>'."\n";
 print '<td></td>'."\n";
 
 // loop to show the delete link
-if ($user->rights->opensurvey->write) {
+if ($user->hasRight('opensurvey', 'write')) {
 	for ($i = 0; isset($toutsujet[$i]); $i++) {
-		print '<td class=somme><input type="image" name="effacecolonne'.$i.'" src="'.img_picto('', 'delete.png', '', false, 1).'"></td>'."\n";
+		print '<td class=somme><input type="image" class="buttonwebsite" name="effacecolonne'.$i.'" src="'.img_picto('', 'delete', '', 0, 1).'"></td>'."\n";
 	}
 }
 
@@ -691,48 +808,24 @@ print '</tr>'."\n";
 
 // Show choice titles
 if ($object->format == "D") {
-	//affichage des sujets du sondage
+	// Displaying the survey subjects
 	print '<tr>'."\n";
 	print '<td></td>'."\n";
 	print '<td></td>'."\n";
 
-	//affichage des années
+	// Displaying the years
 	$colspan = 1;
 	$nbofsujet = count($toutsujet);
 	for ($i = 0; $i < $nbofsujet; $i++) {
-		$current = $toutsujet[$i];
-
-		if (strpos($toutsujet[$i], '@') !== false) {
-			$current = substr($toutsujet[$i], 0, strpos($toutsujet[$i], '@'));
-		}
-
-		if (isset($toutsujet[$i + 1]) && strpos($toutsujet[$i + 1], '@') !== false) {
-			$next = substr($toutsujet[$i + 1], 0, strpos($toutsujet[$i + 1], '@'));
-		} elseif (isset($toutsujet[$i + 1])) {
-			$next = $toutsujet[$i + 1];
-		}
-
-		$currenty = 0;
-		if ($current) {
-			$currenty = strftime("%Y", $current);
-		}
-		$next = 0;
-		if ($next) {
-			$nexty = strftime("%Y", $next);
-		}
-		if (isset($toutsujet[$i + 1]) && ($currenty == $nexty)) {
+		if (isset($toutsujet[$i + 1]) && date('Y', intval($toutsujet[$i])) == date('Y', intval($toutsujet[$i + 1]))) {
 			$colspan++;
 		} else {
-			print '<td colspan='.$colspan.' class="annee">';
-			if ($current) {
-				print strftime("%Y", $current);
-			}
-			print '</td>'."\n";
+			print '<td colspan='.$colspan.' class="annee">'.date('Y', intval($toutsujet[$i])).'</td>'."\n";
 			$colspan = 1;
 		}
 	}
 
-	if ($user->rights->opensurvey->write) {
+	if ($user->hasRight('opensurvey', 'write')) {
 		print '<td class="annee">';
 		print '<a href="'.$_SERVER["PHP_SELF"].'?ajoutsujet=1&id='.$object->id_sondage.'">'.$langs->trans("Add").'</a></td>'."\n";
 	}
@@ -742,12 +835,12 @@ if ($object->format == "D") {
 	print '<td></td>'."\n";
 	print '<td></td>'."\n";
 
-	//affichage des mois
+	// Displaying the months
 	$colspan = 1;
 	for ($i = 0; $i < $nbofsujet; $i++) {
-		$cur = intval($toutsujet[$i]); // intval() est utiliser pour supprimer le suffixe @* qui déplaît logiquement à strftime()
+		$cur = intval($toutsujet[$i]); // intval() is used to strip the @* suffix which naturally confuses strftime()
 
-		if (isset($toutsujet[$i + 1]) === false) {
+		if (!isset($toutsujet[$i + 1])) {
 			$next = false;
 		} else {
 			$next = intval($toutsujet[$i + 1]);
@@ -762,7 +855,7 @@ if ($object->format == "D") {
 		}
 	}
 
-	if ($user->rights->opensurvey->write) {
+	if ($user->hasRight('opensurvey', 'write')) {
 		print '<td class="mois"><a href="'.$_SERVER["PHP_SELF"].'?ajoutsujet=1&id='.$object->id_sondage.'">'.$langs->trans("Add").'</a></td>'."\n";
 	}
 
@@ -771,30 +864,30 @@ if ($object->format == "D") {
 	print '<td></td>'."\n";
 	print '<td></td>'."\n";
 
-	//affichage des jours
+	// Displaying the days
 	$colspan = 1;
 	for ($i = 0; $i < $nbofsujet; $i++) {
 		$cur = intval($toutsujet[$i]);
-		if (isset($toutsujet[$i + 1]) === false) {
+		if (!isset($toutsujet[$i + 1])) {
 			$next = false;
 		} else {
 			$next = intval($toutsujet[$i + 1]);
 		}
-		if ($next && dol_print_date($cur, "%a %e") == dol_print_date($next, "%a %e") && dol_print_date($cur, "%B") == dol_print_date($next, "%B")) {
+		if ($next && dol_print_date($cur, "%a %d") == dol_print_date($next, "%a %d") && dol_print_date($cur, "%B") == dol_print_date($next, "%B")) {
 			$colspan++;
 		} else {
-			print '<td colspan='.$colspan.' class="jour">'.dol_print_date($cur, "%a %e").'</td>'."\n";
+			print '<td colspan='.$colspan.' class="jour">'.dol_print_date($cur, "%a %d").'</td>'."\n";
 
 			$colspan = 1;
 		}
 	}
 
-	if ($user->rights->opensurvey->write) {
+	if ($user->hasRight('opensurvey', 'write')) {
 		print '<td class="jour"><a href="'.$_SERVER["PHP_SELF"].'?ajoutsujet=1&id='.$object->id_sondage.'">'.$langs->trans("Add").'</a></td>'."\n";
 	}
 	print '</tr>'."\n";
 
-	//affichage des horaires
+	// Displaying time slots
 	if (strpos($object->sujet, '@') !== false) {
 		print '<tr>'."\n";
 		print '<td></td>'."\n";
@@ -809,7 +902,7 @@ if ($object->format == "D") {
 			}
 		}
 
-		if ($user->rights->opensurvey->write) {
+		if ($user->hasRight('opensurvey', 'write')) {
 			print '<td class="heure"><a href="'.$_SERVER["PHP_SELF"].'?ajoutsujet=1&id='.$object->id_sondage.'">'.$langs->trans("Add").'</a></td>'."\n";
 		}
 
@@ -835,7 +928,7 @@ if ($object->format == "D") {
 $sumfor = array();
 $sumagainst = array();
 $compteur = 0;
-$sql = "SELECT id_users, nom as name, id_sondage, reponses";
+$sql = "SELECT id_users, nom as name, id_sondage, reponses, tms, date_creation";
 $sql .= " FROM ".MAIN_DB_PREFIX."opensurvey_user_studs";
 $sql .= " WHERE id_sondage = '".$db->escape($numsondage)."'";
 dol_syslog('sql='.$sql);
@@ -852,14 +945,17 @@ while ($compteur < $num) {
 
 	print '<tr><td>'."\n";
 
-	if ($user->rights->opensurvey->write) {
-		print '<input type="image" class="reposition" name="effaceligne'.$compteur.'" src="'.img_picto('', 'delete.png', '', false, 1).'">'."\n";
+	if ($user->hasRight('opensurvey', 'write')) {
+		print '<input type="image" class="reposition" name="effaceligne'.$compteur.'" src="'.img_picto('', 'delete', '', 0, 1).'">'."\n";
 	}
 
 	// Name
-	print '</td><td class="nom">'.dol_htmlentities($obj->name).'</td>'."\n";
+	$tooltip = $obj->name.'<br>'.$langs->trans("DateCreation").': '.dol_print_date($obj->date_creation, 'dayhour');
+	print '</td><td class="nom classfortooltip" title="'.dolPrintHTMLForAttribute($tooltip).'">';
+	print dolPrintHTML($obj->name);
+	print '</td>'."\n";
 
-	// si la ligne n'est pas a changer, on affiche les données
+	// If the line is not to be changed, we display the data
 	if (!$testligneamodifier) {
 		for ($i = 0; $i < $nbcolonnes; $i++) {
 			$car = substr($ensemblereponses, $i, 1);
@@ -925,7 +1021,7 @@ while ($compteur < $num) {
 			}
 		}
 	} else {
-		//sinon on remplace les choix de l'utilisateur par une ligne de checkbox pour recuperer de nouvelles valeurs
+		// Else, replace the user's choices with a line of checkboxes to retrieve new values
 		if ($compteur == $ligneamodifier) {
 			for ($i = 0; $i < $nbcolonnes; $i++) {
 				$car = substr($ensemblereponses, $i, 1);
@@ -938,11 +1034,11 @@ while ($compteur < $num) {
 					print '>';
 				}
 				if (!empty($listofanswers[$i]['format']) && $listofanswers[$i]['format'] == 'yesno') {
-					$arraychoice = array('2'=>'&nbsp;', '0'=>$langs->trans("No"), '1'=>$langs->trans("Yes"));
+					$arraychoice = array('2' => '&nbsp;', '0' => $langs->trans("No"), '1' => $langs->trans("Yes"));
 					print $form->selectarray("choix".$i, $arraychoice, $car);
 				}
 				if (!empty($listofanswers[$i]['format']) && $listofanswers[$i]['format'] == 'foragainst') {
-					$arraychoice = array('2'=>'&nbsp;', '0'=>$langs->trans("Against"), '1'=>$langs->trans("For"));
+					$arraychoice = array('2' => '&nbsp;', '0' => $langs->trans("Against"), '1' => $langs->trans("For"));
 					print $form->selectarray("choix".$i, $arraychoice, $car);
 				}
 				print '</td>'."\n";
@@ -1013,11 +1109,11 @@ while ($compteur < $num) {
 	}
 
 	// Button edit at end of line
-	if ($compteur != $ligneamodifier && ($user->rights->opensurvey->write)) {
+	if ($compteur != $ligneamodifier && ($user->hasRight('opensurvey', 'write'))) {
 		print '<td class="casevide"><input type="submit" class="button reposition" name="modifierligne'.$compteur.'" value="'.dol_escape_htmltag($langs->trans("Edit")).'"></td>'."\n";
 	}
 
-	//demande de confirmation pour modification de ligne
+	// Ask confirmation to modify the line
 	for ($i = 0; $i < $nblines; $i++) {
 		if (GETPOSTISSET("modifierligne".$i)) {
 			if ($compteur == $i) {
@@ -1051,23 +1147,24 @@ if (empty($testligneamodifier)) {
 			print '>';
 		}
 		if (!empty($listofanswers[$i]['format']) && $listofanswers[$i]['format'] == 'yesno') {
-			$arraychoice = array('2'=>'&nbsp;', '0'=>$langs->trans("No"), '1'=>$langs->trans("Yes"));
+			$arraychoice = array('2' => '&nbsp;', '0' => $langs->trans("No"), '1' => $langs->trans("Yes"));
 			print $form->selectarray("choix".$i, $arraychoice);
 		}
 		if (!empty($listofanswers[$i]['format']) && $listofanswers[$i]['format'] == 'foragainst') {
-			$arraychoice = array('2'=>'&nbsp;', '0'=>$langs->trans("Against"), '1'=>$langs->trans("For"));
+			$arraychoice = array('2' => '&nbsp;', '0' => $langs->trans("Against"), '1' => $langs->trans("For"));
 			print $form->selectarray("choix".$i, $arraychoice);
 		}
 		print '</td>'."\n";
 	}
 
-	// Affichage du bouton de formulaire pour inscrire un nouvel utilisateur dans la base
-	print '<td><input type="image" name="boutonp" class="borderimp" value="'.$langs->trans("Vote").'" src="'.img_picto('', 'edit_add', '', false, 1).'"></td>'."\n";
+	// Display of the form button to register a new user in the database
+	print '<td><input type="image" name="boutonp" class="borderimp classfortooltip" title="'.dolPrintHTML($langs->trans("AddTheVote")).'" value="'.$langs->trans("Vote").'" src="'.img_picto('', 'edit_add', '', 0, 1).'"></td>'."\n";
 	print '</tr>'."\n";
 }
 
 // Select value of best choice (for checkbox columns only)
 $nbofcheckbox = 0;
+$meilleurecolonne = null;
 for ($i = 0; $i < $nbcolonnes + 1; $i++) {
 	if (empty($listofanswers[$i]['format']) || !in_array($listofanswers[$i]['format'], array('yesno', 'foragainst'))) {
 		$nbofcheckbox++;
@@ -1075,8 +1172,7 @@ for ($i = 0; $i < $nbcolonnes + 1; $i++) {
 	if (isset($sumfor[$i])) {
 		if ($i == 0) {
 			$meilleurecolonne = $sumfor[$i];
-		}
-		if (isset($sumfor[$i]) && $sumfor[$i] > $meilleurecolonne) {
+		} elseif ($sumfor[$i] > $meilleurecolonne) {
 			$meilleurecolonne = $sumfor[$i];
 		}
 	}
@@ -1125,7 +1221,7 @@ if ($nbofcheckbox >= 2) {
 	print '</tr>'."\n";
 }
 
-// S'il a oublié de remplir un nom
+// If they forgot to fill in a name
 if (GETPOSTISSET("boutonp") && GETPOST("nom") == "") {
 	setEventMessages($langs->trans("ErrorFieldRequired", $langs->transnoentitiesnoconv("Name")), null, 'errors');
 }
@@ -1138,7 +1234,7 @@ if (isset($erreur_ajout_date) && $erreur_ajout_date) {
 	setEventMessages($langs->trans("ErrorWrongDate"), null, 'errors');
 }
 
-//fin du tableau
+// End of table
 print '</table>'."\n";
 print '</div>'."\n";
 
@@ -1148,11 +1244,10 @@ $toutsujet = explode(",", $object->sujet); // With old versions, this field was 
 $compteursujet = 0;
 $meilleursujet = '';
 for ($i = 0; $i < $nbcolonnes; $i++) {
-	if (isset($sumfor[$i]) === true && isset($meilleurecolonne) === true && $sumfor[$i] == $meilleurecolonne) {
+	if (isset($sumfor[$i]) && isset($meilleurecolonne) && ($sumfor[$i] == $meilleurecolonne)) {
 		$meilleursujet .= ($meilleursujet ? ", " : "");
 
 		if ($object->format == "D") {
-			$meilleursujetexport = $toutsujet[$i];
 			//var_dump($toutsujet);
 			if (strpos($toutsujet[$i], '@') !== false) {
 				$toutsujetdate = explode("@", $toutsujet[$i]);
@@ -1168,7 +1263,7 @@ for ($i = 0; $i < $nbcolonnes; $i++) {
 		$compteursujet++;
 	}
 }
-$meilleursujet = substr($meilleursujet, 1);
+//$meilleursujet = substr($meilleursujet, 1);
 $meilleursujet = str_replace("°", "'", $meilleursujet);
 
 // Show best choice
@@ -1177,9 +1272,9 @@ if ($nbofcheckbox >= 2) {
 	print '<p class="affichageresultats">'."\n";
 
 	if (isset($meilleurecolonne) && $compteursujet == "1") {
-		print "<img src=\"".DOL_URL_ROOT.'/opensurvey/img/medaille.png'."\"> ".$langs->trans('TheBestChoice').": <b>".$meilleursujet." </b>".$langs->trans("with")." <b>".$meilleurecolonne."</b> ".$vote_str.".\n";
+		print '<img src="'.DOL_URL_ROOT.'/opensurvey/img/medaille.png"> '.$langs->trans('TheBestChoice').": <b>".$meilleursujet."</b> - <b>".$meilleurecolonne."</b> ".$vote_str.".\n";
 	} elseif (isset($meilleurecolonne)) {
-		print "<img src=\"".DOL_URL_ROOT.'/opensurvey/img/medaille.png'."\"> ".$langs->trans('TheBestChoices').": <b>".$meilleursujet." </b>".$langs->trans("with")." <b>".$meilleurecolonne."</b> ".$vote_str.".\n";
+		print '<img src="'.DOL_URL_ROOT.'/opensurvey/img/medaille.png"> '.$langs->trans('TheBestChoices').": <b>".$meilleursujet."</b> - <b>".$meilleurecolonne."</b> ".$vote_str.".\n";
 	}
 	print '<br></p><br>'."\n";
 }

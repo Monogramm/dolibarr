@@ -1,6 +1,7 @@
 <?php
 /* Copyright (C) 2010-2012	Regis Houssin		<regis.houssin@inodbox.com>
  * Copyright (C) 2011		Laurent Destailleur	<eldy@users.sourceforge.net>
+ * Copyright (C) 2025		MDW					<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,20 +20,20 @@
 /**
  *	\file       htdocs/contact/canvas/default/actions_contactcard_default.class.php
  *	\ingroup    thirdparty
- *	\brief      Fichier de la classe Thirdparty contact card controller (default canvas)
+ *	\brief      File for the class Thirdparty contact card controller (default canvas)
  */
 include_once DOL_DOCUMENT_ROOT.'/contact/canvas/actions_contactcard_common.class.php';
 
 /**
  *	\class      ActionsContactCardDefault
- *	\brief      Classe permettant la gestion des contacts par defaut
+ *	\brief      Default Class to manage contacts
  */
 class ActionsContactCardDefault extends ActionsContactCardCommon
 {
 	/**
 	 *  Constructor
 	 *
-	 *	@param	DoliDB	$db				Handler acces base de donnees
+	 *	@param	DoliDB	$db				Handler access base de donnees
 	 *	@param	string	$dirmodule		Name of directory of module
 	 *	@param	string	$targetmodule	Name of directory of module where canvas is stored
 	 *	@param	string	$canvas			Name of canvas
@@ -60,13 +61,13 @@ class ActionsContactCardDefault extends ActionsContactCardCommon
 		$out = '';
 
 		if ($action == 'view') {
-			$out .= (!empty($conf->global->SOCIETE_ADDRESSES_MANAGEMENT) ? $langs->trans("Contact") : $langs->trans("ContactAddress"));
+			$out .= (getDolGlobalString('SOCIETE_ADDRESSES_MANAGEMENT') ? $langs->trans("Contact") : $langs->trans("ContactAddress"));
 		}
 		if ($action == 'edit') {
-			$out .= (!empty($conf->global->SOCIETE_ADDRESSES_MANAGEMENT) ? $langs->trans("EditContact") : $langs->trans("EditContactAddress"));
+			$out .= (getDolGlobalString('SOCIETE_ADDRESSES_MANAGEMENT') ? $langs->trans("EditContact") : $langs->trans("EditContactAddress"));
 		}
 		if ($action == 'create') {
-			$out .= (!empty($conf->global->SOCIETE_ADDRESSES_MANAGEMENT) ? $langs->trans("NewContact") : $langs->trans("NewContactAddress"));
+			$out .= (getDolGlobalString('SOCIETE_ADDRESSES_MANAGEMENT') ? $langs->trans("NewContact") : $langs->trans("NewContactAddress"));
 		}
 
 		return $out;
@@ -77,19 +78,19 @@ class ActionsContactCardDefault extends ActionsContactCardCommon
 	 *  Assign custom values for canvas
 	 *
 	 *  @param	string		$action    	Type of action
-	 *  @param	int			$id				Id
+	 *  @param	int			$id			Id
+	 * 	@param	string		$ref		Object ref (if id not provided) / Unused here
 	 *  @return	void
 	 */
-	public function assign_values(&$action, $id)
+	public function assign_values(&$action, $id, $ref = '')
 	{
 		// phpcs:enable
-		global $limit, $offset, $sortfield, $sortorder;
 		global $conf, $db, $langs, $user;
 		global $form;
 
 		$ret = $this->getObject($id);
 
-		parent::assign_values($action, $id);
+		parent::assign_values($action, $id, $ref);
 
 		$this->tpl['title'] = $this->getTitle($action);
 		$this->tpl['error'] = $this->error;
@@ -111,34 +112,9 @@ class ActionsContactCardDefault extends ActionsContactCardCommon
 			$this->tpl['actionsdone'] = show_actions_done($conf, $langs, $db, $objsoc, $this->object, 1);
 		} else {
 			// Confirm delete contact
-			if ($action == 'delete' && $user->rights->societe->contact->supprimer) {
+			if ($action == 'delete' && $user->hasRight('societe', 'contact', 'supprimer')) {
 				$this->tpl['action_delete'] = $form->formconfirm($_SERVER["PHP_SELF"]."?id=".$this->object->id, $langs->trans("DeleteContact"), $langs->trans("ConfirmDeleteContact"), "confirm_delete", '', 0, 1);
 			}
 		}
-
-		if ($action == 'list') {
-			$this->LoadListDatas($limit, $offset, $sortfield, $sortorder);
-		}
-	}
-
-
-	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
-	/**
-	 * 	Fetch datas list and save into ->list_datas
-	 *
-	 *  @param	int		$limit		Limit number of responses
-	 *  @param	int		$offset		Offset for first response
-	 *  @param	string	$sortfield	Sort field
-	 *  @param	string	$sortorder	Sort order ('ASC' or 'DESC')
-	 *  @return	void
-	 */
-	public function LoadListDatas($limit, $offset, $sortfield, $sortorder)
-	{
-		// phpcs:enable
-		global $conf, $langs;
-
-		//$this->getFieldList();
-
-		$this->list_datas = array();
 	}
 }

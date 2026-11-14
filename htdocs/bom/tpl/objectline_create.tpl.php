@@ -1,13 +1,16 @@
 <?php
-/* Copyright (C) 2010-2012	Regis Houssin		<regis.houssin@inodbox.com>
- * Copyright (C) 2010-2014	Laurent Destailleur	<eldy@users.sourceforge.net>
- * Copyright (C) 2012-2013	Christophe Battarel	<christophe.battarel@altairis.fr>
- * Copyright (C) 2012       Cédric Salvador     <csalvador@gpcsolutions.fr>
- * Copyright (C) 2014		Florian Henry		<florian.henry@open-concept.pro>
- * Copyright (C) 2014       Raphaël Doursenaud  <rdoursenaud@gpcsolutions.fr>
- * Copyright (C) 2015-2016	Marcos García		<marcosgdf@gmail.com>
- * Copyright (C) 2018-2019  Frédéric France         <frederic.france@netlogic.fr>
- * Copyright (C) 2018		Ferran Marcet		<fmarcet@2byte.es>
+/* Copyright (C) 2010-2012	Regis Houssin			<regis.houssin@inodbox.com>
+ * Copyright (C) 2010-2014	Laurent Destailleur		<eldy@users.sourceforge.net>
+ * Copyright (C) 2012-2013	Christophe Battarel		<christophe.battarel@altairis.fr>
+ * Copyright (C) 2012       Cédric Salvador     	<csalvador@gpcsolutions.fr>
+ * Copyright (C) 2014		Florian Henry			<florian.henry@open-concept.pro>
+ * Copyright (C) 2014       Raphaël Doursenaud  	<rdoursenaud@gpcsolutions.fr>
+ * Copyright (C) 2015-2016	Marcos García			<marcosgdf@gmail.com>
+ * Copyright (C) 2018-2025  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2018		Ferran Marcet			<fmarcet@2byte.es>
+ * Copyright (C) 2024		Vincent Maury			<vmaury@timgroup.fr>
+ * Copyright (C) 2024-2025	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2026		José MARTINEZ			<jose.martinez@pichinov.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,13 +24,26 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- *
- * Need to have following variables defined:
- * $object (invoice, order, ...)
- * $conf
- * $langs
- * $forceall (0 by default, 1 for supplier invoices/orders)
  */
+
+require_once DOL_DOCUMENT_ROOT."/product/class/html.formproduct.class.php";
+
+/**
+ * @var CommonObject $this
+ * @var CommonObject $object	Invoice, order, ...
+ * @var ExtraFields $extrafields
+ * @var Form $form
+ * @var Societe $buyer
+ * @var Translate $langs
+ *
+ * @var string $action
+ * @var int	$forceall (0 by default, 1 for supplier invoices/orders)
+ */
+'
+@phan-var-force CommonObject $this
+@phan-var-force CommonObject $object
+@phan-var-force Societe $buyer
+';
 
 // Protection to avoid direct call of template
 if (empty($object) || !is_object($object)) {
@@ -35,13 +51,20 @@ if (empty($object) || !is_object($object)) {
 	exit;
 }
 
-
-global $forceall, $forcetoshowtitlelines;
+global $forceall, $forcetoshowtitlelines, $filtertype;
 
 if (empty($forceall)) {
 	$forceall = 0;
 }
 
+if (empty($filtertype)) {
+	$filtertype = 0;
+}
+if (!empty($object->element) && $object->element == 'contrat' && !getDolGlobalString('STOCK_SUPPORT_SERVICES')) {
+	$filtertype = -1;
+}
+
+$formproduct = new FormProduct($object->db);
 
 // Define colspan for the button 'Add'
 $colspan = 3; // Columns: total ht + col edit + col delete
@@ -50,67 +73,104 @@ $colspan = 3; // Columns: total ht + col edit + col delete
 // Lines for extrafield
 $objectline = new BOMLine($this->db);
 
-print "<!-- BEGIN PHP TEMPLATE objectline_create.tpl.php -->\n";
+print "<!-- BEGIN PHP TEMPLATE bom/tpl/objectline_create.tpl.php -->\n";
 
 $nolinesbefore = (count($this->lines) == 0 || $forcetoshowtitlelines);
+
 if ($nolinesbefore) {
 	print '<tr class="liste_titre nodrag nodrop">';
-	if (!empty($conf->global->MAIN_VIEW_LINE_NUMBER)) {
+	if (getDolGlobalString('MAIN_VIEW_LINE_NUMBER')) {
 		print '<td class="linecolnum center"></td>';
 	}
 	print '<td class="linecoldescription minwidth500imp">';
 	print '<div id="add"></div><span class="hideonsmartphone">'.$langs->trans('AddNewLine').'</span>';
 	print '</td>';
 	print '<td class="linecolqty right">'.$langs->trans('Qty').'</td>';
-	if (!empty($conf->global->PRODUCT_USE_UNITS)) {
-		print '<td class="linecoluseunit left">';
-		print '<span id="title_units">';
-		print $langs->trans('Unit');
-		print '</span></td>';
+
+	if ($filtertype != 1) { // Product
+		if (getDolGlobalInt('PRODUCT_USE_UNITS')) {
+			print '<td class="linecoluseunit left">';
+			print '<span id="title_units">';
+			print $langs->trans('Unit');
+			print '</span></td>';
+		}
+	} else { // Service
+		print '<td class="linecolunit left">' . $form->textwithpicto($langs->trans('Unit'), '').'</td>';
 	}
-	print '<td class="linecolqtyfrozen right">'.$form->textwithpicto($langs->trans('QtyFrozen'), $langs->trans("QuantityConsumedInvariable")).'</td>';
-	print '<td class="linecoldisablestockchange right">'.$form->textwithpicto($langs->trans('DisableStockChange'), $langs->trans('DisableStockChangeHelp')).'</td>';
-	print '<td class="linecollost right">'.$form->textwithpicto($langs->trans('ManufacturingEfficiency'), $langs->trans('ValueOfMeansLoss')).'</td>';
-	print '<td class="linecoledit" colspan="'.$colspan.'">&nbsp;</td>';
+	if ($filtertype != 1 || getDolGlobalString('STOCK_SUPPORTS_SERVICES')) { // Product or stock support for Services is active
+		// Qty frozen
+		print '<td class="linecolqtyfrozen right">' . $form->textwithpicto($langs->trans('QtyFrozen'), $langs->trans("QuantityConsumedInvariable")) . '</td>';
+
+		// Disable stock change
+		print '<td class="linecoldisablestockchange right">' . $form->textwithpicto($langs->trans('DisableStockChange'), $langs->trans('DisableStockChangeHelp')) . '</td>';
+
+		// Efficiency
+		print '<td class="linecollost right">' . $form->textwithpicto($langs->trans('ManufacturingEfficiency'), $langs->trans('ValueOfMeansLoss')) . '</td>';
+	}
+
+	// Service and workstations are active
+	if ($filtertype == 1 && isModEnabled('workstation')) {
+		print '<td class="linecolworkstation">' .  $form->textwithpicto($langs->trans('Workstation'), '') . '</td>';
+	}
+	// Cost
+	print '<td class="linecoltotalcost right">' .  $form->textwithpicto($langs->trans('TotalCost'), '') . '</td>';
+
+	print '<td class="linecoledit" colspan="' . $colspan . '">&nbsp;</td>';
 	print '</tr>';
 }
+
 print '<tr class="pair nodrag nodrop nohoverpair'.(($nolinesbefore || $object->element == 'contrat') ? '' : ' liste_titre_create').'">';
 $coldisplay = 0;
 
 // Adds a line numbering column
-if (!empty($conf->global->MAIN_VIEW_LINE_NUMBER)) {
+if (getDolGlobalString('MAIN_VIEW_LINE_NUMBER')) {
 	$coldisplay++;
 	echo '<td class="bordertop nobottom linecolnum center"></td>';
 }
 
 $coldisplay++;
-print '<td class="bordertop nobottom linecoldescription minwidth500imp">';
+print '<td class="bordertop nobottom linecoldescription bomline minwidth500imp">';
 
 // Predefined product/service
-if (!empty($conf->product->enabled) || !empty($conf->service->enabled)) {
-	if (!empty($conf->global->BOM_SUB_BOM)) {
+if (isModEnabled("product") || isModEnabled("service")) {
+	if ($filtertype == 1) {
+		print $langs->trans("Service");
+	} else {
 		print $langs->trans("Product");
 	}
-	echo '<span class="prod_entry_mode_predef">';
-	$filtertype = 0;
-	if (!empty($object->element) && $object->element == 'contrat' && empty($conf->global->STOCK_SUPPORT_SERVICES)) {
-		$filtertype = -1;
-	}
-	$statustoshow = -1;
-	if (!empty($conf->global->ENTREPOT_EXTRA_STATUS)) {
+
+	echo '<span class="prod_entry_mode_predef nowraponall">';
+
+	// By default, show all products whatever their "on sale" status, because a BOM may legitimately use raw
+	// materials that are only bought and never sold. Set BOM_STATUS_OF_PRODUCT_TO_SHOW to 1 to list only the
+	// products on sale (like the sale documents do), or to 0 to list only the products not on sale.
+	$statustoshow = getDolGlobalInt('BOM_STATUS_OF_PRODUCT_TO_SHOW', -1);
+	if (getDolGlobalString('ENTREPOT_EXTRA_STATUS')) {
 		// hide products in closed warehouse, but show products for internal transfer
-		$form->select_produits(GETPOST('idprod', 'int'), 'idprod', $filtertype, $conf->product->limit_size, $buyer->price_level, $statustoshow, 2, '', 1, array(), $buyer->id, '1', 0, 'maxwidth500', 0, 'warehouseopen,warehouseinternal', GETPOST('combinations', 'array'));
+		print $form->select_produits(GETPOSTINT('idprod'), (($filtertype == 1) ? 'idprodservice' : 'idprod'), $filtertype, getDolGlobalInt('PRODUIT_LIMIT_SIZE'), 0, $statustoshow, 2, '', 1, array(), 0, '1', 0, 'maxwidth500 widthcentpercentminusx', 0, 'warehouseopen,warehouseinternal', GETPOST('combinations', 'array:alphanohtml'), 1);
 	} else {
-		$form->select_produits(GETPOST('idprod', 'int'), 'idprod', $filtertype, $conf->product->limit_size, $buyer->price_level, $statustoshow, 2, '', 1, array(), $buyer->id, '1', 0, 'maxwidth500', 0, '', GETPOST('combinations', 'array'));
+		print $form->select_produits(GETPOSTINT('idprod'), (($filtertype == 1) ? 'idprodservice' : 'idprod'), $filtertype, getDolGlobalInt('PRODUIT_LIMIT_SIZE'), 0, $statustoshow, 2, '', 1, array(), 0, '1', 0, 'maxwidth500 widthcentpercentminusx', 0, '', GETPOST('combinations', 'array:alphanohtml'), 1);
 	}
+	$urltocreateproduct = DOL_URL_ROOT.'/product/card.php?action=create'.(($filtertype == 1) ? '&leftmenu=service&type=1' : '&leftmenu=product&type=0').'&backtopage='.urlencode($_SERVER["PHP_SELF"].'?id='.$object->id.'&idprod=__ID__').'&backtopageforcancel='.urlencode($_SERVER["PHP_SELF"].'?id='.$object->id);
+	print '<a href="'.$urltocreateproduct.'"><span class="fa fa-plus-circle valignmiddle paddingleft" title="'.$langs->trans("AddProduct").'"></span></a>';
 
 	echo '</span>';
 }
-if (!empty($conf->global->BOM_SUB_BOM)) {
+if (getDolGlobalString('BOM_SUB_BOM') && $filtertype != 1) {
 	print '<br><span class="opacitymedium">'.$langs->trans("or").'</span><br>'.$langs->trans("BOM");
-	// TODO Add component to select a BOM
-	$form->select_bom();
+	print $form->select_bom('', 'bom_id', 0, 1, 0, '1', '', '1');
 }
+
+if (is_object($objectline)) {
+	$temps = $objectline->showOptionals($extrafields, 'create', array(), '', '', '1', 'line');
+
+	if (!empty($temps)) {
+		print '<div style="padding-top: 10px" id="extrafield_lines_area_create" name="extrafield_lines_area_create">';
+		print $temps;
+		print '</div>';
+	}
+}
+
 print '</td>';
 
 
@@ -118,39 +178,60 @@ $coldisplay++;
 print '<td class="bordertop nobottom linecolqty right"><input type="text" size="2" name="qty" id="qty" class="flat right" value="'.(GETPOSTISSET("qty") ? GETPOST("qty", 'alpha', 2) : 1).'">';
 print '</td>';
 
-if (!empty($conf->global->PRODUCT_USE_UNITS)) {
+if ($filtertype != 1) { // Product
+	if (getDolGlobalInt('PRODUCT_USE_UNITS')) {
+		$coldisplay++;
+		print '<td class="bordertop nobottom nowrap linecoluseunit">';
+		print $formproduct->selectMeasuringUnits("fk_unit", '', (GETPOSTISSET('fk_unit') ? GETPOST('fk_unit', 'alpha') : '0'), 1, 0);
+		print '</td>';
+	}
+} else { // Service
 	$coldisplay++;
-	print '<td class="nobottom linecoluseunit left">';
+	require_once DOL_DOCUMENT_ROOT.'/core/class/cunits.class.php';
+	$cUnit = new CUnits($this->db);
+	$fk_unit_default = $cUnit->getUnitFromCode('h', 'short_label', 'time');
+	print '<td class="bordertop nobottom nowrap linecolunit">';
+	print $formproduct->selectMeasuringUnits("fk_unit", "time", $fk_unit_default, 1);
+	print '</td>';
+}
+if ($filtertype != 1 || getDolGlobalString('STOCK_SUPPORTS_SERVICES')) { // Product or stock support for Services is active
+	// Qty frozen
+	$coldisplay++;
+	print '<td class="bordertop nobottom linecolqtyfrozen right"><input type="checkbox" name="qty_frozen" id="qty_frozen" class="flat right" value="1"' . (GETPOST("qty_frozen", 'alpha') ? ' checked="checked"' : '') . '>';
+	print '</td>';
+
+	// Disable stock change
+	$coldisplay++;
+	print '<td class="bordertop nobottom linecoldisablestockchange right"><input type="checkbox" name="disable_stock_change" id="disable_stock_change" class="flat right" value="1"' . (GETPOST("disable_stock_change", 'alpha') ? ' checked="checked"' : '') . '">';
+	print '</td>';
+
+	// Efficiency
+	$coldisplay++;
+	print '<td class="bordertop nobottom nowrap linecollost right">';
+	print '<input type="text" size="2" name="efficiency" id="efficiency" class="flat right" value="' . ((GETPOSTISSET("efficiency") && $action == 'addline') ? GETPOST("efficiency", 'alpha') : 1) . '">';
+	print '</td>';
+}
+// Service and workstations are active
+if ($filtertype == 1 && isModEnabled('workstation')) {
+	$coldisplay++;
+	print '<td class="bordertop nobottom nowrap linecolworkstation">';
+	print $formproduct->selectWorkstations('', 'idworkstations', 1);
 	print '</td>';
 }
 
-$coldisplay++;
-print '<td class="bordertop nobottom linecolqtyfrozen right"><input type="checkbox" name="qty_frozen" id="qty_frozen" class="flat right" value="1"'.(GETPOST("qty_frozen", 'alpha') ? ' checked="checked"' : '').'>';
-print '</td>';
-
-$coldisplay++;
-print '<td class="bordertop nobottom linecoldisablestockchange right"><input type="checkbox" name="disable_stock_change" id="disable_stock_change" class="flat right" value="1"'.(GETPOST("disable_stock_change", 'alpha') ? ' checked="checked"' : '').'">';
-print '</td>';
-
-$coldisplay++;
-print '<td class="bordertop nobottom nowrap linecollost right">';
-print '<input type="text" size="2" name="efficiency" id="efficiency" class="flat right" value="'.((GETPOSTISSET("efficiency") && $action == 'addline') ?GETPOST("efficiency", 'alpha') : 1).'">';
-print '</td>';
-
+// Cost
 $coldisplay++;
 print '<td class="bordertop nobottom nowrap linecolcost right">';
 print '&nbsp;';
 print '</td>';
 
+
 $coldisplay += $colspan;
-print '<td class="bordertop nobottom linecoledit center valignmiddle" colspan="'.$colspan.'">';
-print '<input type="submit" class="button button-add" name="addline" id="addline" value="'.$langs->trans('Add').'">';
+print '<td class="bordertop nobottom linecoledit right valignmiddle" colspan="' . $colspan . '">';
+print '<input type="submit" class="button button-add small" name="addline" id="addline" value="' . $langs->trans('Add') . '">';
 print '</td>';
 print '</tr>';
 
-if (is_object($objectline)) {
-	print $objectline->showOptionals($extrafields, 'edit', array('style'=>$bcnd[$var], 'colspan'=>$coldisplay), '', '', 1, 'line');
-}
 ?>
 
 <script>
@@ -175,6 +256,49 @@ jQuery(document).ready(function() {
 			}
 			}
 	});
+
+	//change unit and duration qty selected if we change service selected
+	<?php if ($filtertype == 1) { ?>
+	$('#idprodservice').change(function(){
+		var idproduct = $(this).val();
+		var $row = $(this).closest('tr');
+
+			$.ajax({
+				url : "<?php echo dol_buildpath('/bom/ajax/ajax.php', 1); ?>"
+				,type: 'POST'
+				,data: {
+					'action': 'getDurationByProduct'
+					,'token' : "<?php echo currentToken() ?>"
+					,'idproduct' : idproduct
+				}
+			}).done(function(data) {
+
+				console.log(data);
+				if (data && typeof data === 'object') {
+					if (data.fk_unit) {
+						$("#fk_unit").val(data.fk_unit).change();
+					}
+					if (data.duration_value) {
+						$row.find('input[name="qty"]').val(data.duration_value);
+					}
+				} else {
+					$("#fk_unit").val(data).change();
+				}
+			});
+
+			$.ajax({
+				url : "<?php echo dol_buildpath('/bom/ajax/ajax.php', 1); ?>"
+				,type: 'POST'
+				,data: {
+					'action': 'getWorkstationByProduct'
+					,'token' :  "<?php echo currentToken() ?>"
+					,'idproduct' : idproduct
+				}
+			}).done(function(data) {
+				$('#idworkstations').val(data.defaultWk).select2();
+			});
+	});
+	<?php } ?>
 });
 
 </script>

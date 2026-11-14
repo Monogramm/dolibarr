@@ -1,5 +1,7 @@
 <?php
-/* Copyright (C) 2020 Laurent Destailleur  <eldy@users.sourceforge.net>
+/* Copyright (C) 2020-2024	Laurent Destailleur		<eldy@users.sourceforge.net>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France			<frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -12,57 +14,115 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * \file       htdocs/core/customreports.php
+ * \ingroup    core
+ * \brief      Page to make custom reports. Page can also be used alone or as a tab among other tabs of an object
  *
- * Note: This tool can be included into a list page with :
+ * To include this tool into another PHP page:
+ *
  * define('USE_CUSTOM_REPORT_AS_INCLUDE', 1);
+ * define('MAIN_DO_NOT_USE_JQUERY_MULTISELECT', 1);
+ * define('MAIN_CUSTOM_REPORT_KEEP_GRAPH_ONLY', 1);		// TODO Use a variable
+ * $SHOWLEGEND = 0;
+ * $search_xaxis = array('t.columnx');
+ * $search_yaxis = array('t.columny');		// for grid ???
+ * $search_measures = array('t.count');
+ * $search_groupby = array('t.column2');
+ * $customreportkey='abc';
+ * include DOL_DOCUMENT_ROOT.'/core/customreports.php';
+ *
+ * To show the full tool into a tab of another PHP page (the parent page prints the header and the tabs, and shows this
+ * tab when it receives its own value for the parameter tabfamily, value that is kept by the forms and links of the tool):
+ *
+ * define('USE_CUSTOM_REPORT_AS_TAB', 1);
+ * $customreportobjecttype = 'order';		// Object type preselected
  * include DOL_DOCUMENT_ROOT.'/core/customreports.php';
  */
 
 /**
- *   	\file       htdocs/core/customreports.php
- *		\ingroup    core
- *		\brief      Page to make custom reports
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ *
+ * @var ?int[]		$toselect  			Items selected on page, only used to see if not empty here
+ * @var ?string		$customreportobjecttype	Object type preselected when page is shown as a tab of another page
  */
+'
+@phan-var-force ?int[] $toselect
+@phan-var-force ?string $customreportobjecttype
+';
+
+// Initialise values
+$tabfamily = null;
+$objecttype = null;
 
 if (!defined('USE_CUSTOM_REPORT_AS_INCLUDE')) {
-	require '../main.inc.php';
-
-	// Get parameters
-	$action     = GETPOST('action', 'aZ09') ?GETPOST('action', 'aZ09') : 'view'; // The action 'add', 'create', 'edit', 'update', 'view', ...
-	$massaction = GETPOST('massaction', 'alpha'); // The bulk action (combo box choice into lists)
-
-	$mode = GETPOST('mode', 'alpha') ? GETPOST('mode', 'alpha') : 'graph';
-	$objecttype = GETPOST('objecttype', 'aZ09');
-	$tabfamily  = GETPOST('tabfamily', 'aZ09');
-
-	if (empty($objecttype)) {
-		$objecttype = 'thirdparty';
+	if (!defined('USE_CUSTOM_REPORT_AS_TAB')) {		// When shown as a tab, main.inc.php is already loaded by the parent page
+		require '../main.inc.php';
 	}
 
-	$search_measures = GETPOST('search_measures', 'array');
+	// Get parameters
+	$action     = GETPOST('action', 'aZ09') ? GETPOST('action', 'aZ09') : 'view'; // The action 'add', 'create', 'edit', 'update', 'view', ...
+	$massaction = GETPOST('massaction', 'alpha'); // The bulk action (combo box choice into lists)
 
-	//$search_xaxis = GETPOST('search_xaxis', 'array');
+	$mode = GETPOST('mode', 'alpha');
+	$objecttype = (string) GETPOST('objecttype', 'aZ09arobase');
+	if ($objecttype == '-1') {	// -1 is the empty value of the combo of object types
+		$objecttype = '';
+	}
+	if (defined('USE_CUSTOM_REPORT_AS_TAB')) {
+		// When shown as a tab, the parameter mode is used by the parent page, and the parent page defines the object type preselected
+		$mode = '';
+		if (!GETPOSTISSET('objecttype') && !empty($customreportobjecttype)) {
+			$objecttype = (string) $customreportobjecttype;
+		}
+	}
+	$tabfamily  = GETPOST('tabfamily', 'aZ09');
+
+	$search_measures = GETPOST('search_measures', 'array:alphanohtml');
+
 	if (GETPOST('search_xaxis', 'alpha') && GETPOST('search_xaxis', 'alpha') != '-1') {
 		$search_xaxis = array(GETPOST('search_xaxis', 'alpha'));
 	} else {
 		$search_xaxis = array();
 	}
-	//$search_groupby = GETPOST('search_groupby', 'array');
 	if (GETPOST('search_groupby', 'alpha') && GETPOST('search_groupby', 'alpha') != '-1') {
 		$search_groupby = array(GETPOST('search_groupby', 'alpha'));
 	} else {
 		$search_groupby = array();
 	}
+	'@phan-var-force string[] $search_groupby';
 
-	$search_yaxis = GETPOST('search_yaxis', 'array');
-	$search_graph = GETPOST('search_graph', 'restricthtml');
+	$search_yaxis = GETPOST('search_yaxis', 'array:alphanohtml');
+	$search_graph = (string) GETPOST('search_graph', 'restricthtml');
+
+	/**
+	 * Sanitize key
+	 *
+	 * @param	string	$value		Value
+	 * @return	string				Sanitized value
+	 */
+	function sanititzekey($value)
+	{
+		return preg_replace('/[^a-z0-9\._\-]+/', '', $value);
+	}
+
+	$sanitized_search_measures = array_map('sanititzekey', $search_measures);
+	$sanitized_search_xaxis = array_map('sanititzekey', $search_xaxis);
+	$sanitized_search_yaxis = array_map('sanititzekey', $search_yaxis);
+	$sanitized_search_groupby = array_map('sanititzekey', $search_groupby);
 
 	// Load variable for pagination
-	$limit = GETPOST('limit', 'int') ? GETPOST('limit', 'int') : $conf->liste_limit;
+	$limit = GETPOSTINT('limit') ? GETPOSTINT('limit') : $conf->liste_limit;
 	$sortfield = GETPOST('sortfield', 'aZ09comma');
 	$sortorder = GETPOST('sortorder', 'aZ09comma');
-	$page = GETPOSTISSET('pageplusone') ? (GETPOST('pageplusone') - 1) : GETPOST("page", 'int');
+	$page = GETPOSTISSET('pageplusone') ? (GETPOSTINT('pageplusone') - 1) : GETPOSTINT("page");
 	if (empty($page) || $page == -1 || GETPOST('button_search', 'alpha') || GETPOST('button_removefilter', 'alpha') || (empty($toselect) && $massaction === '0')) {
 		$page = 0;
 	}     // If $page is not defined, or '' or -1 or if we click on clear filters or if we select empty mass action
@@ -70,17 +130,89 @@ if (!defined('USE_CUSTOM_REPORT_AS_INCLUDE')) {
 	$pageprev = $page - 1;
 	$pagenext = $page + 1;
 
-	$diroutputmassaction = $conf->user->dir_temp.'/'.$user->id.'/customreport';
+	$object = null;
+} else {
+	// When included into a main page
+	/**
+	 * @var ?int		$SHOWLEGEND			Show legend or not
+	 * @var	string		$customreportkey	Custom report key
+	 * @var ?string		$customsql			Custom SQL
+	 * @var ?string[]	$sanitized_search_groupby		Array with the third dimension
+	 * @var int			$page
+	 * @var string		$sortfield
+	 * @var string		$sortorder
+	 */
+	'
+	@phan-var-force int<0,1> $SHOWLEGEND
+	@phan-var-force string $customreportkey
+	@phan-var-force ?string $customsql
+	@phan-var-force ?string[]	$sanitized_search_groupby		Array with the third dimension
+	@phan-var-force int $page
+	@phan-var-force string $sortfield
+	@phan-var-force string $sortorder
+	';
+
+	// $sanitized_search_measures, $sanitized_search_xaxis or $sanitized_search_yaxis may have been defined by the parent.
+
+	if (empty($user) || empty($user->id)) {
+		print 'Page is called as an include but $user and its permission loaded with loadRights() are not defined. We stop here.';
+		exit(1);
+	}
+	if (empty($object)) {
+		print 'Page is called as an include but $object is not defined. We stop here.';
+		exit(1);
+	}
 }
 
+// In customreport context, we force the protection to avoid forging of criteria including bind SQL injection
+global $dolibarr_allow_unsecured_select_in_extrafields_filter;
+$dolibarr_allow_unsecured_select_in_extrafields_filter = 0;
+
+if (empty($mode)) {
+	$mode = 'graph';
+}
+if (!isset($sanitized_search_measures)) {
+	$sanitized_search_measures = array(0 => 't.count');
+}
+if (!isset($sanitized_search_xaxis)) {
+	// Ensure value is set and not null.
+	$sanitized_search_xaxis = array();
+}
+if (!isset($sanitized_search_yaxis)) {
+	// Ensure value is set and not null.
+	$sanitized_search_yaxis = array();
+}
+if (!isset($sanitized_search_groupby)) {
+	// Ensure value is set and not null.
+	$sanitized_search_groupby = array();
+}
+if (!isset($search_graph)) {
+	// Ensure value is set and not null
+	$search_graph = '';
+}
+if (!empty($object)) {
+	$objecttype = $object->element.($object->module ? '@'.$object->module : '');
+}
+if (!is_string($objecttype)) {	// No object type is preselected
+	$objecttype = '';
+}
+/*if ((!is_string($objecttype) || empty($objecttype)) && isModEnabled('societe')) {
+	$objecttype = 'thirdparty';
+}*/
+'@phan-var-force string $objecttype';  // Help phan that suggests $objecttype can be null
+
+require_once DOL_DOCUMENT_ROOT."/core/class/extrafields.class.php";
+require_once DOL_DOCUMENT_ROOT."/core/class/html.form.class.php";
 require_once DOL_DOCUMENT_ROOT."/core/lib/admin.lib.php";
 require_once DOL_DOCUMENT_ROOT."/core/lib/company.lib.php";
+require_once DOL_DOCUMENT_ROOT."/core/lib/date.lib.php";
+require_once DOL_DOCUMENT_ROOT."/core/lib/customreports.lib.php";
 require_once DOL_DOCUMENT_ROOT."/core/class/dolgraph.class.php";
 require_once DOL_DOCUMENT_ROOT."/core/class/doleditor.class.php";
 require_once DOL_DOCUMENT_ROOT."/core/class/html.formother.class.php";
 
-// Load traductions files requiredby by page
-$langs->loadLangs(array("companies", "other", "exports", "sendings"));
+// Load traductions files requiredby by page (stocks is for labels of linked warehouses in tables of fields)
+$langs->loadLangs(array("companies", "other", "exports", "sendings", "stocks"));
 
 $extrafields = new ExtraFields($db);
 
@@ -88,28 +220,45 @@ $hookmanager->initHooks(array('customreport')); // Note that conf->hooks_modules
 
 $title = '';
 $picto = '';
+$errormessage = null;
+$keyforlabeloffield = null;
 $head = array();
-$object = null;
 $ObjectClassName = '';
 // Objects available by default
 $arrayoftype = array(
-	'thirdparty' => array('label' => 'ThirdParties', 'ObjectClassName' => 'Societe', 'enabled' => $conf->societe->enabled, 'ClassPath' => "/societe/class/societe.class.php"),
-	'contact' => array('label' => 'Contacts', 'ObjectClassName' => 'Contact', 'enabled' => $conf->societe->enabled, 'ClassPath' => "/contact/class/contact.class.php"),
-	'proposal' => array('label' => 'Proposals', 'ObjectClassName' => 'Propal', 'enabled' => $conf->propal->enabled, 'ClassPath' => "/comm/propal/class/propal.class.php"),
-	'order' => array('label' => 'Orders', 'ObjectClassName' => 'Commande', 'enabled' => $conf->commande->enabled, 'ClassPath' => "/commande/class/commande.class.php"),
-	'invoice' => array('label' => 'Invoices', 'ObjectClassName' => 'Facture', 'enabled' => $conf->facture->enabled, 'ClassPath' => "/compta/facture/class/facture.class.php"),
-	'invoice_template'=>array('label' => 'PredefinedInvoices', 'ObjectClassName' => 'FactureRec', 'enabled' => $conf->facture->enabled, 'ClassPath' => "/compta/class/facturerec.class.php", 'langs'=>'bills'),
-	'contract' => array('label' => 'Contracts', 'ObjectClassName' => 'Contrat', 'enabled' => $conf->contrat->enabled, 'ClassPath' => "/contrat/class/contrat.class.php", 'langs'=>'contracts'),
-	'contractdet' => array('label' => 'ContractLines', 'ObjectClassName' => 'ContratLigne', 'enabled' => $conf->contrat->enabled, 'ClassPath' => "/contrat/class/contrat.class.php", 'langs'=>'contracts'),
-	'bom' => array('label' => 'BOM', 'ObjectClassName' => 'Bom', 'enabled' => $conf->bom->enabled),
-	'mo' => array('label' => 'MO', 'ObjectClassName' => 'Mo', 'enabled' => $conf->mrp->enabled, 'ClassPath' => "/mrp/class/mo.class.php"),
-	'ticket' => array('label' => 'Ticket', 'ObjectClassName' => 'Ticket', 'enabled' => $conf->ticket->enabled),
-	'member' => array('label' => 'Adherent', 'ObjectClassName' => 'Adherent', 'enabled' => $conf->adherent->enabled, 'ClassPath' => "/adherents/class/adherent.class.php", 'langs'=>'members'),
-	'cotisation' => array('label' => 'Subscriptions', 'ObjectClassName' => 'Subscription', 'enabled' => $conf->adherent->enabled, 'ClassPath' => "/adherents/class/subscription.class.php", 'langs'=>'members'),
+	'thirdparty' => array('label' => 'ThirdParties', 'picto' => 'company', 'ObjectClassName' => 'Societe', 'enabled' => isModEnabled('societe'), 'ClassPath' => "/societe/class/societe.class.php", 'langs' => 'companies'),
+	'contact' => array('label' => 'Contacts', 'picto' => 'contact', 'ObjectClassName' => 'Contact', 'enabled' => isModEnabled('societe'), 'ClassPath' => "/contact/class/contact.class.php"),
+	'product' => array('label' => 'ProductsAndServices', 'picto' => 'product', 'ObjectClassName' => 'Product', 'enabled' => (isModEnabled('product') || isModEnabled('service')), 'ClassPath' => "/product/class/product.class.php", 'langs' => 'products'),
+	'proposal' => array('label' => 'Proposals', 'picto' => 'proposal', 'ObjectClassName' => 'Propal', 'enabled' => isModEnabled('propal'), 'ClassPath' => "/comm/propal/class/propal.class.php", 'langs' => 'propal'),
+	'proposaldet' => array('label' => 'ProposalLines', 'picto' => 'proposal', 'ObjectClassName' => 'PropaleLigne', 'enabled' => isModEnabled('propal'), 'ClassPath' => "/comm/propal/class/propaleligne.class.php", 'langs' => 'propal'),
+	'order' => array('label' => 'Orders', 'picto' => 'order', 'ObjectClassName' => 'Commande', 'enabled' => isModEnabled('order'), 'ClassPath' => "/commande/class/commande.class.php", 'langs' => 'orders'),
+	'orderdet' => array('label' => 'SaleOrderLines', 'picto' => 'order', 'ObjectClassName' => 'OrderLine', 'enabled' => isModEnabled('order'), 'ClassPath' => "/commande/class/orderline.class.php", 'langs' => 'orders'),
+	'shipping' => array('label' => 'Shipments', 'picto' => 'dolly', 'ObjectClassName' => 'Expedition', 'enabled' => isModEnabled('shipping'), 'ClassPath' => "/expedition/class/expedition.class.php", 'langs' => 'sendings'),
+	'reception' => array('label' => 'Receptions', 'picto' => 'dollyrevert', 'ObjectClassName' => 'Reception', 'enabled' => isModEnabled('reception'), 'ClassPath' => "/reception/class/reception.class.php", 'langs' => 'receptions'),
+	'invoice' => array('label' => 'Invoices', 'picto' => 'bill', 'ObjectClassName' => 'Facture', 'enabled' => isModEnabled('invoice'), 'ClassPath' => "/compta/facture/class/facture.class.php", 'langs' => 'bills'),
+	'invoice_template' => array('label' => 'PredefinedInvoices', 'picto' => 'bill', 'ObjectClassName' => 'FactureRec', 'enabled' => isModEnabled('invoice'), 'ClassPath' => "/compta/facture/class/facture-rec.class.php", 'langs' => 'bills'),
+	'supplier_proposal' => array('label' => 'SupplierProposals', 'picto' => 'supplier_proposal', 'ObjectClassName' => 'SupplierProposal', 'enabled' => isModEnabled('supplier_proposal'), 'ClassPath' => "/supplier_proposal/class/supplier_proposal.class.php", 'langs' => 'supplier_proposal'),
+	// The permission check done later on the vendor order or invoice tests only the read permission on vendors, so the read permission on the object is tested here
+	'supplier_order' => array('label' => 'SuppliersOrders', 'picto' => 'supplier_order', 'ObjectClassName' => 'CommandeFournisseur', 'enabled' => (isModEnabled('supplier_order') && $user->hasRight('fournisseur', 'commande', 'lire')), 'ClassPath' => "/fourn/class/fournisseur.commande.class.php", 'langs' => 'orders'),
+	'supplier_invoice' => array('label' => 'SupplierInvoices', 'picto' => 'supplier_invoice', 'ObjectClassName' => 'FactureFournisseur', 'enabled' => (isModEnabled('supplier_invoice') && $user->hasRight('fournisseur', 'facture', 'lire')), 'ClassPath' => "/fourn/class/fournisseur.facture.class.php", 'langs' => 'suppliers'),
+	'contract' => array('label' => 'Contracts', 'picto' => 'contract', 'ObjectClassName' => 'Contrat', 'enabled' => isModEnabled('contract'), 'ClassPath' => "/contrat/class/contrat.class.php", 'langs' => 'contracts'),
+	'contractdet' => array('label' => 'ContractLines', 'picto' => 'contract', 'ObjectClassName' => 'ContratLigne', 'enabled' => isModEnabled('contract'), 'ClassPath' => "/contrat/class/contrat.class.php", 'langs' => 'contracts'),
+	'fichinter' => array('label' => 'Interventions', 'picto' => 'intervention', 'ObjectClassName' => 'Fichinter', 'enabled' => isModEnabled('intervention'), 'ClassPath' => "/fichinter/class/fichinter.class.php", 'langs' => 'interventions'),
+	'bom' => array('label' => 'BOM', 'picto' => 'bom', 'ObjectClassName' => 'Bom', 'enabled' => isModEnabled('bom')),
+	'mrp' => array('label' => 'MO', 'picto' => 'mrp', 'ObjectClassName' => 'Mo', 'enabled' => isModEnabled('mrp'), 'ClassPath' => "/mrp/class/mo.class.php"),
+	'ticket' => array('label' => 'Ticket', 'picto' => 'ticket', 'ObjectClassName' => 'Ticket', 'enabled' => isModEnabled('ticket')),
+	'member' => array('langs' => 'members', 'label' => 'Adherent', 'picto' => 'member', 'ObjectClassName' => 'Adherent', 'enabled' => isModEnabled('member'), 'ClassPath' => "/adherents/class/adherent.class.php"),
+	'cotisation' => array('langs' => 'members', 'label' => 'Subscriptions', 'picto' => 'member', 'ObjectClassName' => 'Subscription', 'enabled' => isModEnabled('member'), 'ClassPath' => "/adherents/class/subscription.class.php"),
+	// The custom reports do not filter on the salaries of the user and its subordinates, so the permission to read all salaries is required
+	'salary' => array('langs' => 'salaries', 'label' => 'Salaries', 'picto' => 'salary', 'ObjectClassName' => 'Salary', 'enabled' => (isModEnabled('salaries') && $user->hasRight('salaries', 'readall')), 'ClassPath' => "/salaries/class/salary.class.php"),
+	// The custom reports do not filter on the expense reports of the user and its subordinates, so the permission to read all expense reports is required
+	'expensereport' => array('langs' => 'trips', 'label' => 'ExpenseReports', 'picto' => 'trip', 'ObjectClassName' => 'ExpenseReport', 'enabled' => (isModEnabled('expensereport') && ($user->hasRight('expensereport', 'readall') || $user->hasRight('expensereport', 'lire_tous'))), 'ClassPath' => "/expensereport/class/expensereport.class.php"),
 );
 
+
 // Complete $arrayoftype by external modules
-$parameters = array('objecttype'=>$objecttype, 'tabfamily'=>$tabfamily);
+$parameters = array('objecttype' => $objecttype, 'tabfamily' => $tabfamily);
+// @phan-suppress-next-line PhanTypeMismatchArgumentNullable
 $reshook = $hookmanager->executeHooks('loadDataForCustomReports', $parameters, $object, $action); // Note that $action and $object may have been modified by some hooks
 if ($reshook < 0) {
 	setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
@@ -130,43 +279,151 @@ if ($reshook < 0) {
 	}
 }
 
+// An object type of a disabled module, or not allowed to the user, must not be loaded even if forced in the URL
+if ($objecttype && isset($arrayoftype[$objecttype]['enabled']) && !dol_eval((string) $arrayoftype[$objecttype]['enabled'], 1, 1, '1')) {
+	$objecttype = '';
+}
+
+// Load the main $object for statistics
 if ($objecttype) {
 	try {
 		if (!empty($arrayoftype[$objecttype]['ClassPath'])) {
-			dol_include_once($arrayoftype[$objecttype]['ClassPath']);
+			$fileforclass = $arrayoftype[$objecttype]['ClassPath'];
 		} else {
-			dol_include_once("/".$objecttype."/class/".$objecttype.".class.php");
+			$fileforclass = "/".$objecttype."/class/".$objecttype.".class.php";
 		}
-		$ObjectClassName = $arrayoftype[$objecttype]['ObjectClassName'];
-		$object = new $ObjectClassName($db);
+		$ObjectClassName = null;
+
+		if ($fileforclass !== null) {
+			dol_include_once($fileforclass);
+
+			$ObjectClassName = $arrayoftype[$objecttype]['ObjectClassName'];
+		}
+		if (!empty($ObjectClassName)) {
+			if (class_exists($ObjectClassName)) {
+				$object = new $ObjectClassName($db);
+			} else {
+				print 'Failed to load class for type '.$objecttype.'. Class file found but Class object named '.$ObjectClassName.' not found.';
+			}
+		} else {
+			print 'Failed to load class for type '.$objecttype.'. Class file name is unknown.';
+		}
 	} catch (Exception $e) {
-		print 'Failed to load class for type '.$objecttype;
+		print 'Failed to load class for type '.$objecttype.'. Class path not found.';
 	}
 }
 
+'@phan-var-force CommonObject $object';
+
 // Security check
-$socid = 0;
+//$socid = 0;
 if ($user->socid > 0) {	// Protection if external user
 	//$socid = $user->socid;
-	accessforbidden();
+	accessforbidden('Access forbidden to external users');
 }
 
 // Fetch optionals attributes and labels
-$extrafields->fetch_name_optionals_label($object->table_element);
+$extrafields->fetch_name_optionals_label('all');	// We load all extrafields definitions for all objects
 //$extrafields->fetch_name_optionals_label($object->table_element_line);
 
-$search_array_options = $extrafields->getOptionalsFromPost($object->table_element, '', 'search_');
+if (!empty($object->table_element)) {
+	$search_array_options = $extrafields->getOptionalsFromPost($object->table_element, '', 'search_');
+} else {
+	$search_array_options = array();
+}
 
 $search_component_params = array('');
-$search_component_params_hidden = GETPOST('search_component_params_hidden', 'alphanohtml');
+$search_component_params_hidden = trim(GETPOST('search_component_params_hidden', 'alphanohtml'));
+$search_component_params_input = trim(GETPOST('search_component_params_input', 'alphanohtml'));
+//var_dump($search_component_params_hidden);
+//var_dump($search_component_params_input);
 
-// For the case we enter a criteria manually, the search_component_params_input will be defined and must be used in priority
-if (GETPOST('search_component_params_input', 'alphanohtml')) {
-	$search_component_params_hidden = GETPOST('search_component_params_input', 'alphanohtml');
+// If string is not an universal filter string, we try to convert it into universal filter syntax string
+$errorstr = '';
+forgeSQLFromUniversalSearchCriteria($search_component_params_input, $errorstr);	// Try conversion UFS->SQL
+//var_dump($errorstr);
+if ($errorstr) {
+	$value = $search_component_params_input;
+
+	$value = preg_replace('/([a-z0-9_\.]+)\s*([!<>=]+|in|notin|like|notlike)\s*/', '\1:\2:', $value); // Clean string 'x < 10' into 'x:<:10' so we can then explode on space to get all AND tests to do
+	$value = preg_replace('/\s*\|\s*/', '|', $value);
+	//var_dump($value);
+
+	$crits = explode(' ', trim($value)); // the string after the name of the field. Explode on each AND
+	$res = '';
+
+	$i1 = 0;	// count the nb of and criteria added (all fields / criteria)
+	foreach ($crits as $crit) {		// Loop on each AND criteria
+		$crit = trim($crit);
+
+		$i2 = 0;	// count the nb of valid criteria added for this first criteria
+		$newres = '';
+		$tmpcrits = explode('|', $crit);
+		$i3 = 0;	// count the nb of valid criteria added for this current field
+		foreach ($tmpcrits as $tmpcrit) {
+			if ($tmpcrit !== '0' && empty($tmpcrit)) {
+				continue;
+			}
+			$tmpcrit = trim($tmpcrit);
+			//var_dump($tmpcrit);
+
+			$errorstr = '';
+			$parenthesislevel = 0;
+			$rescheckfilter = dolCheckFilters($tmpcrit, $errorstr, $parenthesislevel);
+			if ($rescheckfilter) {
+				while ($parenthesislevel > 0) {
+					$tmpcrit = preg_replace('/^\(/', '', preg_replace('/\)$/', '', $tmpcrit));
+					$parenthesislevel--;
+				}
+			}
+
+			$field = preg_replace('/(:[!<>=\s]+:|:in:|:notin:|:like:|:notlike:).*$/', '', $tmpcrit);		// the name of the field
+			$tmpcrit = preg_replace('/^.*(:[!<>=\s]+:|:in:|:notin:|:like:|:notlike:)/', '\1', $tmpcrit);	// the condition after the name of the field
+			//var_dump($field); var_dump($tmpcrit); var_dump($i3);
+
+			$newres .= (($i2 > 0 || $i3 > 0) ? ' OR ' : '');
+
+			$operator = '=';
+			$newcrit = preg_replace('/(:[!<>=\s]+:|:in:|:notin:|:like:|:notlike:)/', '', $tmpcrit);
+			//var_dump($newcrit);
+
+			$reg = array();
+			preg_match('/:([!<>=\s]+|in|notin|like|notlike):/', $tmpcrit, $reg);
+			if (!empty($reg[1])) {
+				$operator = $reg[1];
+			}
+			if ($newcrit != '') {
+				if (!preg_match('/^\'[^\']*\'$/', $newcrit)) {
+					$numnewcrit = price2num($newcrit);
+					$newres .= '('.$field.':'.$operator.':'.((float) $numnewcrit).')';
+				} else {
+					$newres .= '('.$field.':'.$operator.":".((string) $newcrit).')';
+				}
+				$i3++; // a criteria was added to string
+			}
+		}
+		$i2++; // a criteria for 1 more field was added to string
+
+		if ($newres) {
+			$res = $res.($res ? ' AND ' : '').($i3 > 1 ? '(' : '').$newres.($i3 > 1 ? ')' : '');
+		}
+		$i1++;
+	}
+	$res = "(".$res.")";
+
+	//var_dump($res);exit;
+	$search_component_params_input = $res;
 }
+
+$arrayofandtagshidden = dolForgeExplodeAnd($search_component_params_hidden);
+$arrayofandtagsinput = dolForgeExplodeAnd($search_component_params_input);
+
+$search_component_params_hidden = implode(' AND ', array_merge($arrayofandtagshidden, $arrayofandtagsinput));
+//var_dump($search_component_params_hidden);
 
 $MAXUNIQUEVALFORGROUP = 20;
 $MAXMEASURESINBARGRAPH = 20;
+$SHOWLEGEND = (isset($SHOWLEGEND) ? $SHOWLEGEND : 1);
 
 $YYYY = substr($langs->trans("Year"), 0, 1).substr($langs->trans("Year"), 0, 1).substr($langs->trans("Year"), 0, 1).substr($langs->trans("Year"), 0, 1);
 $MM = substr($langs->trans("Month"), 0, 1).substr($langs->trans("Month"), 0, 1);
@@ -175,20 +432,34 @@ $HH = substr($langs->trans("Hour"), 0, 1).substr($langs->trans("Hour"), 0, 1);
 $MI = substr($langs->trans("Minute"), 0, 1).substr($langs->trans("Minute"), 0, 1);
 $SS = substr($langs->trans("Second"), 0, 1).substr($langs->trans("Second"), 0, 1);
 
+$arrayoffilterfields = array();
 $arrayofmesures = array();
 $arrayofxaxis = array();
 $arrayofgroupby = array();
 $arrayofyaxis = array();
 $arrayofvaluesforgroupby = array();
 
-$features = $object->element;
+$features = '';
+if (!empty($object->element)) {
+	$features = $object->element;
+} else {
+	$features = '';
+}
 if (!empty($object->element_for_permission)) {
 	$features = $object->element_for_permission;
+} else {
+	$features .= (empty($object->module) ? '' : '@'.$object->module);
 }
 
-restrictedArea($user, $features, 0, '');
+// $arrayoftype contains several features
+// Test on permission can be done on a given selected feature only
 
-$error = 0;
+// Security check (do not stop here, get only result to show message later)
+if ($features) {
+	$resultcheck = restrictedArea($user, $features, 0, '', '', 'fk_soc', 'rowid', 0, 1);
+} else {
+	$resultcheck = 1;	// No object type selected yet, so there is no data to protect
+}
 
 
 /*
@@ -206,50 +477,80 @@ $error = 0;
 $form = new Form($db);
 $formother = new FormOther($db);
 
-if (!defined('USE_CUSTOM_REPORT_AS_INCLUDE')) {
+if (!defined('USE_CUSTOM_REPORT_AS_INCLUDE') && !defined('USE_CUSTOM_REPORT_AS_TAB')) {
 	llxHeader('', $langs->transnoentitiesnoconv('CustomReports'), '');
 
-	print dol_get_fiche_head($head, 'customreports', $title, -1, $picto);
+	if (empty($head)) {
+		print dol_get_fiche_head($head, 'customreports', $title, -2, $picto);
+	} else {
+		print dol_get_fiche_head($head, 'customreports', $title, -1, $picto);
+	}
 }
 
+// If the user is not allowed to read the selected type of object, we show only the error, without running any request on data
+if (!$resultcheck) {
+	print '<div class="error">';
+	print $langs->trans("NotEnoughPermissions");
+	print '</div>';
+
+	if (!defined('USE_CUSTOM_REPORT_AS_INCLUDE') && !defined('USE_CUSTOM_REPORT_AS_TAB')) {
+		print dol_get_fiche_end();
+
+		llxFooter();
+		$db->close();
+		exit;
+	}
+
+	return;		// When included into another page, the parent page ends the page
+}
+
+// Define $newarrayoftype that is array of object available for report
 $newarrayoftype = array();
 foreach ($arrayoftype as $key => $val) {
-	if (dol_eval($val['enabled'], 1, 1, '1')) {
+	if (dol_eval((string) $val['enabled'], 1, 1, '1')) {
 		$newarrayoftype[$key] = $arrayoftype[$key];
 	}
-	if ($val['langs']) {
+	if (!empty($val['langs'])) {
 		$langs->load($val['langs']);
 	}
 }
 
 $count = 0;
-$arrayofmesures = fillArrayOfMeasures($object, 't', $langs->trans($newarrayoftype[$objecttype]['label']), $arrayofmesures, 0, $count);
+$label = '';
+if (array_key_exists($objecttype, $newarrayoftype)) {
+	$label = $langs->trans($newarrayoftype[$objecttype]['label']);
+}
+$arrayoffilterfields = fillArrayOfFilterFields($object, 't', $label, $arrayoffilterfields, 0, $count);
+$arrayoffilterfields = dol_sort_array($arrayoffilterfields, 'position', 'asc', 0, 0, 1);
+
+$count = 0;
+$arrayofmesures = fillArrayOfMeasures($object, 't', $label, $arrayofmesures, 0, $count);
 $arrayofmesures = dol_sort_array($arrayofmesures, 'position', 'asc', 0, 0, 1);
 
 $count = 0;
-$arrayofxaxis = fillArrayOfXAxis($object, 't', $langs->trans($newarrayoftype[$objecttype]['label']), $arrayofxaxis, 0, $count);
+$arrayofxaxis = fillArrayOfXAxis($object, 't', $label, $arrayofxaxis, 0, $count);
 $arrayofxaxis = dol_sort_array($arrayofxaxis, 'position', 'asc', 0, 0, 1);
 
 $count = 0;
-$arrayofgroupby = fillArrayOfGroupBy($object, 't', $langs->trans($newarrayoftype[$objecttype]['label']), $arrayofgroupby, 0, $count);
+$arrayofgroupby = fillArrayOfGroupBy($object, 't', $label, $arrayofgroupby, 0, $count);
 $arrayofgroupby = dol_sort_array($arrayofgroupby, 'position', 'asc', 0, 0, 1);
 
 
 // Check parameters
 if ($action == 'viewgraph') {
-	if (!count($search_measures)) {
+	if (!count($sanitized_search_measures)) {
 		setEventMessages($langs->trans("AtLeastOneMeasureIsRequired"), null, 'warnings');
-	} elseif ($mode == 'graph' && count($search_xaxis) > 1) {
+	} elseif ($mode == 'graph' && is_array($sanitized_search_xaxis) && count($sanitized_search_xaxis) > 1) {
 		setEventMessages($langs->trans("OnlyOneFieldForXAxisIsPossible"), null, 'warnings');
-		$search_xaxis = array(0 => $search_xaxis[0]);
+		$sanitized_search_xaxis = array(0 => $sanitized_search_xaxis[0]);
 	}
-	if (count($search_groupby) >= 2) {
+	if (count($sanitized_search_groupby) >= 2) {
 		setEventMessages($langs->trans("ErrorOnlyOneFieldForGroupByIsPossible"), null, 'warnings');
-		$search_groupby = array(0 => $search_groupby[0]);
+		$sanitized_search_groupby = array(0 => $sanitized_search_groupby[0]);
 	}
-	if (!count($search_xaxis)) {
+	if (!count($sanitized_search_xaxis)) {
 		setEventMessages($langs->trans("AtLeastOneXAxisIsRequired"), null, 'warnings');
-	} elseif ($mode == 'graph' && $search_graph == 'bars' && count($search_measures) > $MAXMEASURESINBARGRAPH) {
+	} elseif ($mode == 'graph' && $search_graph == 'bars' && count($sanitized_search_measures) > $MAXMEASURESINBARGRAPH) {
 		$langs->load("errors");
 		setEventMessages($langs->trans("GraphInBarsAreLimitedToNMeasures", $MAXMEASURESINBARGRAPH), null, 'warnings');
 		$search_graph = 'lines';
@@ -258,50 +559,79 @@ if ($action == 'viewgraph') {
 
 // Get all possible values of fields when a 'group by' is set, and save this into $arrayofvaluesforgroupby
 // $arrayofvaluesforgroupby will be used to forge lael of each grouped series
-if (is_array($search_groupby) && count($search_groupby)) {
-	foreach ($search_groupby as $gkey => $gval) {
-		$gvalwithoutprefix = preg_replace('/^[a-z]+\./', '', $gval);
+if (count($sanitized_search_groupby)) {
+	$fieldtocount = '';
+	foreach ($sanitized_search_groupby as $gkey => $sanitized_gval) {
+		$gvalwithoutprefix = preg_replace('/^[a-z]+\./i', '', $sanitized_gval);
+		$gvalsanitized = preg_replace('/[^a-z0-9\._\-]+/i', '', $sanitized_gval);
 
-		if (preg_match('/\-year$/', $search_groupby[$gkey])) {
-			$tmpval = preg_replace('/\-year$/', '', $search_groupby[$gkey]);
-			$fieldtocount .= 'DATE_FORMAT('.$tmpval.", '%Y')";
-		} elseif (preg_match('/\-month$/', $search_groupby[$gkey])) {
-			$tmpval = preg_replace('/\-month$/', '', $search_groupby[$gkey]);
-			$fieldtocount .= 'DATE_FORMAT('.$tmpval.", '%Y-%m')";
-		} elseif (preg_match('/\-day$/', $search_groupby[$gkey])) {
-			$tmpval = preg_replace('/\-day$/', '', $search_groupby[$gkey]);
-			$fieldtocount .= 'DATE_FORMAT('.$tmpval.", '%Y-%m-%d')";
+		$sanitizedfieldtocount = '';
+
+		if (preg_match('/\-year$/', $gvalsanitized)) {
+			$tmpval = preg_replace('/\-year$/', '', $gvalsanitized);
+			$sanitizedfieldtocount .= 'DATE_FORMAT('.$tmpval.", '%Y')";
+		} elseif (preg_match('/\-month$/', $gvalsanitized)) {
+			$tmpval = preg_replace('/\-month$/', '', $gvalsanitized);
+			$sanitizedfieldtocount .= 'DATE_FORMAT('.$tmpval.", '%Y-%m')";
+		} elseif (preg_match('/\-day$/', $gvalsanitized)) {
+			$tmpval = preg_replace('/\-day$/', '', $gvalsanitized);
+			$sanitizedfieldtocount .= 'DATE_FORMAT('.$tmpval.", '%Y-%m-%d')";
 		} else {
-			$fieldtocount = $search_groupby[$gkey];
+			$sanitizedfieldtocount = $gvalsanitized;
 		}
 
-		$sql = "SELECT DISTINCT ".$fieldtocount." as val";
+		$fieldtocount = $sanitizedfieldtocount;
+		$sql = "SELECT DISTINCT ".$sanitizedfieldtocount." as val";	// $fieldtocount has been sanitized by previous lines as we can't use db->sanitize()
 
-		if (strpos($fieldtocount, 'te.') === 0) {
-			$sql .= " FROM ".MAIN_DB_PREFIX.$object->table_element."_extrafields as te";
+		if (strpos($fieldtocount, 'te') === 0) {
+			$tabletouse = $object->table_element;
+			$tablealiastouse = 'te';
+			if (!empty($arrayofgroupby[$sanitized_gval])) {
+				$tmpval = explode('.', $sanitized_gval);
+				$tabletouse = $arrayofgroupby[$sanitized_gval]['table'];
+				$tablealiastouse = $tmpval[0];
+			}
+			//var_dump($tablealiastouse);exit;
+
+			//$sql .= " FROM ".MAIN_DB_PREFIX.$object->table_element."_extrafields as te";
+			$sql .= " FROM ".MAIN_DB_PREFIX.$tabletouse."_extrafields as ".$tablealiastouse;
 		} else {
 			$tabletouse = $object->table_element;
 			$tablealiastouse = 't';
-			if (!empty($arrayofgroupby[$gval])) {
-				$tmpval = explode('.', $gval);
-				$tabletouse = $arrayofgroupby[$gval]['table'];
+			if (!empty($arrayofgroupby[$sanitized_gval])) {
+				$tmpval = explode('.', $sanitized_gval);
+				$tabletouse = $arrayofgroupby[$sanitized_gval]['table'];
 				$tablealiastouse = $tmpval[0];
 			}
 			$sql .= " FROM ".MAIN_DB_PREFIX.$tabletouse." as ".$tablealiastouse;
 		}
 
-		// Add the where here
-		/*
-		$sqlfilters = GETPOST('search_component_params_hidden', 'alphanohtml');
-		if ($sqlfilters) {
+		// Add a where here keeping only the criteria on $tabletouse
+		/* TODO
+		if ($search_component_params_hidden) {
 			$errormessage = '';
-			if (dolCheckFilters($sqlfilters, $errormessage)) {
-				$regexstring = '\(([^:\'\(\)]+:[^:\'\(\)]+:[^\(\)]+)\)';
-				$sql .= " WHERE (".preg_replace_callback('/'.$regexstring.'/', 'dolForgeCriteriaCallback', $sqlfilters).")";
-			} else {
-				print $errormessage;
+			$sql .= forgeSQLFromUniversalSearchCriteria($search_component_params_hidden, $errormessage);
+		}
+		*/
+		// Add the AND parts of the filter that use only the field of the group by, so the count of distinct values takes them into account
+		if ($search_component_params_hidden) {
+			$fieldofgroupby = preg_replace('/\-(year|month|day)$/', '', $gvalsanitized);
+			$sqlwhere = '';
+			foreach (dolForgeExplodeAnd($search_component_params_hidden) as $andpart) {
+				$matches = array();
+				preg_match_all('/\(([a-zA-Z0-9_\.]+):[<>!=insotlke]+:/i', $andpart, $matches);
+				if (!empty($matches[1]) && count(array_unique($matches[1])) == 1 && $matches[1][0] == $fieldofgroupby) {
+					$errormessage = '';
+					$tmpsql = forgeSQLFromUniversalSearchCriteria($andpart, $errormessage, 0, 0, 1);
+					if (!$errormessage) {
+						$sqlwhere .= $tmpsql;
+					}
+				}
 			}
-		}*/
+			if ($sqlwhere) {
+				$sql .= " WHERE 1 = 1".$sqlwhere;
+			}
+		}
 
 		$sql .= " LIMIT ".((int) ($MAXUNIQUEVALFORGROUP + 1));
 
@@ -324,58 +654,84 @@ if (is_array($search_groupby) && count($search_groupby)) {
 			}
 
 			$regs = array();
-			if (!empty($object->fields[$gvalwithoutprefix]['arrayofkeyval'])) {
-				$valuetranslated = $object->fields[$gvalwithoutprefix]['arrayofkeyval'][$obj->val];
-				if (is_null($valuetranslated)) {
-					$valuetranslated = $langs->transnoentitiesnoconv("UndefinedKey");
-				}
-				$valuetranslated = $langs->trans($valuetranslated);
-			} elseif (preg_match('/integer:([^:]+):([^:]+)$/', $object->fields[$gvalwithoutprefix]['type'], $regs)) {
-				$classname = $regs[1];
-				$classpath = $regs[2];
-				dol_include_once($classpath);
-				if (class_exists($classname)) {
-					$tmpobject = new $classname($db);
-					$tmpobject->fetch($obj->val);
-					foreach ($tmpobject->fields as $fieldkey => $field) {
-						if ($field['showoncombobox']) {
-							$valuetranslated = $tmpobject->$fieldkey;
-							//if ($valuetranslated == '-') $valuetranslated = $langs->transnoentitiesnoconv("Unknown")
-							break;
-						}
+			if (isset($object->fields[$gvalwithoutprefix])) {
+				if (!empty($object->fields[$gvalwithoutprefix]['arrayofkeyval'])) {
+					$valuetranslated = $object->fields[$gvalwithoutprefix]['arrayofkeyval'][$obj->val] ?? null;
+					if (is_null($valuetranslated)) {
+						$valuetranslated = $langs->transnoentitiesnoconv("UndefinedKey");
 					}
-					//$valuetranslated = $tmpobject->ref.'eee';
+					$valuetranslated = $langs->trans($valuetranslated);
+				} elseif (preg_match('/integer:([^:]+):([^:]+)$/', $object->fields[$gvalwithoutprefix]['type'], $regs)) {
+					$classname = $regs[1];
+					$classpath = $regs[2];
+					dol_include_once($classpath);
+					if (class_exists($classname)) {
+						$tmpobject = new $classname($db);
+						'@phan-var-force CommonObject $tmpobject';
+						$tmpobject->fetch($obj->val);
+						foreach ($tmpobject->fields as $fieldkey => $field) {
+							if ($field['showoncombobox']) {
+								$valuetranslated = $tmpobject->$fieldkey;
+								//if ($valuetranslated == '-') $valuetranslated = $langs->transnoentitiesnoconv("Unknown")
+								break;
+							}
+						}
+						//$valuetranslated = $tmpobject->ref.'eee';
+					}
 				}
 			}
 
 			$arrayofvaluesforgroupby['g_'.$gkey][$keytouse] = $valuetranslated;
 		}
 		// Add also the possible NULL value if field is a parent field that is not a strict join
-		$tmpfield = explode('.', $gval);
-		if ($tmpfield[0] != 't' || (is_array($object->fields[$tmpfield[1]]) && empty($object->fields[$tmpfield[1]]['notnull']))) {
-			dol_syslog("The group by field ".$gval." may be null (because field is null or it is a left join), so we add __NULL__ entry in list of possible values");
-			//var_dump($gval); var_dump($object->fields);
+		$tmpfield = explode('.', $sanitized_gval);
+		if ($tmpfield[0] != 't' || (isset($object->fields[$tmpfield[1]]) && is_array($object->fields[$tmpfield[1]]) && empty($object->fields[$tmpfield[1]]['notnull']))) {
+			dol_syslog("The group by field ".$sanitized_gval." may be null (because field is null or it is a left join), so we add __NULL__ entry in list of possible values");
+			//var_dump($sanitized_gval); var_dump($object->fields);
 			$arrayofvaluesforgroupby['g_'.$gkey]['__NULL__'] = $langs->transnoentitiesnoconv("NotDefined");
 		}
 
-		asort($arrayofvaluesforgroupby['g_'.$gkey]);
+		if (is_array($arrayofvaluesforgroupby['g_'.$gkey])) {
+			asort($arrayofvaluesforgroupby['g_'.$gkey]);
+		}
 
 		// Add a protection/error to refuse the request if number of differentr values for the group by is higher than $MAXUNIQUEVALFORGROUP
-		if (count($arrayofvaluesforgroupby['g_'.$gkey]) > $MAXUNIQUEVALFORGROUP) {
+		if (is_array($arrayofvaluesforgroupby['g_'.$gkey]) && count($arrayofvaluesforgroupby['g_'.$gkey]) > $MAXUNIQUEVALFORGROUP) {
 			$langs->load("errors");
-			if (strpos($fieldtocount, 'te.') === 0) {
+
+			if (strpos($fieldtocount, 'te') === 0) {			// This is a field of an extrafield
 				//if (!empty($extrafields->attributes[$object->table_element]['langfile'][$gvalwithoutprefix])) {
 				//      $langs->load($extrafields->attributes[$object->table_element]['langfile'][$gvalwithoutprefix]);
 				//}
 				$keyforlabeloffield = $extrafields->attributes[$object->table_element]['label'][$gvalwithoutprefix];
-			} else {
-				$keyforlabeloffield = $object->fields[$gvalwithoutprefix]['label'];
+				$labeloffield = $langs->transnoentitiesnoconv($keyforlabeloffield);
+			} elseif (strpos($fieldtocount, 't__') === 0) {		// This is a field of a foreign key
+				$reg = array();
+				if (preg_match('/^(.*)\.(.*)/', $gvalwithoutprefix, $reg)) {
+					/*
+					$gvalwithoutprefix = preg_replace('/\..*$/', '', $gvalwithoutprefix);
+					$gvalwithoutprefix = preg_replace('/^t__/', '', $gvalwithoutprefix);
+					$keyforlabeloffield = $object->fields[$gvalwithoutprefix]['label'];
+					$labeloffield = $langs->transnoentitiesnoconv($keyforlabeloffield).'-'.$reg[2];
+					*/
+					$labeloffield = $arrayofgroupby[$fieldtocount]['labelnohtml'];
+				} else {
+					$labeloffield = 'FK_ISSUE'; // $langs->transnoentitiesnoconv($keyforlabeloffield);
+				}
+			} else {											// This is a common field
+				$reg = array();
+				if (preg_match('/^(.*)\-(year|month|day)/', $gvalwithoutprefix, $reg)) {
+					$gvalwithoutprefix = preg_replace('/\-(year|month|day)/', '', $gvalwithoutprefix);
+					$keyforlabeloffield = $object->fields[$gvalwithoutprefix]['label'];
+					$labeloffield = $langs->transnoentitiesnoconv($keyforlabeloffield).'-'.$reg[2];
+				} else {
+					$keyforlabeloffield = $object->fields[$gvalwithoutprefix]['label'];
+					$labeloffield = $langs->transnoentitiesnoconv($keyforlabeloffield);
+				}
 			}
-			//var_dump($gkey.' '.$gval.' '.$gvalwithoutprefix);
-			$gvalwithoutprefix = preg_replace('/\-(year|month|day)/', '', $gvalwithoutprefix);
-			$labeloffield = $langs->transnoentitiesnoconv($keyforlabeloffield);
-			setEventMessages($langs->trans("ErrorTooManyDifferentValueForSelectedGroupBy", $MAXUNIQUEVALFORGROUP, $labeloffield), null, 'warnings');
-			$search_groupby = array();
+			//var_dump($labeloffield);
+			setEventMessages($langs->transnoentitiesnoconv("ErrorTooManyDifferentValueForSelectedGroupBy", (string) $MAXUNIQUEVALFORGROUP, (string) $labeloffield), null, 'warnings');
+			$sanitized_search_groupby = array();
 		}
 
 		$db->free($resql);
@@ -384,211 +740,262 @@ if (is_array($search_groupby) && count($search_groupby)) {
 //var_dump($arrayofvaluesforgroupby);exit;
 
 
-$tmparray = dol_getdate(dol_now());
-$endyear = $tmparray['year'];
-$endmonth = $tmparray['mon'];
-$datelastday = dol_get_last_day($endyear, $endmonth, 1);
-$startyear = $endyear - 2;
+
+
+
+//$tmparray = dol_getdate(dol_now());
+//$endyear = $tmparray['year'];
+//$endmonth = $tmparray['mon'];
+//$datelastday = dol_get_last_day($endyear, $endmonth, 1);
+//$startyear = $endyear - 2;
 
 $param = '';
 
-print '<form method="post" action="'.$_SERVER['PHP_SELF'].'">';
-print '<input type="hidden" name="token" value="'.newToken().'">';
-print '<input type="hidden" name="action" value="viewgraph">';
-print '<input type="hidden" name="tabfamily" value="'.$tabfamily.'">';
 
-$viewmode = '';
+if (!defined('MAIN_CUSTOM_REPORT_KEEP_GRAPH_ONLY')) {
+	print '<form method="post" action="'.$_SERVER['PHP_SELF'].'" autocomplete="off">';
+	print '<input type="hidden" name="token" value="'.newToken().'">';
+	print '<input type="hidden" name="action" value="viewgraph">';
+	print '<input type="hidden" name="tabfamily" value="'.(string) $tabfamily.'">';
 
-$viewmode .= '<div class="divadvancedsearchfield">';
-$arrayofgraphs = array('bars' => 'Bars', 'lines' => 'Lines'); // also 'pies'
-$viewmode .= '<div class="inline-block opacitymedium"><span class="fas fa-chart-area paddingright" title="'.$langs->trans("Graph").'"></span>'.$langs->trans("Graph").'</div> ';
-$viewmode .= $form->selectarray('search_graph', $arrayofgraphs, $search_graph, 0, 0, 0, 'minwidth100', 1);
-$viewmode .= '</div>';
+	$viewmode = '';
 
-$num = 0;
-$massactionbutton = '';
-$nav = '';
-$newcardbutton = '';
-$limit = 0;
+	$viewmode .= '<div class="divadvancedsearchfield">';
+	$arrayofgraphs = array('bars' => 'Bars', 'lines' => 'Lines'); // also 'pies'
+	$viewmode .= '<div class="inline-block opacitymedium"><span class="fas fa-chart-area paddingright" title="'.$langs->trans("Graph").'"></span>'.$langs->trans("Graph").'</div> ';
+	// The class onrightofpage allows to align the popup list on the right of the select component (so it can't go out of screen on the right).
+	// For this the select must also be inside a parent with class parentonrightofpage (and a fixed width to avoid the parent to be enlarged when the dropdown list is open).
+	$viewmode .= '<div class="inline-block width100 parentonrightofpage">';
+	$viewmode .= $form->selectarray('search_graph', $arrayofgraphs, $search_graph, 0, 0, 0, '', 1, 0, 0, '', 'graphtype width100 onrightofpage');
+	$viewmode .= '</div>';
+	$viewmode .= '</div>';
 
-print_barre_liste('', $page, $_SERVER["PHP_SELF"], $param, $sortfield, $sortorder, $massactionbutton, $num, -1, 'object_action', 0, $nav.'<span class="marginleftonly"></span>'.$newcardbutton, '', $limit, 1, 0, 1, $viewmode);
+	$num = 0;
+	$massactionbutton = '';
+	$nav = '';
+	$newcardbutton = '';
+	$limit = 0;
 
-
-
-print '<div class="liste_titre liste_titre_bydiv centpercent">';
-
-// Select object
-print '<div class="divadvancedsearchfield center floatnone">';
-print '<div class="inline-block"><span class="opacitymedium">'.$langs->trans("StatisticsOn").'</span></div> ';
-print $form->selectarray('objecttype', $newarrayoftype, $objecttype, 0, 0, 0, '', 1, 0, 0, '', 'minwidth200', 1);
-if (empty($conf->use_javascript_ajax)) {
-	print '<input type="submit" class="button buttongen button-save nomargintop" name="changeobjecttype" value="'.$langs->trans("Refresh").'">';
-} else {
-	print '<!-- js code to reload page with good object type -->
-	<script type="text/javascript">
-        jQuery(document).ready(function() {
-        	jQuery("#objecttype").change(function() {
-        		console.log("Reload for "+jQuery("#objecttype").val());
-                location.href = "'.$_SERVER["PHP_SELF"].'?objecttype="+jQuery("#objecttype").val()+"'.($tabfamily ? '&tabfamily='.urlencode($tabfamily) : '').(GETPOST('show_search_component_params_hidden', 'int') ? '&show_search_component_params_hidden='.((int) GETPOST('show_search_component_params_hidden', 'int')) : '').'";
-        	});
-        });
-    </script>';
-}
-print '</div><div class="clearboth"></div>';
-
-// Add Filter (you can use param &show_search_component_params_hidden=1 for debug)
-print '<div class="divadvancedsearchfield quatrevingtpercent">';
-print $form->searchComponent(array($object->element => $object->fields), $search_component_params, array(), $search_component_params_hidden);
-print '</div>';
-
-// Add measures into array
-$count = 0;
-//var_dump($arrayofmesures);
-print '<div class="divadvancedsearchfield clearboth">';
-print '<div class="inline-block"><span class="fas fa-ruler-combined paddingright pictofixedwidth" title="'.dol_escape_htmltag($langs->trans("Measures")).'"></span><span class="fas fa-caret-left caretleftaxis" title="'.dol_escape_htmltag($langs->trans("Measures")).'"></span></div>';
-$simplearrayofmesures = array();
-foreach ($arrayofmesures as $key => $val) {
-	$simplearrayofmesures[$key] = $arrayofmesures[$key]['label'];
-}
-print $form->multiselectarray('search_measures', $simplearrayofmesures, $search_measures, 0, 0, 'minwidth400', 1, 0, '', '', $langs->trans("Measures"));	// Fill the array $arrayofmeasures with possible fields
-print '</div>';
-
-// XAxis
-$count = 0;
-print '<div class="divadvancedsearchfield">';
-print '<div class="inline-block"><span class="fas fa-ruler-combined paddingright pictofixedwidth" title="'.dol_escape_htmltag($langs->trans("XAxis")).'"></span><span class="fas fa-caret-down caretdownaxis" title="'.dol_escape_htmltag($langs->trans("XAxis")).'"></span></div>';
-//var_dump($arrayofxaxis);
-print $formother->selectXAxisField($object, $search_xaxis, $arrayofxaxis, $langs->trans("XAxis"));	// Fill the array $arrayofxaxis with possible fields
-print '</div>';
-
-// Group by
-$count = 0;
-print '<div class="divadvancedsearchfield">';
-print '<div class="inline-block opacitymedium"><span class="fas fa-ruler-horizontal paddingright pictofixedwidth" title="'.dol_escape_htmltag($langs->trans("GroupBy")).'"></span></div>';
-print $formother->selectGroupByField($object, $search_groupby, $arrayofgroupby, 'minwidth250 maxwidth300', $langs->trans("GroupBy"));	// Fill the array $arrayofgroupby with possible fields
-print '</div>';
+	print_barre_liste('', $page, $_SERVER["PHP_SELF"], $param, $sortfield, $sortorder, $massactionbutton, $num, -1, 'object_action', 0, $nav.'<span class="marginleftonly"></span>'.$newcardbutton, 'nomarginbottom', $limit, 1, 0, 1, $viewmode);
 
 
-if ($mode == 'grid') {
-	// YAxis
-	print '<div class="divadvancedsearchfield">';
-	foreach ($object->fields as $key => $val) {
-		if (empty($val['measure']) && (!isset($val['enabled']) || dol_eval($val['enabled'], 1, 1, '1'))) {
-			if (in_array($key, array('id', 'rowid', 'entity', 'last_main_doc', 'extraparams'))) {
-				continue;
-			}
-			if (preg_match('/^fk_/', $key)) {
-				continue;
-			}
-			if (in_array($val['type'], array('html', 'text'))) {
-				continue;
-			}
-			if (in_array($val['type'], array('timestamp', 'date', 'datetime'))) {
-				$arrayofyaxis['t.'.$key.'-year'] = array(
-					'label' => $langs->trans($val['label']).' ('.$YYYY.')',
-					'position' => $val['position'],
-					'table' => $object->table_element
-				);
-				$arrayofyaxis['t.'.$key.'-month'] = array(
-					'label' => $langs->trans($val['label']).' ('.$YYYY.'-'.$MM.')',
-					'position' => $val['position'],
-					'table' => $object->table_element
-				);
-				$arrayofyaxis['t.'.$key.'-day'] = array(
-					'label' => $langs->trans($val['label']).' ('.$YYYY.'-'.$MM.'-'.$DD.')',
-					'position' => $val['position'],
-					'table' => $object->table_element
-				);
-			} else {
-				$arrayofyaxis['t.'.$key] = array(
-					'label' => $val['label'],
-					'position' => (int) $val['position'],
-					'table' => $object->table_element
-				);
+	foreach ($newarrayoftype as $tmpkey => $tmpval) {
+		$newarrayoftype[$tmpkey]['data-html'] = img_picto('', $tmpval['picto'], 'class="pictofixedwidth"').$langs->trans($tmpval['label']);
+		$newarrayoftype[$tmpkey]['label'] = $langs->trans($tmpval['label']);
+	}
+
+	print '<div class="liste_titre liste_titre_bydiv liste_titre_bydiv_inlineblock liste_titre_bydiv_nothingafter centpercent">';
+
+	// Select object
+	print '<div class="divadvancedsearchfield floatnone">';
+	//print '<div class="inline-block"><span class="opacitymedium">'.$langs->trans("StatisticsOn").'</span></div> ';
+	print img_picto('', 'generic', 'class="paddingright pictofixedwidth linkobject boxfilter"');
+	print $form->selectarray('objecttype', $newarrayoftype, $objecttype, $langs->trans("StatisticsOn"), 0, 0, '', 1, 0, 0, '', 'minwidth250 customreportsobjecttype noborderfocus', 1, '', 0, 1);
+	if (empty($conf->use_javascript_ajax)) {
+		print '<input type="submit" class="button buttongen button-save nomargintop" name="changeobjecttype" value="'.$langs->trans("Refresh").'">';
+	} else {
+		print '<!-- js code to reload page with good object type -->
+		<script nonce="'.getNonce().'" type="text/javascript">
+	        jQuery(document).ready(function() {
+	        	jQuery("#objecttype").change(function() {
+	        		console.log("Reload for "+jQuery("#objecttype").val());
+	                location.href = "'.$_SERVER["PHP_SELF"].'?objecttype="+jQuery("#objecttype").val()+"&focusonfilter=1'.($tabfamily ? '&tabfamily='.urlencode($tabfamily) : '').(GETPOSTINT('show_search_component_params_hidden') ? '&show_search_component_params_hidden='.((int) GETPOSTINT('show_search_component_params_hidden')) : '').'";
+	        	});
+	        });
+	    </script>';
+	}
+	// When no object type is selected, the focus goes on the combo of object types
+	if (empty($objecttype)) {
+		print '<script nonce="'.getNonce().'">jQuery(document).ready(function() {
+			var objecttypeselection = jQuery("#objecttype").next(".select2").find(".select2-selection");
+			(objecttypeselection.length ? objecttypeselection : jQuery("#objecttype")).trigger("focus");
+		});</script>';
+	}
+	print '</div><div class="clearboth"></div>';
+
+	// The components to select the filter, measures, X axis and group by are shown only once an object type is selected
+	if (!empty($newarrayoftype) && !empty($object)) {
+		// Filter (you can use param &show_search_component_params_hidden=1 for debug)
+		if (!empty($object)) {
+			print '<div class="divadvancedsearchfield divadvancedsearchfieldusf">';
+			print $form->searchComponent(array($object->element => $object->fields), $search_component_params, array(), $search_component_params_hidden, $arrayoffilterfields);
+			print '</div>';
+			// After a change of the object type, the page is reloaded with focusonfilter=1 so the focus goes on the filter
+			if (GETPOSTINT('focusonfilter')) {
+				print '<script nonce="'.getNonce().'">jQuery(document).ready(function() { jQuery("#search_component_params_input").trigger("focus"); });</script>';
 			}
 		}
+
+		// YAxis (add measures into array)
+		$count = 0;
+		//var_dump($arrayofmesures);
+		print '<div class="divadvancedsearchfield clearboth">';
+		print '<!-- measureComponent -->'."\n";
+		print '<div class="divadvancedsearchfieldcomp centpercent inline-block">';
+		print '<span class="inline-block"><span class="fas fa-ruler-combined paddingright pictofixedwidth" title="'.dol_escape_htmltag($langs->trans("Measures")).'"></span><span class="fas fa-caret-left caretleftaxis" title="'.dol_escape_htmltag($langs->trans("Measures")).'"></span></span>';
+		$simplearrayofmesures = array();
+		foreach ($arrayofmesures as $key => $val) {
+			$simplearrayofmesures[$key] = $arrayofmesures[$key]['label'];
+		}
+		if (empty($conf->use_javascript_ajax)) {
+			print $form->multiselectarray('search_measures', $simplearrayofmesures, $sanitized_search_measures, 0, 0, 'minwidth200 maxwidth300 combolargelist', 1, 0, '', '', $langs->transnoentitiesnoconv("Measures"));	// Fill the array $arrayofmeasures with possible fields
+		} else {
+			print customReportsSelectMeasures('search_measures', $arrayofmesures, $sanitized_search_measures, $langs->transnoentitiesnoconv("Measures"));
+		}
+		print '</div>';
+		print '</div>';
+
+		// XAxis
+		$count = 0;
+		print '<div class="divadvancedsearchfield">';
+		print '<div class="inline-block"><span class="fas fa-ruler-combined paddingright pictofixedwidth" title="'.dol_escape_htmltag($langs->trans("XAxis")).'"></span><span class="fas fa-caret-down caretdownaxis" title="'.dol_escape_htmltag($langs->trans("XAxis")).'"></span></div>';
+		//var_dump($arrayofxaxis);
+		if (empty($conf->use_javascript_ajax)) {
+			print $formother->selectXAxisField($object, $sanitized_search_xaxis, $arrayofxaxis, $langs->trans("XAxis"), 'minwidth200 maxwidth300 combolargelist');	// Fill the array $arrayofxaxis with possible fields
+		} else {
+			print customReportsSelectXAxis('search_xaxis', $arrayofxaxis, $sanitized_search_xaxis, $langs->transnoentitiesnoconv("XAxis"));
+		}
+		print '</div>';
+
+		// Group by
+		$count = 0;
+		print '<div class="divadvancedsearchfield">';
+		print '<div class="inline-block opacitymedium"><span class="fas fa-ruler-horizontal paddingright pictofixedwidth" title="'.dol_escape_htmltag($langs->trans("GroupBy")).'"></span></div>';
+		if (empty($conf->use_javascript_ajax)) {
+			print $formother->selectGroupByField($object, $sanitized_search_groupby, $arrayofgroupby, 'minwidth200 maxwidth300 combolargelist', $langs->trans("GroupBy"));	// Fill the array $arrayofgroupby with possible fields
+		} else {
+			print customReportsSelectGroupBy('search_groupby', $arrayofgroupby, $sanitized_search_groupby, $langs->transnoentitiesnoconv("GroupBy"));
+		}
+		print '</div>';
 	}
-	// Add measure from extrafields
-	if ($object->isextrafieldmanaged) {
-		foreach ($extrafields->attributes[$object->table_element]['label'] as $key => $val) {
-			if (!empty($extrafields->attributes[$object->table_element]['totalizable'][$key]) && (!isset($extrafields->attributes[$object->table_element]['enabled'][$key]) || dol_eval($extrafields->attributes[$object->table_element]['enabled'][$key], 1, 1, '1'))) {
-				$arrayofyaxis['te.'.$key] = array(
-					'label' => $extrafields->attributes[$object->table_element]['label'][$key],
-					'position' => (int) $extrafields->attributes[$object->table_element]['pos'][$key],
-					'table' => $object->table_element
-				);
+
+	if ($mode == 'grid' && !empty($object)) {
+		// YAxis
+		print '<div class="divadvancedsearchfield">';
+		foreach ($object->fields as $key => $val) {
+			if (empty($val['measure']) && (!isset($val['enabled']) || dol_eval((string) $val['enabled'], 1, 1, '1'))) {
+				if (in_array($key, array('id', 'rowid', 'entity', 'last_main_doc', 'extraparams'))) {
+					continue;
+				}
+				if (preg_match('/^fk_/', $key)) {
+					continue;
+				}
+				if (in_array($val['type'], array('html', 'text'))) {
+					continue;
+				}
+				if (in_array($val['type'], array('timestamp', 'date', 'datetime'))) {
+					$arrayofyaxis['t.'.$key.'-year'] = array(
+						'label' => $langs->trans($val['label']).' ('.$YYYY.')',
+						'position' => $val['position'],
+						'table' => $object->table_element
+					);
+					$arrayofyaxis['t.'.$key.'-month'] = array(
+						'label' => $langs->trans($val['label']).' ('.$YYYY.'-'.$MM.')',
+						'position' => $val['position'],
+						'table' => $object->table_element
+					);
+					$arrayofyaxis['t.'.$key.'-day'] = array(
+						'label' => $langs->trans($val['label']).' ('.$YYYY.'-'.$MM.'-'.$DD.')',
+						'position' => $val['position'],
+						'table' => $object->table_element
+					);
+				} else {
+					$arrayofyaxis['t.'.$key] = array(
+						'label' => $val['label'],
+						'position' => (int) $val['position'],
+						'table' => $object->table_element
+					);
+				}
 			}
 		}
+		// Add measure from extrafields
+		if ($object->isextrafieldmanaged) {
+			foreach ($extrafields->attributes[$object->table_element]['label'] as $key => $val) {
+				if (!empty($extrafields->attributes[$object->table_element]['totalizable'][$key]) && (!isset($extrafields->attributes[$object->table_element]['enabled'][$key]) || dol_eval((string) $extrafields->attributes[$object->table_element]['enabled'][$key], 1, 1, '1'))) {
+					$arrayofyaxis['te.'.$key] = array(
+						'label' => $extrafields->attributes[$object->table_element]['label'][$key],
+						'position' => (int) $extrafields->attributes[$object->table_element]['pos'][$key],
+						'table' => $object->table_element
+					);
+				}
+			}
+		}
+		$arrayofyaxis = dol_sort_array($arrayofyaxis, 'position');
+		$arrayofyaxislabel = array();
+		foreach ($arrayofyaxis as $key => $val) {
+			$arrayofyaxislabel[$key] = $val['label'];
+		}
+		print '<div class="inline-block opacitymedium"><span class="fas fa-ruler-vertical paddingright" title="'.$langs->trans("YAxis").'"></span>'.$langs->trans("YAxis").'</div> ';
+		print $form->multiselectarray('search_yaxis', $arrayofyaxislabel, $sanitized_search_yaxis != null ? $sanitized_search_yaxis : array(), 0, 0, 'minwidth100', 1);
+		print '</div>';
 	}
-	$arrayofyaxis = dol_sort_array($arrayofyaxis, 'position');
-	$arrayofyaxislabel = array();
-	foreach ($arrayofyaxis as $key => $val) {
-		$arrayofyaxislabel[$key] = $val['label'];
+
+	if (!empty($newarrayoftype) && !empty($object)) {
+		print '<div class="divadvancedsearchfield">';
+		print '<button type="submit" class="butAction nomargintop customreportsrefresh">'.$langs->trans("Refresh").'</button>';
+		print '</div>';
 	}
-	print '<div class="inline-block opacitymedium"><span class="fas fa-ruler-vertical paddingright" title="'.$langs->trans("YAxis").'"></span>'.$langs->trans("YAxis").'</div> ';
-	print $form->multiselectarray('search_yaxis', $arrayofyaxislabel, $search_yaxis, 0, 0, 'minwidth100', 1);
+
 	print '</div>';
+	print '</form>';
 }
-
-if ($mode == 'graph') {
-	//
-}
-
-print '<div class="divadvancedsearchfield">';
-print '<input type="submit" class="button buttongen button-save nomargintop" value="'.$langs->trans("Refresh").'">';
-print '</div>';
-print '</div>';
-print '</form>';
 
 // Generate the SQL request
 $sql = '';
-if (!empty($search_measures) && !empty($search_xaxis)) {
+if (!empty($sanitized_search_measures) && !empty($sanitized_search_xaxis)) {
+	$errormessage = '';
+
 	$fieldid = 'rowid';
 
 	$sql = "SELECT ";
-	foreach ($search_xaxis as $key => $val) {
-		if (preg_match('/\-year$/', $val)) {
-			$tmpval = preg_replace('/\-year$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y') as x_".$key.', ';
-		} elseif (preg_match('/\-month$/', $val)) {
-			$tmpval = preg_replace('/\-month$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m') as x_".$key.', ';
-		} elseif (preg_match('/\-day$/', $val)) {
-			$tmpval = preg_replace('/\-day$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m-%d') as x_".$key.', ';
+	foreach ($sanitized_search_xaxis as $sql_key => $sql_val) {
+		if (preg_match('/\-year$/', $sql_val)) {
+			$sql_tmpval = preg_replace('/\-year$/', '', $sql_val);
+			$sql .= "DATE_FORMAT(".$sql_tmpval.", '%Y') as x_".$sql_key.', ';
+		} elseif (preg_match('/\-month$/', $sql_val)) {
+			$sql_tmpval = preg_replace('/\-month$/', '', $sql_val);
+			$sql .= "DATE_FORMAT(".$sql_tmpval.", '%Y-%m') as x_".$sql_key.', ';
+		} elseif (preg_match('/\-day$/', $sql_val)) {
+			$sql_tmpval = preg_replace('/\-day$/', '', $sql_val);
+			$sql .= "DATE_FORMAT(".$sql_tmpval.", '%Y-%m-%d') as x_".$sql_key.', ';
 		} else {
-			$sql .= $val." as x_".$key.", ";
+			$sql .= $sql_val." as x_".$sql_key.", ";
 		}
 	}
-	foreach ($search_groupby as $key => $val) {
-		if (preg_match('/\-year$/', $val)) {
-			$tmpval = preg_replace('/\-year$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y') as g_".$key.', ';
-		} elseif (preg_match('/\-month$/', $val)) {
-			$tmpval = preg_replace('/\-month$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m') as g_".$key.', ';
-		} elseif (preg_match('/\-day$/', $val)) {
-			$tmpval = preg_replace('/\-day$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m-%d') as g_".$key.', ';
-		} else {
-			$sql .= $val." as g_".$key.", ";
+	if (!empty($sanitized_search_groupby)) {
+		foreach ($sanitized_search_groupby as $sql_key => $sql_val) {
+			if (preg_match('/\-year$/', $sql_val)) {
+				$sql_tmpval = preg_replace('/\-year$/', '', $sql_val);
+				$sql .= "DATE_FORMAT(".$sql_tmpval.", '%Y') as g_".$sql_key.', ';
+			} elseif (preg_match('/\-month$/', $sql_val)) {
+				$sql_tmpval = preg_replace('/\-month$/', '', $sql_val);
+				$sql .= "DATE_FORMAT(".$sql_tmpval.", '%Y-%m') as g_".$sql_key.', ';
+			} elseif (preg_match('/\-day$/', $sql_val)) {
+				$sql_tmpval = preg_replace('/\-day$/', '', $sql_val);
+				$sql .= "DATE_FORMAT(".$sql_tmpval.", '%Y-%m-%d') as g_".$sql_key.', ';
+			} else {
+				$sql .= $sql_val." as g_".$sql_key.", ";
+			}
 		}
 	}
-	foreach ($search_measures as $key => $val) {
-		if ($val == 't.count') {
-			$sql .= "COUNT(t.".$fieldid.") as y_".$key.', ';
-		} elseif (preg_match('/\-sum$/', $val)) {
-			$tmpval = preg_replace('/\-sum$/', '', $val);
-			$sql .= "SUM(".$db->ifsql($tmpval.' IS NULL', '0', $tmpval).") as y_".$key.", ";
-		} elseif (preg_match('/\-average$/', $val)) {
-			$tmpval = preg_replace('/\-average$/', '', $val);
-			$sql .= "AVG(".$db->ifsql($tmpval.' IS NULL', '0', $tmpval).") as y_".$key.", ";
-		} elseif (preg_match('/\-min$/', $val)) {
-			$tmpval = preg_replace('/\-min$/', '', $val);
-			$sql .= "MIN(".$db->ifsql($tmpval.' IS NULL', '0', $tmpval).") as y_".$key.", ";
-		} elseif (preg_match('/\-max$/', $val)) {
-			$tmpval = preg_replace('/\-max$/', '', $val);
-			$sql .= "MAX(".$db->ifsql($tmpval.' IS NULL', '0', $tmpval).") as y_".$key.", ";
+	foreach ($sanitized_search_measures as $sql_key => $sql_val) {
+		if ($sql_val == 't.count') {
+			$sql .= "COUNT(t.".$fieldid.") as y_".$sql_key.', ';
+		} elseif (preg_match('/\-sum$/', $sql_val)) {
+			$sql_tmpval = preg_replace('/\-sum$/', '', $sql_val);
+			$sql .= "SUM(".$db->ifsql($sql_tmpval.' IS NULL', '0', $sql_tmpval).") as y_".$sql_key.", ";
+		} elseif (preg_match('/\-average$/', $sql_val)) {
+			$sql_tmpval = preg_replace('/\-average$/', '', $sql_val);
+			$sql .= "AVG(".$db->ifsql($sql_tmpval.' IS NULL', '0', $sql_tmpval).") as y_".$sql_key.", ";
+		} elseif (preg_match('/\-min$/', $sql_val)) {
+			$sql_tmpval = preg_replace('/\-min$/', '', $sql_val);
+			$sql .= "MIN(".$db->ifsql($sql_tmpval.' IS NULL', '0', $sql_tmpval).") as y_".$sql_key.", ";
+		} elseif (preg_match('/\-max$/', $sql_val)) {
+			$sql_tmpval = preg_replace('/\-max$/', '', $sql_val);
+			$sql .= "MAX(".$db->ifsql($sql_tmpval.' IS NULL', '0', $sql_tmpval).") as y_".$sql_key.", ";
+		} elseif (preg_match('/\-stddevpop$/', $sql_val)) {
+			$sql_tmpval = preg_replace('/\-stddevpop$/', '', $sql_val);
+			$sql .= "STDDEV_POP(".$db->ifsql($sql_tmpval.' IS NULL', '0', $sql_tmpval).") as y_".$sql_key.", ";
 		}
 	}
 	$sql = preg_replace('/,\s*$/', '', $sql);
@@ -597,61 +1004,138 @@ if (!empty($search_measures) && !empty($search_xaxis)) {
 	if ($object->isextrafieldmanaged) {
 		$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$object->table_element."_extrafields as te ON te.fk_object = t.".$fieldid;
 	}
-	// Add table for link for multientity
+	// Add table for link on multientity
 	if ($object->ismultientitymanaged) {	// 0=No test on entity, 1=Test with field entity, 'field@table'=Test with link by field@table
 		if ($object->ismultientitymanaged == 1) {
 			// No table to add here
 		} else {
 			$tmparray = explode('@', $object->ismultientitymanaged);
-			$sql .= " INNER JOIN ".MAIN_DB_PREFIX.$tmparray[1]." as parenttableforentity ON t.".$tmparray[0]." = parenttableforentity.rowid";
+			$sql .= " INNER JOIN ".MAIN_DB_PREFIX.$db->sanitize($tmparray[1])." as parenttableforentity ON t.".$db->sanitize($tmparray[0])." = parenttableforentity.rowid";
 			$sql .= " AND parenttableforentity.entity IN (".getEntity($tmparray[1]).")";
 		}
 	}
 
-	$listoftablesalreadyadded = array($object->table_element => $object->table_element);
+	// Init the list of tables added. We include by default always the main table.
+	$listoftablesalreadyadded = array('t' => 't');	// List of table aliases already joined (the same table may be joined several times with different aliases)
 
-	// Add LEFT JOIN for all parent tables mentionned into the Xaxis
-	//var_dump($arrayofxaxis); var_dump($search_xaxis);
-	foreach ($search_xaxis as $key => $val) {
+	// Add LEFT JOIN for all parent tables mentioned into the Xaxis
+	//var_dump($arrayofxaxis); var_dump($sanitized_search_xaxis);
+	foreach ($sanitized_search_xaxis as $key => $val) {
 		if (!empty($arrayofxaxis[$val])) {
 			$tmpval = explode('.', $val);
-			//var_dump($arrayofxaxis[$val]['table']);
-			if (! in_array($arrayofxaxis[$val]['table'], $listoftablesalreadyadded)) {	// We do not add join for main table already added
-				$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$arrayofxaxis[$val]['table']." as ".$db->sanitize($tmpval[0])." ON t.".str_replace('t__', '', $db->sanitize($tmpval[0]))." = ".$db->sanitize($tmpval[0]).".rowid";
-				$listoftablesalreadyadded[$arrayofxaxis[$val]['table']] = $arrayofxaxis[$val]['table'];
+			//var_dump($arrayofgroupby);
+			$tmpforloop = explode(',', $arrayofxaxis[$val]['tablefromt']);
+			foreach ($tmpforloop as $tmptableandalias) {
+				list($tmptable, $tmptablealias) = array_pad(explode('=', $tmptableandalias, 2), 2, '');
+				if (! in_array($tmptablealias, $listoftablesalreadyadded)) {	// We do not add join for main table and tables already added
+					$tmpforexplode = explode('__', $tmptablealias);
+					$endpart = end($tmpforexplode);
+					$parenttableandfield = preg_replace('/__'.$endpart.'$/', '', $tmptablealias).'.'.$endpart;
+
+					$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$tmptable." as ".$db->sanitize($tmptablealias)." ON ".$db->sanitize($parenttableandfield)." = ".$db->sanitize($tmptablealias).".rowid";
+					$listoftablesalreadyadded[$tmptablealias] = $tmptablealias;
+
+					if (preg_match('/^te/', $tmpval[0]) && preg_replace('/^t_/', 'te_', $tmptablealias) == $tmpval[0]) {
+						$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$tmptable."_extrafields as ".$db->sanitize($tmpval[0])." ON ".$db->sanitize($tmpval[0]).".fk_object = ".$db->sanitize($tmptablealias).".rowid";
+						$listoftablesalreadyadded[$tmptablealias] = $tmptablealias;
+					}
+				}
 			}
 		} else {
-			dol_print_error($db, 'Found a key into search_xaxis not found into arrayofxaxis');
+			$errormessage = 'Found a key into search_xaxis not found into arrayofxaxis';
 		}
 	}
 
-	// Add LEFT JOIN for all parent tables mentionned into the Group by
-	//var_dump($arrayofgroupby); var_dump($search_groupby);
-	foreach ($search_groupby as $key => $val) {
+	// Add LEFT JOIN for all parent tables mentioned into the Group by
+	//var_dump($arrayofgroupby); var_dump($sanitized_search_groupby);
+	foreach ($sanitized_search_groupby as $key => $val) {
 		if (!empty($arrayofgroupby[$val])) {
 			$tmpval = explode('.', $val);
-			//var_dump($arrayofxaxis[$val]['table']);
-			if (! in_array($arrayofgroupby[$val]['table'], $listoftablesalreadyadded)) {	// We do not add join for main table already added
-				$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$arrayofgroupby[$val]['table']." as ".$tmpval[0]." ON t.".str_replace('t__', '', $tmpval[0])." = ".$tmpval[0].".rowid";
-				$listoftablesalreadyadded[$arrayofgroupby[$val]['table']] = $arrayofgroupby[$val]['table'];
+			//var_dump($arrayofgroupby[$val]); var_dump($tmpval);
+			$tmpforloop = explode(',', $arrayofgroupby[$val]['tablefromt']);
+			foreach ($tmpforloop as $tmptableandalias) {
+				list($tmptable, $tmptablealias) = array_pad(explode('=', $tmptableandalias, 2), 2, '');
+				if (! in_array($tmptablealias, $listoftablesalreadyadded)) {	// We do not add join for main table and tables already added
+					$tmpforexplode = explode('__', $tmptablealias);
+					$endpart = end($tmpforexplode);
+					$parenttableandfield = preg_replace('/__'.$endpart.'$/', '', $tmptablealias).'.'.$endpart;
+
+					$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$tmptable." as ".$db->sanitize($tmptablealias)." ON ".$db->sanitize($parenttableandfield)." = ".$db->sanitize($tmptablealias).".rowid";
+					$listoftablesalreadyadded[$tmptablealias] = $tmptablealias;
+
+					if (preg_match('/^te/', $tmpval[0]) && preg_replace('/^t_/', 'te_', $tmptablealias) == $tmpval[0]) {
+						$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$tmptable."_extrafields as ".$db->sanitize($tmpval[0])." ON ".$db->sanitize($tmpval[0]).".fk_object = ".$db->sanitize($tmptablealias).".rowid";
+						$listoftablesalreadyadded[$tmptablealias] = $tmptablealias;
+					}
+				}
 			}
 		} else {
-			dol_print_error($db, 'Found a key into search_groupby not found into arrayofgroupby');
+			$errormessage = 'Found a key into search_groupby not found into arrayofgroupby';
 		}
 	}
 
-	// Add LEFT JOIN for all parent tables mentionned into the Yaxis
-	//var_dump($arrayofgroupby); var_dump($search_groupby);
-	foreach ($search_measures as $key => $val) {
+	// Add LEFT JOIN for all parent tables mentioned into the Yaxis
+	//var_dump($arrayofgroupby); var_dump($sanitized_search_groupby);
+	foreach ($sanitized_search_measures as $key => $val) {
 		if (!empty($arrayofmesures[$val])) {
 			$tmpval = explode('.', $val);
-			//var_dump($arrayofxaxis[$val]['table']);
-			if (! in_array($arrayofmesures[$val]['table'], $listoftablesalreadyadded)) {	// We do not add join for main table already added
-				$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$arrayofmesures[$val]['table']." as ".$tmpval[0]." ON t.".str_replace('t__', '', $tmpval[0])." = ".$tmpval[0].".rowid";
-				$listoftablesalreadyadded[$arrayofmesures[$val]['table']] = $arrayofmesures[$val]['table'];
+			//var_dump($arrayofgroupby);
+			$tmpforloop = explode(',', $arrayofmesures[$val]['tablefromt']);
+			foreach ($tmpforloop as $tmptableandalias) {
+				list($tmptable, $tmptablealias) = array_pad(explode('=', $tmptableandalias, 2), 2, '');
+				if (! in_array($tmptablealias, $listoftablesalreadyadded)) {	// We do not add join for main table and tables already added
+					$tmpforexplode = explode('__', $tmptablealias);
+					$endpart = end($tmpforexplode);
+					$parenttableandfield = preg_replace('/__'.$endpart.'$/', '', $tmptablealias).'.'.$endpart;
+
+					$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$tmptable." as ".$db->sanitize($tmptablealias)." ON ".$db->sanitize($parenttableandfield)." = ".$db->sanitize($tmptablealias).".rowid";
+					$listoftablesalreadyadded[$tmptablealias] = $tmptablealias;
+
+					if (preg_match('/^te/', $tmpval[0]) && preg_replace('/^t_/', 'te_', $tmptablealias) == $tmpval[0]) {
+						$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$tmptable."_extrafields as ".$db->sanitize($tmpval[0])." ON ".$db->sanitize($tmpval[0]).".fk_object = ".$db->sanitize($tmptablealias).".rowid";
+						$listoftablesalreadyadded[$tmptablealias] = $tmptablealias;
+					}
+				}
 			}
 		} else {
-			dol_print_error($db, 'Found a key into search_measures not found into arrayofmesures');
+			$errormessage = 'Found a key into search_measures not found into arrayofmesures';
+		}
+	}
+
+	// Add LEFT JOIN for all tables mentioned into filter
+	if (!empty($search_component_params_hidden)) {
+		// Get all fields used into the filter
+		$matches = array();
+		preg_match_all('/\b(t[\w]*_[\w]*)\.(\w+(-\w+)?)/', $search_component_params_hidden, $matches);
+		$fieldsUsedInFilter = array_unique($matches[0]);
+
+		// Remove fields used before to avoid double join
+		$fieldsToRemove = array_merge($sanitized_search_measures, $sanitized_search_groupby, $sanitized_search_xaxis);
+		$fieldsUsedInFilter = array_diff($fieldsUsedInFilter, $fieldsToRemove);
+
+		foreach ($fieldsUsedInFilter as $key => $val) {
+			if (!empty($arrayoffilterfields[$val])) {
+				$tmpval = explode('.', $val);
+				$tmpforloop = explode(',', $arrayoffilterfields[$val]['tablefromt']);
+				foreach ($tmpforloop as $tmptableandalias) {
+					list($tmptable, $tmptablealias) = array_pad(explode('=', $tmptableandalias, 2), 2, '');
+					if (! in_array($tmptablealias, $listoftablesalreadyadded)) {	// We do not add join for main table and tables already added
+						$tmpforexplode = explode('__', $tmptablealias);
+						$endpart = end($tmpforexplode);
+						$parenttableandfield = preg_replace('/__'.$endpart.'$/', '', $tmptablealias).'.'.$endpart;
+
+						$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$tmptable." as ".$db->sanitize($tmptablealias)." ON ".$db->sanitize($parenttableandfield)." = ".$db->sanitize($tmptablealias).".rowid";
+						$listoftablesalreadyadded[$tmptablealias] = $tmptablealias;
+
+						if (preg_match('/^te/', $tmpval[0]) && preg_replace('/^t_/', 'te_', $tmptablealias) == $tmpval[0]) {
+							$sql .= " LEFT JOIN ".MAIN_DB_PREFIX.$tmptable."_extrafields as ".$db->sanitize($tmpval[0])." ON ".$db->sanitize($tmpval[0]).".fk_object = ".$db->sanitize($tmptablealias).".rowid";
+							$listoftablesalreadyadded[$tmptablealias] = $tmptablealias;
+						}
+					}
+				}
+			} else {
+				$errormessage = 'Found a key into search_filterfields not found into arrayoffilterfields';
+			}
 		}
 	}
 
@@ -660,85 +1144,135 @@ if (!empty($search_measures) && !empty($search_xaxis)) {
 		$sql .= " AND t.entity IN (".getEntity($object->element).")";
 	}
 	// Add the where here
-	$sqlfilters = $search_component_params_hidden;
-	if ($sqlfilters) {
-		$errormessage = '';
-		if (dolCheckFilters($sqlfilters, $errormessage)) {
-			$regexstring = '\(([^:\'\(\)]+:[^:\'\(\)]+:[^\(\)]+)\)';
-			$sql .= " AND (".preg_replace_callback('/'.$regexstring.'/', 'dolForgeCriteriaCallback', $sqlfilters).")";
-		} else {
-			print $errormessage;
-		}
+	if ($search_component_params_hidden) {
+		$sql .= forgeSQLFromUniversalSearchCriteria($search_component_params_hidden, $errormessage, 0, 0, 1);
+
+		// Replace date values by $db->idate(dol_mktime(...)) @phan-suppress-next-line SqlInjection
+		$sql = preg_replace_callback(
+			"/(\w+)\.(\w+)\s*(=|!=|<>|<|>|<=|>=)\s*'(\d{4})-(\d{2})-(\d{2})'/",
+			/**
+			 * @param 	array<int, string> $matches
+			 * @return 	string SQL filter condition
+			 */
+			static function (array $matches): string {
+				global $db;
+				'@phan-var-force DoliDB $db';
+				$column = $matches[1] . '.' . $matches[2];
+				$operator = $matches[3];
+				$year = (int) $matches[4];
+				$month = (int) $matches[5];
+				$day = (int) $matches[6];
+
+				$startOfDay = $db->idate(dol_mktime(0, 0, 0, $month, $day, $year));
+				$endOfDay = $db->idate(dol_mktime(23, 59, 59, $month, $day, $year));
+
+				switch ($operator) {
+					case "=":
+						return "($column >= '$startOfDay' AND $column <= '$endOfDay')";
+					case "!=":
+					case "<>":
+						return "NOT ($column >= '$startOfDay' AND $column <= '$endOfDay')";
+					case "<":
+						return "$column < '$startOfDay'";
+					case ">":
+						return "$column > '$endOfDay'";
+					case "<=":
+						return "$column <= '$endOfDay'";
+					case ">=":
+						return "$column >= '$startOfDay'";
+					default:
+						return "";
+				}
+			},
+			$sql
+		);
 	}
 	$sql .= " GROUP BY ";
-	foreach ($search_xaxis as $key => $val) {
-		if (preg_match('/\-year$/', $val)) {
-			$tmpval = preg_replace('/\-year$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y'), ";
-		} elseif (preg_match('/\-month$/', $val)) {
-			$tmpval = preg_replace('/\-month$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m'), ";
-		} elseif (preg_match('/\-day$/', $val)) {
-			$tmpval = preg_replace('/\-day$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m-%d'), ";
+	foreach ($sanitized_search_xaxis as $key => $sanitized_val) {
+		if (preg_match('/\-year$/', $sanitized_val)) {
+			$sanitized_tmpval = preg_replace('/\-year$/', '', $sanitized_val);
+			$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y'), ";
+		} elseif (preg_match('/\-month$/', $sanitized_val)) {
+			$sanitized_tmpval = preg_replace('/\-month$/', '', $sanitized_val);
+			$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y-%m'), ";
+		} elseif (preg_match('/\-day$/', $sanitized_val)) {
+			$sanitized_tmpval = preg_replace('/\-day$/', '', $sanitized_val);
+			$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y-%m-%d'), ";
 		} else {
-			$sql .= $val.", ";
+			$sql .= $sanitized_val.", ";
 		}
 	}
-	foreach ($search_groupby as $key => $val) {
-		if (preg_match('/\-year$/', $val)) {
-			$tmpval = preg_replace('/\-year$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y'), ";
-		} elseif (preg_match('/\-month$/', $val)) {
-			$tmpval = preg_replace('/\-month$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m'), ";
-		} elseif (preg_match('/\-day$/', $val)) {
-			$tmpval = preg_replace('/\-day$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m-%d'), ";
-		} else {
-			$sql .= $val.', ';
+	if (!empty($sanitized_search_groupby)) {
+		foreach ($sanitized_search_groupby as $key => $sanitized_val) {
+			if (preg_match('/\-year$/', $sanitized_val)) {
+				$sanitized_tmpval = preg_replace('/\-year$/', '', $sanitized_val);
+				$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y'), ";
+			} elseif (preg_match('/\-month$/', $sanitized_val)) {
+				$sanitized_tmpval = preg_replace('/\-month$/', '', $sanitized_val);
+				$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y-%m'), ";
+			} elseif (preg_match('/\-day$/', $sanitized_val)) {
+				$sanitized_tmpval = preg_replace('/\-day$/', '', $sanitized_val);
+				$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y-%m-%d'), ";
+			} else {
+				$sql .= $sanitized_val.', ';
+			}
 		}
 	}
 	$sql = preg_replace('/,\s*$/', '', $sql);
 	$sql .= ' ORDER BY ';
-	foreach ($search_xaxis as $key => $val) {
-		if (preg_match('/\-year$/', $val)) {
-			$tmpval = preg_replace('/\-year$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y'), ";
-		} elseif (preg_match('/\-month$/', $val)) {
-			$tmpval = preg_replace('/\-month$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m'), ";
-		} elseif (preg_match('/\-day$/', $val)) {
-			$tmpval = preg_replace('/\-day$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m-%d'), ";
+	foreach ($sanitized_search_xaxis as $key => $sanitized_val) {
+		if (preg_match('/\-year$/', $sanitized_val)) {
+			$sanitized_tmpval = preg_replace('/\-year$/', '', $sanitized_val);
+			$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y'), ";
+		} elseif (preg_match('/\-month$/', $sanitized_val)) {
+			$sanitized_tmpval = preg_replace('/\-month$/', '', $sanitized_val);
+			$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y-%m'), ";
+		} elseif (preg_match('/\-day$/', $sanitized_val)) {
+			$sanitized_tmpval = preg_replace('/\-day$/', '', $sanitized_val);
+			$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y-%m-%d'), ";
 		} else {
-			$sql .= $val.', ';
+			$sql .= $sanitized_val.', ';
 		}
 	}
-	foreach ($search_groupby as $key => $val) {
-		if (preg_match('/\-year$/', $val)) {
-			$tmpval = preg_replace('/\-year$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y'), ";
-		} elseif (preg_match('/\-month$/', $val)) {
-			$tmpval = preg_replace('/\-month$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m'), ";
-		} elseif (preg_match('/\-day$/', $val)) {
-			$tmpval = preg_replace('/\-day$/', '', $val);
-			$sql .= "DATE_FORMAT(".$tmpval.", '%Y-%m-%d'), ";
-		} else {
-			$sql .= $val.', ';
+	if (!empty($sanitized_search_groupby)) {
+		foreach ($sanitized_search_groupby as $key => $sanitized_val) {
+			if (preg_match('/\-year$/', $sanitized_val)) {
+				$sanitized_tmpval = preg_replace('/\-year$/', '', $sanitized_val);
+				$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y'), ";
+			} elseif (preg_match('/\-month$/', $sanitized_val)) {
+				$sanitized_tmpval = preg_replace('/\-month$/', '', $sanitized_val);
+				$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y-%m'), ";
+			} elseif (preg_match('/\-day$/', $sanitized_val)) {
+				$sanitized_tmpval = preg_replace('/\-day$/', '', $sanitized_val);
+				$sql .= "DATE_FORMAT(".$sanitized_tmpval.", '%Y-%m-%d'), ";
+			} else {
+				$sql .= $sanitized_val.', ';
+			}
 		}
 	}
 	$sql = preg_replace('/,\s*$/', '', $sql);
+
+	// Can overwrite the SQL with a custom SQL string (when used as an include)
+	if (!empty($customsql)) {
+		$sql = $customsql;
+	}
 }
 //print $sql;
 
+if ($errormessage) {
+	print '<div class="warning">';
+	print dol_escape_htmltag($errormessage);
+	//print '<br>'.dol_escape_htmltag('SQL is '.$sql);
+	print '</div>';
+	$sql = '';
+}
+
 $legend = array();
-foreach ($search_measures as $key => $val) {
+foreach ($sanitized_search_measures as $key => $val) {
 	$legend[] = $langs->trans($arrayofmesures[$val]['label']);
 }
 
-$useagroupby = (is_array($search_groupby) && count($search_groupby));
+$useagroupby = count($sanitized_search_groupby);
 //var_dump($useagroupby);
 //var_dump($arrayofvaluesforgroupby);
 
@@ -748,125 +1282,138 @@ $data = array();
 if ($sql) {
 	$resql = $db->query($sql);
 	if (!$resql) {
-		dol_print_error($db);
-	}
+		print '<div class="warning">';
+		print dol_escape_htmltag($db->lasterror());
+		//print '<br>'.dol_escape_htmltag('SQL is '.$sql);
+		print '</div>';
+	} else {
+		$ifetch = 0;
+		$xi = 0;
+		$oldlabeltouse = '';
+		while ($obj = $db->fetch_object($resql)) {
+			$ifetch++;
+			if ($useagroupby) {
+				$xval = $sanitized_search_xaxis[0];
+				$fieldforxkey = 'x_0';
+				$xlabel = $obj->$fieldforxkey;
+				$xvalwithoutprefix = preg_replace('/^[a-z]+\./', '', $xval);
 
-	$ifetch = 0;
-	$xi = 0;
-	$oldlabeltouse = '';
-	while ($obj = $db->fetch_object($resql)) {
-		$ifetch++;
-		if ($useagroupby) {
-			$xval = $search_xaxis[0];
-			$fieldforxkey = 'x_0';
-			$xlabel = $obj->$fieldforxkey;
-			$xvalwithoutprefix = preg_replace('/^[a-z]+\./', '', $xval);
-
-			// Define $xlabel
-			if (!empty($object->fields[$xvalwithoutprefix]['arrayofkeyval'])) {
-				$xlabel = $object->fields[$xvalwithoutprefix]['arrayofkeyval'][$obj->$fieldforxkey];
-			}
-			$labeltouse = (($xlabel || $xlabel == '0') ? dol_trunc($xlabel, 20, 'middle') : ($xlabel === '' ? $langs->transnoentitiesnoconv("Empty") : $langs->transnoentitiesnoconv("NotDefined")));
-
-			if ($oldlabeltouse && ($labeltouse != $oldlabeltouse)) {
-				$xi++; // Increase $xi
-			}
-			//var_dump($labeltouse.' '.$oldlabeltouse.' '.$xi);
-			$oldlabeltouse = $labeltouse;
-
-			/* Example of value for $arrayofvaluesforgroupby
-			 * array (size=1)
-			 *	  'g_0' =>
-			 *	    array (size=6)
-			 *	      0 => string '0' (length=1)
-			 *	      '' => string 'Empty' (length=5)
-			 *	      '__NULL__' => string 'Not defined' (length=11)
-			 *	      'done' => string 'done' (length=4)
-			 *	      'processing' => string 'processing' (length=10)
-			 *	      'undeployed' => string 'undeployed' (length=10)
-			 */
-			foreach ($search_measures as $key => $val) {
-				$gi = 0;
-				foreach ($search_groupby as $gkey) {
-					//var_dump('*** Fetch #'.$ifetch.' for labeltouse='.$labeltouse.' measure number '.$key.' and group g_'.$gi);
-					//var_dump($arrayofvaluesforgroupby);
-					foreach ($arrayofvaluesforgroupby['g_'.$gi] as $gvaluepossiblekey => $gvaluepossiblelabel) {
-						$ykeysuffix = $gvaluepossiblelabel;
-						$gvalwithoutprefix = preg_replace('/^[a-z]+\./', '', $gval);
-
-						$fieldfory = 'y_'.$key;
-						$fieldforg = 'g_'.$gi;
-						$fieldforybis = 'y_'.$key.'_'.$ykeysuffix;
-						//var_dump('gvaluepossiblekey='.$gvaluepossiblekey.' gvaluepossiblelabel='.$gvaluepossiblelabel.' ykeysuffix='.$ykeysuffix.' gval='.$gval.' gvalwithoutsuffix='.$gvalwithoutprefix);
-						//var_dump('fieldforg='.$fieldforg.' obj->$fieldforg='.$obj->$fieldforg.' fieldfory='.$fieldfory.' obj->$fieldfory='.$obj->$fieldfory.' fieldforybis='.$fieldforybis);
-
-						if (!is_array($data[$xi])) {
-							$data[$xi] = array();
-						}
-
-						if (!array_key_exists('label', $data[$xi])) {
-							$data[$xi] = array();
-							$data[$xi]['label'] = $labeltouse;
-						}
-
-						$objfieldforg = $obj->$fieldforg;
-						if (is_null($objfieldforg)) {
-							$objfieldforg = '__NULL__';
-						}
-
-						if ($gvaluepossiblekey == '0') {	// $gvaluepossiblekey can have type int or string. So we create a special if, used when value is '0'
-							//var_dump($objfieldforg.' == \'0\' -> '.($objfieldforg == '0'));
-							if ($objfieldforg == '0') {
-								// The record we fetch is for this group
-								$data[$xi][$fieldforybis] = $obj->$fieldfory;
-							} elseif (!isset($data[$xi][$fieldforybis])) {
-								// The record we fetch is not for this group
-								$data[$xi][$fieldforybis] = '0';
-							}
-						} else {
-							//var_dump((string) $objfieldforg.' === '.(string) $gvaluepossiblekey.' -> '.((string) $objfieldforg === (string) $gvaluepossiblekey));
-							if ((string) $objfieldforg === (string) $gvaluepossiblekey) {
-								// The record we fetch is for this group
-								$data[$xi][$fieldforybis] = $obj->$fieldfory;
-							} elseif (!isset($data[$xi][$fieldforybis])) {
-								// The record we fetch is not for this group
-								$data[$xi][$fieldforybis] = '0';
-							}
-						}
+				// Define $xlabel
+				if (!empty($object->fields[$xvalwithoutprefix]['arrayofkeyval'])) {
+					$xlabel = $object->fields[$xvalwithoutprefix]['arrayofkeyval'][$obj->$fieldforxkey] ?? null;
+					if (!is_null($xlabel)) {
+						$xlabel = $langs->transnoentitiesnoconv($xlabel);	// Values of arrayofkeyval are translation keys
 					}
-					//var_dump($data[$xi]);
-					$gi++;
 				}
-			}
-		} else {	// No group by
-			$xval = $search_xaxis[0];
-			$fieldforxkey = 'x_0';
-			$xlabel = $obj->$fieldforxkey;
-			$xvalwithoutprefix = preg_replace('/^[a-z]+\./', '', $xval);
+				$labeltouse = (($xlabel || $xlabel == '0') ? dol_trunc($xlabel, 20, 'middle') : ($xlabel === '' ? $langs->transnoentitiesnoconv("Empty") : $langs->transnoentitiesnoconv("NotDefined")));
 
-			// Define $xlabel
-			if (!empty($object->fields[$xvalwithoutprefix]['arrayofkeyval'])) {
-				$xlabel = $object->fields[$xvalwithoutprefix]['arrayofkeyval'][$obj->$fieldforxkey];
-			}
+				if ($oldlabeltouse !== '' && ($labeltouse != $oldlabeltouse)) {
+					$xi++; // Increase $xi
+				}
+				//var_dump($labeltouse.' '.$oldlabeltouse.' '.$xi);
+				$oldlabeltouse = $labeltouse;
 
-			$labeltouse = (($xlabel || $xlabel == '0') ? dol_trunc($xlabel, 20, 'middle') : ($xlabel === '' ? $langs->trans("Empty") : $langs->trans("NotDefined")));
-			$xarrayforallseries = array('label' => $labeltouse);
-			foreach ($search_measures as $key => $val) {
-				$fieldfory = 'y_'.$key;
-				$xarrayforallseries[$fieldfory] = $obj->$fieldfory;
+				/* Example of value for $arrayofvaluesforgroupby
+				 * array (size=1)
+				 *	  'g_0' =>
+				 *	    array (size=6)
+				 *	      0 => string '0' (length=1)
+				 *	      '' => string 'Empty' (length=5)
+				 *	      '__NULL__' => string 'Not defined' (length=11)
+				 *	      'done' => string 'done' (length=4)
+				 *	      'processing' => string 'processing' (length=10)
+				 *	      'undeployed' => string 'undeployed' (length=10)
+				 */
+				foreach ($sanitized_search_measures as $key => $val) {
+					$gi = 0;
+					foreach ($sanitized_search_groupby as $gkey => $gval) {
+						//var_dump('*** Fetch #'.$ifetch.' for labeltouse='.$labeltouse.' measure number '.$key.' and group g_'.$gi);
+						//var_dump($arrayofvaluesforgroupby);
+						foreach ($arrayofvaluesforgroupby['g_'.$gi] as $gvaluepossiblekey => $gvaluepossiblelabel) {
+							$ykeysuffix = $gvaluepossiblelabel;
+							$gvalwithoutprefix = preg_replace('/^[a-z]+\./', '', $gval);
+
+							$fieldfory = 'y_'.$key;
+							$fieldforg = 'g_'.$gi;
+							$fieldforybis = 'y_'.$key.'_'.$ykeysuffix;
+							//var_dump('gvaluepossiblekey='.$gvaluepossiblekey.' gvaluepossiblelabel='.$gvaluepossiblelabel.' ykeysuffix='.$ykeysuffix.' gval='.$gval.' gvalwithoutsuffix='.$gvalwithoutprefix);
+							//var_dump('fieldforg='.$fieldforg.' obj->$fieldforg='.$obj->$fieldforg.' fieldfory='.$fieldfory.' obj->$fieldfory='.$obj->$fieldfory.' fieldforybis='.$fieldforybis);
+
+							if (!array_key_exists($xi, $data)) {
+								$data[$xi] = array();
+							}
+
+							if (!array_key_exists('label', $data[$xi])) {
+								$data[$xi] = array();
+								$data[$xi]['label'] = $labeltouse;
+							}
+
+							$objfieldforg = $obj->$fieldforg;
+							if (is_null($objfieldforg)) {
+								$objfieldforg = '__NULL__';
+							}
+
+							if ($gvaluepossiblekey == '0') {	// $gvaluepossiblekey can have type int or string. So we create a special if, used when value is '0'
+								//var_dump($objfieldforg.' == \'0\' -> '.($objfieldforg == '0'));
+								if ($objfieldforg == '0') {
+									// The record we fetch is for this group
+									$data[$xi][$fieldforybis] = $obj->$fieldfory;
+								} elseif (!isset($data[$xi][$fieldforybis])) {
+									// The record we fetch is not for this group
+									$data[$xi][$fieldforybis] = '0';
+								}
+							} else {
+								//var_dump((string) $objfieldforg.' === '.(string) $gvaluepossiblekey.' -> '.((string) $objfieldforg === (string) $gvaluepossiblekey));
+								if ((string) $objfieldforg === (string) $gvaluepossiblekey) {
+									// The record we fetch is for this group
+									$data[$xi][$fieldforybis] = $obj->$fieldfory;
+								} elseif (!isset($data[$xi][$fieldforybis])) {
+									// The record we fetch is not for this group
+									$data[$xi][$fieldforybis] = '0';
+								}
+							}
+						}
+						//var_dump($data[$xi]);
+						$gi++;
+					}
+				}
+			} else {	// No group by
+				$xval = $sanitized_search_xaxis[0];
+				$fieldforxkey = 'x_0';
+				$xlabel = $obj->$fieldforxkey;
+				$xvalwithoutprefix = preg_replace('/^[a-z]+\./', '', $xval);
+
+				// Define $xlabel
+				if (!empty($object->fields[$xvalwithoutprefix]['arrayofkeyval'])) {
+					$xlabel = $object->fields[$xvalwithoutprefix]['arrayofkeyval'][$obj->$fieldforxkey] ?? null;
+					if (!is_null($xlabel)) {
+						$xlabel = $langs->transnoentitiesnoconv($xlabel);	// Values of arrayofkeyval are translation keys
+					}
+				}
+
+				$labeltouse = (($xlabel || $xlabel == '0') ? dol_trunc($xlabel, 20, 'middle') : ($xlabel === '' ? $langs->transnoentitiesnoconv("Empty") : $langs->transnoentitiesnoconv("NotDefined")));
+				$xarrayforallseries = array('label' => $labeltouse);
+				foreach ($sanitized_search_measures as $key => $val) {
+					$fieldfory = 'y_'.$key;
+					$xarrayforallseries[$fieldfory] = $obj->$fieldfory;
+				}
+				$data[$xi] = $xarrayforallseries;
+				$xi++;
 			}
-			$data[$xi] = $xarrayforallseries;
-			$xi++;
 		}
-	}
 
-	$totalnbofrecord = count($data);
+		$totalnbofrecord = count($data);
+	}
 }
 //var_dump($data);
 
-
+print '<!-- Section to show the result -->'."\n";
 print '<div class="customreportsoutput'.($totalnbofrecord ? '' : ' customreportsoutputnotdata').'">';
 
+if (empty($newarrayoftype)) {
+	$langs->load("admin");
+	print info_admin($langs->trans("NoSupportedModulesHaveBeenActivated").' '.$langs->trans("YouCanEnableModulesFrom"), 0, 0, 'info');
+}
 
 if ($mode == 'grid') {
 	// TODO
@@ -874,7 +1421,7 @@ if ($mode == 'grid') {
 
 if ($mode == 'graph') {
 	$WIDTH = '80%';
-	$HEIGHT = 200;
+	$HEIGHT = (empty($_SESSION['dol_screenheight']) ? 400 : $_SESSION['dol_screenheight'] - 500);
 
 	// Show graph
 	$px1 = new DolGraph();
@@ -886,12 +1433,13 @@ if ($mode == 'graph') {
 		unset($data);
 
 		$arrayoftypes = array();
-		foreach ($search_measures as $key => $val) {
+		foreach ($sanitized_search_measures as $key => $val) {
 			$arrayoftypes[] = $search_graph;
 		}
 
 		$px1->SetLegend($legend);
-		$px1->SetMinValue($px1->GetFloorMinValue());
+		$px1->setShowLegend($SHOWLEGEND);
+		$px1->SetMinValue((int) $px1->GetFloorMinValue());
 		$px1->SetMaxValue($px1->GetCeilMaxValue());
 		$px1->SetWidth($WIDTH);
 		$px1->SetHeight($HEIGHT);
@@ -905,10 +1453,15 @@ if ($mode == 'graph') {
 
 		$dir = $conf->user->dir_temp;
 		dol_mkdir($dir);
-		$filenamenb = $dir.'/customreport_'.$object->element.'.png';
-		$fileurlnb = DOL_URL_ROOT.'/viewimage.php?modulepart=user&file=customreport_'.$object->element.'.png';
+		// $customreportkey may be defined when using customreports.php as an include
+		if (!empty($object->element)) {
+			$filenamekey = $dir.'/customreport_'.$object->element.(empty($customreportkey) ? '' : $customreportkey).'.png';
+			$fileurlkey = DOL_URL_ROOT.'/viewimage.php?modulepart=user&file=customreport_'.$object->element.(empty($customreportkey) ? '' : $customreportkey).'.png';
+		}
 
-		$px1->draw($filenamenb, $fileurlnb);
+		if (isset($filenamekey) && isset($fileurlkey)) {
+			$px1->draw($filenamekey, $fileurlkey);
+		}
 
 		$texttoshow = $langs->trans("NoRecordFound");
 		if (!GETPOSTISSET('search_measures') || !GETPOSTISSET('search_xaxis')) {
@@ -919,366 +1472,19 @@ if ($mode == 'graph') {
 	}
 }
 
-if ($sql) {
+print '</div>';
+
+if ($sql && !defined('MAIN_CUSTOM_REPORT_KEEP_GRAPH_ONLY')) {
 	// Show admin info
-	print '<br>'.info_admin($langs->trans("SQLUsedForExport").':<br> '.$sql, 0, 0, 1, '', 'TechnicalInformation');
+	print '<br>'.info_admin($langs->trans("SQLUsedForExport").':<br> '.$sql, 0, 0, '1', '', 'TechnicalInformation');
 }
 
-print '<div>';
 
-if (!defined('USE_CUSTOM_REPORT_AS_INCLUDE')) {
+if (!defined('USE_CUSTOM_REPORT_AS_INCLUDE') && !defined('USE_CUSTOM_REPORT_AS_TAB')) {
 	print dol_get_fiche_end();
-}
 
-// End of page
-llxFooter();
+	llxFooter();
+	// End of page
 
-$db->close();
-
-
-
-
-
-/**
- * Fill arrayofmesures for an object
- *
- * @param 	mixed		$object			Any object
- * @param	string		$tablealias		Alias of table
- * @param	string		$labelofobject	Label of object
- * @param	array		$arrayofmesures	Array of mesures already filled
- * @param	int			$level 			Level
- * @param	int			$count			Count
- * @return 	array						Array of mesures
- */
-function fillArrayOfMeasures($object, $tablealias, $labelofobject, &$arrayofmesures, $level = 0, &$count = 0)
-{
-	global $langs, $extrafields, $db;
-
-	if ($level > 10) {	// Protection against infinite loop
-		return $arrayofmesures;
-	}
-
-	if ($level == 0) {
-		// Add the count of record only for the main/first level object. Parents are necessarly unique for each record.
-		$arrayofmesures[$tablealias.'.count'] = array(
-			'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': Count',
-			'position' => 0,
-			'table' => $object->table_element
-		);
-	}
-
-	// Add main fields of object
-	foreach ($object->fields as $key => $val) {
-		if (!empty($val['isameasure']) && (!isset($val['enabled']) || dol_eval($val['enabled'], 1, 1, '1'))) {
-			$position = (!empty($val['position']) ? $val['position'] : 0);
-			$arrayofmesures[$tablealias.'.'.$key.'-sum'] = array(
-				'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$langs->trans("Sum").')</span>',
-				'position' => ($position+($count * 100000)).'.1',
-				'table' => $object->table_element
-			);
-			$arrayofmesures[$tablealias.'.'.$key.'-average'] = array(
-				'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$langs->trans("Average").')</span>',
-				'position' => ($position+($count * 100000)).'.2',
-				'table' => $object->table_element
-			);
-			$arrayofmesures[$tablealias.'.'.$key.'-min'] = array(
-				'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$langs->trans("Minimum").')</span>',
-				'position' => ($position+($count * 100000)).'.3',
-				'table' => $object->table_element
-			);
-			$arrayofmesures[$tablealias.'.'.$key.'-max'] = array(
-				'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$langs->trans("Maximum").')</span>',
-				'position' => ($position+($count * 100000)).'.4',
-				'table' => $object->table_element
-			);
-		}
-	}
-	// Add extrafields to Measures
-	if ($object->isextrafieldmanaged) {
-		foreach ($extrafields->attributes[$object->table_element]['label'] as $key => $val) {
-			if (!empty($extrafields->attributes[$object->table_element]['totalizable'][$key]) && (!isset($extrafields->attributes[$object->table_element]['enabled'][$key]) || dol_eval($extrafields->attributes[$object->table_element]['enabled'][$key], 1, 1, '1'))) {
-				$position = (!empty($val['position']) ? $val['position'] : 0);
-				$arrayofmesures[$tablealias.'e.'.$key.'-sum'] = array(
-					'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($extrafields->attributes[$object->table_element]['label'][$key]).' <span class="opacitymedium">('.$langs->trans("Sum").')</span>',
-					'position' => ($position+($count * 100000)).'.1',
-					'table' => $object->table_element
-				);
-				$arrayofmesures[$tablealias.'e.'.$key.'-average'] = array(
-					'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($extrafields->attributes[$object->table_element]['label'][$key]).' <span class="opacitymedium">('.$langs->trans("Average").')</span>',
-					'position' => ($position+($count * 100000)).'.2',
-					'table' => $object->table_element
-				);
-				$arrayofmesures[$tablealias.'e.'.$key.'-min'] = array(
-					'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($extrafields->attributes[$object->table_element]['label'][$key]).' <span class="opacitymedium">('.$langs->trans("Minimum").')</span>',
-					'position' => ($position+($count * 100000)).'.3',
-					'table' => $object->table_element
-				);
-				$arrayofmesures[$tablealias.'e.'.$key.'-max'] = array(
-					'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($extrafields->attributes[$object->table_element]['label'][$key]).' <span class="opacitymedium">('.$langs->trans("Maximum").')</span>',
-					'position' => ($position+($count * 100000)).'.4',
-					'table' => $object->table_element
-				);
-			}
-		}
-	}
-	// Add fields for parent objects
-	foreach ($object->fields as $key => $val) {
-		if (preg_match('/^[^:]+:[^:]+:/', $val['type'])) {
-			$tmptype = explode(':', $val['type'], 4);
-			if ($tmptype[0] == 'integer' && $tmptype[1] && $tmptype[2]) {
-				$newobject = $tmptype[1];
-				dol_include_once($tmptype[2]);
-				if (class_exists($newobject)) {
-					$tmpobject = new $newobject($db);
-					//var_dump($key); var_dump($tmpobject->element); var_dump($val['label']); var_dump($tmptype); var_dump('t-'.$key);
-					$count++;
-					$arrayofmesures = fillArrayOfMeasures($tmpobject, $tablealias.'__'.$key, $langs->trans($val['label']), $arrayofmesures, $level + 1, $count);
-				} else {
-					print 'For property '.$object->element.'->'.$key.', type="'.$val['type'].'": Failed to find class '.$newobject." in file ".$tmptype[2]."<br>\n";
-				}
-			}
-		}
-	}
-
-	return $arrayofmesures;
-}
-
-
-/**
- * Fill arrayofmesures for an object
- *
- * @param 	mixed		$object			Any object
- * @param	string		$tablealias		Alias of table ('t' for example)
- * @param	string		$labelofobject	Label of object
- * @param	array		$arrayofxaxis	Array of xaxis already filled
- * @param	int			$level 			Level
- * @param	int			$count			Count
- * @return 	array						Array of xaxis
- */
-function fillArrayOfXAxis($object, $tablealias, $labelofobject, &$arrayofxaxis, $level = 0, &$count = 0)
-{
-	global $langs, $extrafields, $db;
-
-	if ($level > 10) {	// Protection against infinite loop
-		return $arrayofxaxis;
-	}
-
-	if ($level >= 2) {
-		return $arrayofxaxis;
-	}
-
-	$YYYY = substr($langs->trans("Year"), 0, 1).substr($langs->trans("Year"), 0, 1).substr($langs->trans("Year"), 0, 1).substr($langs->trans("Year"), 0, 1);
-	$MM = substr($langs->trans("Month"), 0, 1).substr($langs->trans("Month"), 0, 1);
-	$DD = substr($langs->trans("Day"), 0, 1).substr($langs->trans("Day"), 0, 1);
-	$HH = substr($langs->trans("Hour"), 0, 1).substr($langs->trans("Hour"), 0, 1);
-	$MI = substr($langs->trans("Minute"), 0, 1).substr($langs->trans("Minute"), 0, 1);
-	$SS = substr($langs->trans("Second"), 0, 1).substr($langs->trans("Second"), 0, 1);
-
-	// Add main fields of object
-	foreach ($object->fields as $key => $val) {
-		if (empty($val['measure'])) {
-			if (in_array($key, array(
-				'id', 'ref_int', 'ref_ext', 'rowid', 'entity', 'last_main_doc', 'logo', 'logo_squarred', 'extraparams',
-				'parent', 'photo', 'socialnetworks', 'webservices_url', 'webservices_key'))) {
-				continue;
-			}
-			if (isset($val['enabled']) && !dol_eval($val['enabled'], 1, 1, '1')) {
-				continue;
-			}
-			if (isset($val['visible']) && !dol_eval($val['visible'], 1, 1, '1')) {
-				continue;
-			}
-			if (preg_match('/^fk_/', $key) && !preg_match('/^fk_statu/', $key)) {
-				continue;
-			}
-			if (preg_match('/^pass/', $key)) {
-				continue;
-			}
-			if (in_array($val['type'], array('html', 'text'))) {
-				continue;
-			}
-			if (in_array($val['type'], array('timestamp', 'date', 'datetime'))) {
-				$position = (!empty($val['position']) ? $val['position'] : 0);
-				$arrayofxaxis[$tablealias.'.'.$key.'-year'] = array(
-					'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$YYYY.')</span>',
-					'position' => ($position+($count * 100000)).'.1',
-					'table' => $object->table_element
-				);
-				$arrayofxaxis[$tablealias.'.'.$key.'-month'] = array(
-					'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$YYYY.'-'.$MM.')</span>',
-					'position' => ($position+($count * 100000)).'.2',
-					'table' => $object->table_element
-				);
-				$arrayofxaxis[$tablealias.'.'.$key.'-day'] = array(
-					'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$YYYY.'-'.$MM.'-'.$DD.')</span>',
-					'position' => ($position+($count * 100000)).'.3',
-					'table' => $object->table_element
-				);
-			} else {
-				$arrayofxaxis[$tablealias.'.'.$key] = array(
-					'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']),
-					'position' => ($position+($count * 100000)),
-					'table' => $object->table_element
-				);
-			}
-		}
-	}
-
-	// Add extrafields to X-Axis
-	if ($object->isextrafieldmanaged) {
-		foreach ($extrafields->attributes[$object->table_element]['label'] as $key => $val) {
-			if ($extrafields->attributes[$object->table_element]['type'][$key] == 'separate') {
-				continue;
-			}
-			if (!empty($extrafields->attributes[$object->table_element]['totalizable'][$key])) {
-				continue;
-			}
-			$arrayofxaxis[$tablealias.'e.'.$key] = array(
-				'label' => img_picto('', $object->picto, 'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($extrafields->attributes[$object->table_element]['label'][$key]),
-				'position' => 1000 + (int) $extrafields->attributes[$object->table_element]['pos'][$key] + ($count * 100000),
-				'table' => $object->table_element
-			);
-		}
-	}
-
-	// Add fields for parent objects
-	foreach ($object->fields as $key => $val) {
-		if (preg_match('/^[^:]+:[^:]+:/', $val['type'])) {
-			$tmptype = explode(':', $val['type'], 4);
-			if ($tmptype[0] == 'integer' && $tmptype[1] && $tmptype[2]) {
-				$newobject = $tmptype[1];
-				dol_include_once($tmptype[2]);
-				if (class_exists($newobject)) {
-					$tmpobject = new $newobject($db);
-					//var_dump($key); var_dump($tmpobject->element); var_dump($val['label']); var_dump($tmptype); var_dump('t-'.$key);
-					$count++;
-					$arrayofxaxis = fillArrayOfXAxis($tmpobject, $tablealias.'__'.$key, $langs->trans($val['label']), $arrayofxaxis, $level + 1, $count);
-				} else {
-					print 'For property '.$object->element.'->'.$key.', type="'.$val['type'].'": Failed to find class '.$newobject." in file ".$tmptype[2]."<br>\n";
-				}
-			}
-		}
-	}
-
-	return $arrayofxaxis;
-}
-
-
-/**
- * Fill arrayofgrupby for an object
- *
- * @param 	mixed		$object			Any object
- * @param	string		$tablealias		Alias of table
- * @param	string		$labelofobject	Label of object
- * @param	array		$arrayofgroupby	Array of groupby already filled
- * @param	int			$level 			Level
- * @param	int			$count			Count
- * @return 	array						Array of groupby
- */
-function fillArrayOfGroupBy($object, $tablealias, $labelofobject, &$arrayofgroupby, $level = 0, &$count = 0)
-{
-	global $langs, $extrafields, $db;
-
-	if ($level > 10) {	// Protection against infinite loop
-		return $arrayofgroupby;
-	}
-
-	if ($level >= 2) {
-		return $arrayofgroupby;
-	}
-
-	$YYYY = substr($langs->trans("Year"), 0, 1).substr($langs->trans("Year"), 0, 1).substr($langs->trans("Year"), 0, 1).substr($langs->trans("Year"), 0, 1);
-	$MM = substr($langs->trans("Month"), 0, 1).substr($langs->trans("Month"), 0, 1);
-	$DD = substr($langs->trans("Day"), 0, 1).substr($langs->trans("Day"), 0, 1);
-	$HH = substr($langs->trans("Hour"), 0, 1).substr($langs->trans("Hour"), 0, 1);
-	$MI = substr($langs->trans("Minute"), 0, 1).substr($langs->trans("Minute"), 0, 1);
-	$SS = substr($langs->trans("Second"), 0, 1).substr($langs->trans("Second"), 0, 1);
-
-	// Add main fields of object
-	foreach ($object->fields as $key => $val) {
-		if (!$val['isameasure']) {
-			if (in_array($key, array(
-				'id', 'ref_int', 'ref_ext', 'rowid', 'entity', 'last_main_doc', 'logo', 'logo_squarred', 'extraparams',
-				'parent', 'photo', 'socialnetworks', 'webservices_url', 'webservices_key'))) {
-				continue;
-			}
-			if (isset($val['enabled']) && !dol_eval($val['enabled'], 1, 1, '1')) {
-				continue;
-			}
-			if (isset($val['visible']) && !dol_eval($val['visible'], 1, 1, '1')) {
-				continue;
-			}
-			if (preg_match('/^fk_/', $key) && !preg_match('/^fk_statu/', $key)) {
-				continue;
-			}
-			if (preg_match('/^pass/', $key)) {
-				continue;
-			}
-			if (in_array($val['type'], array('html', 'text'))) {
-				continue;
-			}
-			if (in_array($val['type'], array('timestamp', 'date', 'datetime'))) {
-				$position = (!empty($val['position']) ? $val['position'] : 0);
-				$arrayofgroupby[$tablealias.'.'.$key.'-year'] = array(
-					'label' => img_picto('', $object->picto,
-					'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$YYYY.')</span>', 'position' => ($position+($count * 100000)).'.1',
-					'table' => $object->table_element
-				);
-				$arrayofgroupby[$tablealias.'.'.$key.'-month'] = array(
-					'label' => img_picto('', $object->picto,
-					'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$YYYY.'-'.$MM.')</span>', 'position' => ($position+($count * 100000)).'.2',
-					'table' => $object->table_element
-				);
-				$arrayofgroupby[$tablealias.'.'.$key.'-day'] = array(
-					'label' => img_picto('', $object->picto,
-					'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']).' <span class="opacitymedium">('.$YYYY.'-'.$MM.'-'.$DD.')</span>', 'position' => ($position+($count * 100000)).'.3',
-					'table' => $object->table_element
-				);
-			} else {
-				$arrayofgroupby[$tablealias.'.'.$key] = array(
-					'label' => img_picto('', $object->picto,
-					'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($val['label']), 'position' => ($position+($count * 100000)),
-					'table' => $object->table_element
-				);
-			}
-		}
-	}
-
-	// Add extrafields to Group by
-	if ($object->isextrafieldmanaged) {
-		foreach ($extrafields->attributes[$object->table_element]['label'] as $key => $val) {
-			if ($extrafields->attributes[$object->table_element]['type'][$key] == 'separate') {
-				continue;
-			}
-			if (!empty($extrafields->attributes[$object->table_element]['totalizable'][$key])) {
-				continue;
-			}
-			$arrayofgroupby[$tablealias.'e.'.$key] = array(
-				'label' => img_picto('', $object->picto,
-				'class="pictofixedwidth"').' '.$labelofobject.': '.$langs->trans($extrafields->attributes[$object->table_element]['label'][$key]), 'position' => 1000 + (int) $extrafields->attributes[$object->table_element]['pos'][$key] + ($count * 100000),
-				'table' => $object->table_element
-			);
-		}
-	}
-
-	// Add fields for parent objects
-	foreach ($object->fields as $key => $val) {
-		if (preg_match('/^[^:]+:[^:]+:/', $val['type'])) {
-			$tmptype = explode(':', $val['type'], 4);
-			if ($tmptype[0] == 'integer' && $tmptype[1] && $tmptype[2]) {
-				$newobject = $tmptype[1];
-				dol_include_once($tmptype[2]);
-				if (class_exists($newobject)) {
-					$tmpobject = new $newobject($db);
-					//var_dump($key); var_dump($tmpobject->element); var_dump($val['label']); var_dump($tmptype); var_dump('t-'.$key);
-					$count++;
-					$arrayofgroupby = fillArrayOfGroupBy($tmpobject, $tablealias.'__'.$key, $langs->trans($val['label']), $arrayofgroupby, $level + 1, $count);
-				} else {
-					print 'For property '.$object->element.'->'.$key.', type="'.$val['type'].'": Failed to find class '.$newobject." in file ".$tmptype[2]."<br>\n";
-				}
-			}
-		}
-	}
-
-	return $arrayofgroupby;
+	$db->close();
 }

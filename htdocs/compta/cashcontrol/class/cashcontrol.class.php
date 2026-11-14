@@ -3,6 +3,8 @@
  * Copyright (C) 2009 Regis Houssin        <regis.houssin@capnetworks.com>
  * Copyright (C) 2016 Marcos García        <marcosgdf@gmail.com>
  * Copyright (C) 2018 Andreu Bisquerra     <jove@bisquerra.com>
+ * Copyright (C) 2024-2026	MDW							<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France             <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,33 +42,23 @@ class CashControl extends CommonObject
 	public $table_element = 'pos_cash_fence';
 
 	/**
-	 * @var int  Does pos_cash_fence support multicompany module ? 0=No test on entity, 1=Test with field entity, 2=Test with link by societe
-	 */
-	public $ismultientitymanaged = 1;
-
-	/**
-	 * @var int  Does pos_cash_fence support extrafields ? 0=No, 1=Yes
-	 */
-	public $isextrafieldmanaged = 0;
-
-	/**
 	 * @var string String with name of icon for pos_cash_fence. Must be the part after the 'object_' into object_pos_cash_fence.png
 	 */
 	public $picto = 'cash-register';
 
 	/**
 	 *  'type' field format ('integer', 'integer:ObjectClass:PathToClass[:AddCreateButtonOrNot[:Filter]]', 'sellist:TableName:LabelFieldName[:KeyFieldName[:KeyFieldParent[:Filter]]]', 'varchar(x)', 'double(24,8)', 'real', 'price', 'text', 'text:none', 'html', 'date', 'datetime', 'timestamp', 'duration', 'mail', 'phone', 'url', 'password')
-	 *         Note: Filter can be a string like "(t.ref:like:'SO-%') or (t.date_creation:<:'20160101') or (t.nature:is:NULL)"
+	 *         Note: Filter can be a string like "(t.ref:like:'SO-%') or (t.date_creation:>:'20160101') or (t.nature:is:NULL)"
 	 *  'label' the translation key.
 	 *  'picto' is code of a picto to show before value in forms
-	 *  'enabled' is a condition when the field must be managed (Example: 1 or '$conf->global->MY_SETUP_PARAM)
+	 *  'enabled' is a condition when the field must be managed (Example: 1 or 'getDolGlobalString("MY_SETUP_PARAM")'
 	 *  'position' is the sort order of field.
 	 *  'notnull' is set to 1 if not null in database. Set to -1 if we must set data to null if empty ('' or 0).
 	 *  'visible' says if field is visible in list (Examples: 0=Not visible, 1=Visible on list and create/update/view forms, 2=Visible on list only, 3=Visible on create/update/view form only (not list), 4=Visible on list and update/view form only (not create). 5=Visible on list and view only (not create/not update). Using a negative value means field is not shown by default on list but can be selected for viewing)
 	 *  'noteditable' says if field is not editable (1 or 0)
-	 *  'default' is a default value for creation (can still be overwrote by the Setup of Default Values if field is editable in creation form). Note: If default is set to '(PROV)' and field is 'ref', the default value will be set to '(PROVid)' where id is rowid when a new record is created.
+	 *  'default' is a default value for creation (can still be overwritten by the Setup of Default Values if the field is editable in creation form). Note: If default is set to '(PROV)' and field is 'ref', the default value will be set to '(PROVid)' where id is rowid when a new record is created.
 	 *  'index' if we want an index in database.
-	 *  'foreignkey'=>'tablename.field' if the field is a foreign key (it is recommanded to name the field fk_...).
+	 *  'foreignkey'=>'tablename.field' if the field is a foreign key (it is recommended to name the field fk_...).
 	 *  'searchall' is 1 if we want to search in this field when making a search from the quick search button.
 	 *  'isameasure' must be set to 1 if you want to have a total on list for this field. Field type must be summable like integer or double(24,8).
 	 *  'css' and 'cssview' and 'csslist' is the CSS style to use on field. 'css' is used in creation and update. 'cssview' is used in view mode. 'csslist' is used for columns in lists. For example: 'maxwidth200', 'wordbreak', 'tdoverflowmax200'
@@ -80,64 +72,167 @@ class CashControl extends CommonObject
 	 *  Note: To have value dynamic, you can set value to 0 in definition and edit the value on the fly into the constructor.
 	 */
 	public $fields = array(
-	'rowid' =>array('type'=>'integer', 'label'=>'TechnicalID', 'enabled'=>1, 'visible'=>-2, 'notnull'=>1, 'position'=>10),
-	'entity' =>array('type'=>'integer', 'label'=>'Entity', 'enabled'=>1, 'visible'=>0, 'notnull'=>1, 'position'=>15),
-	'ref' =>array('type'=>'varchar(64)', 'label'=>'Ref', 'enabled'=>1, 'visible'=>1, 'notnull'=>1, 'position'=>18),
-	'posmodule' =>array('type'=>'varchar(30)', 'label'=>'Module', 'enabled'=>1, 'visible'=>1, 'notnull'=>1, 'position'=>19),
-	'posnumber' =>array('type'=>'varchar(30)', 'label'=>'Terminal', 'enabled'=>1, 'visible'=>1, 'notnull'=>1, 'position'=>20, 'css'=>'center'),
-	'label' =>array('type'=>'varchar(255)', 'label'=>'Label', 'enabled'=>1, 'visible'=>0, 'position'=>24),
-	'opening' =>array('type'=>'price', 'label'=>'Opening', 'enabled'=>1, 'visible'=>1, 'position'=>25, 'csslist'=>'amount'),
-	'cash' =>array('type'=>'price', 'label'=>'Cash', 'enabled'=>1, 'visible'=>1, 'position'=>30, 'csslist'=>'amount'),
-	'cheque' =>array('type'=>'price', 'label'=>'Cheque', 'enabled'=>1, 'visible'=>1, 'position'=>33, 'csslist'=>'amount'),
-	'card' =>array('type'=>'price', 'label'=>'CreditCard', 'enabled'=>1, 'visible'=>1, 'position'=>36, 'csslist'=>'amount'),
-	'year_close' =>array('type'=>'integer', 'label'=>'Year close', 'enabled'=>1, 'visible'=>1, 'notnull'=>1, 'position'=>50, 'css'=>'center'),
-	'month_close' =>array('type'=>'integer', 'label'=>'Month close', 'enabled'=>1, 'visible'=>1, 'position'=>55, 'css'=>'center'),
-	'day_close' =>array('type'=>'integer', 'label'=>'Day close', 'enabled'=>1, 'visible'=>1, 'position'=>60, 'css'=>'center'),
-	'date_creation' =>array('type'=>'datetime', 'label'=>'DateCreation', 'enabled'=>1, 'visible'=>-1, 'notnull'=>1, 'position'=>500),
-	'date_valid' =>array('type'=>'datetime', 'label'=>'DateValidation', 'enabled'=>1, 'visible'=>-1, 'notnull'=>1, 'position'=>502),
-	'tms' =>array('type'=>'timestamp', 'label'=>'Tms', 'enabled'=>1, 'visible'=>0, 'notnull'=>1, 'position'=>505),
-	'fk_user_creat' =>array('type'=>'integer:User', 'label'=>'UserCreation', 'enabled'=>1, 'visible'=>-1, 'notnull'=>1, 'position'=>600),
-	'fk_user_valid' =>array('type'=>'integer:User', 'label'=>'UserValidation', 'enabled'=>1, 'visible'=>-1, 'notnull'=>1, 'position'=>602),
-	'import_key' =>array('type'=>'varchar(14)', 'label'=>'Import key', 'enabled'=>1, 'visible'=>0, 'position'=>700),
-	'status' => array('type'=>'integer', 'label'=>'Status', 'enabled'=>1, 'visible'=>1, 'position'=>1000, 'notnull'=>1, 'index'=>1, 'arrayofkeyval'=>array('0'=>'Draft', '1'=>'Validated')),
+	'rowid' => array('type' => 'integer', 'label' => 'TechnicalID', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 10),
+	'entity' => array('type' => 'integer', 'label' => 'Entity', 'enabled' => 1, 'visible' => 0, 'notnull' => 1, 'position' => 15),
+	'ref' => array('type' => 'varchar(64)', 'label' => 'Ref', 'enabled' => 1, 'visible' => 1, 'notnull' => 1, 'position' => 18),
+	'posmodule' => array('type' => 'varchar(30)', 'label' => 'Module', 'enabled' => 1, 'visible' => 1, 'notnull' => 1, 'position' => 19),
+	'posnumber' => array('type' => 'varchar(30)', 'label' => 'Terminal', 'enabled' => 1, 'visible' => 1, 'notnull' => 1, 'position' => 20, 'csslist' => 'width50 center'),
+	'label' => array('type' => 'varchar(255)', 'label' => 'Label', 'enabled' => 1, 'visible' => 0, 'position' => 24),
+	'opening' => array('type' => 'price', 'label' => 'Opening', 'enabled' => 1, 'visible' => -1, 'position' => 25, 'csslist' => 'amount'),
+	'cash' => array('type' => 'price', 'label' => 'Cash', 'enabled' => 1, 'visible' => 1, 'position' => 30, 'csslist' => 'amount'),
+	'cheque' => array('type' => 'price', 'label' => 'Cheque', 'enabled' => 1, 'visible' => 1, 'position' => 33, 'csslist' => 'amount'),
+	'card' => array('type' => 'price', 'label' => 'CreditCard', 'enabled' => 1, 'visible' => 1, 'position' => 36, 'csslist' => 'amount'),
+	'cash_declared' => array('type' => 'price', 'label' => 'CashDeclared', 'enabled' => 1, 'visible' => -1, 'position' => 40, 'csslist' => 'amount'),
+	'cheque_declared' => array('type' => 'price', 'label' => 'ChequeDeclared', 'enabled' => 1, 'visible' => -1, 'position' => 41, 'csslist' => 'amount'),
+	'card_declared' => array('type' => 'price', 'label' => 'CreditCardDeclared', 'enabled' => 1, 'visible' => -1, 'position' => 42, 'csslist' => 'amount'),
+	'cash_lifetime' => array('type' => 'price', 'label' => 'CashLifetime', 'enabled' => 1, 'visible' => -1, 'position' => 45, 'csslist' => 'amount'),
+	'cheque_lifetime' => array('type' => 'price', 'label' => 'ChequeLifetime', 'enabled' => 1, 'visible' => -1, 'position' => 46, 'csslist' => 'amount'),
+	'card_lifetime' => array('type' => 'price', 'label' => 'CardLifetime', 'enabled' => 1, 'visible' => -1, 'position' => 47, 'csslist' => 'amount'),
+	'lifetime_start' => array('type' => 'datetime', 'label' => 'LifetimeStartDate', 'enabled' => 1, 'visible' => 0, 'position' => 48, 'csslist' => 'center'),
+	'year_close' => array('type' => 'integer', 'label' => 'Year', 'enabled' => 1, 'visible' => 1, 'notnull' => 1, 'position' => 50, 'css' => 'center'),
+	'month_close' => array('type' => 'integer', 'label' => 'Month', 'enabled' => 1, 'visible' => 1, 'position' => 55, 'css' => 'center'),
+	'day_close' => array('type' => 'integer', 'label' => 'Day', 'enabled' => 1, 'visible' => 1, 'position' => 60, 'css' => 'center'),
+	'hour_close' => array('type' => 'integer', 'label' => 'Hour', 'enabled' => 1, 'visible' => -1, 'position' => 62, 'css' => 'center'),
+	'min_close' => array('type' => 'integer', 'label' => 'Min', 'enabled' => 1, 'visible' => -1, 'position' => 63, 'css' => 'center'),
+	'sec_close' => array('type' => 'integer', 'label' => 'Sec', 'enabled' => 1, 'visible' => -1, 'position' => 64, 'css' => 'center'),
+	'date_creation' => array('type' => 'datetime', 'label' => 'DateCreation', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 500),
+	'date_valid' => array('type' => 'datetime', 'label' => 'DateValidation', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 502),
+	'tms' => array('type' => 'timestamp', 'label' => 'Tms', 'enabled' => 1, 'visible' => 0, 'notnull' => 1, 'position' => 505),
+	'fk_user_creat' => array('type' => 'integer:User', 'label' => 'UserCreation', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 600),
+	'fk_user_valid' => array('type' => 'integer:User', 'label' => 'UserValidation', 'enabled' => 1, 'visible' => -1, 'notnull' => 1, 'position' => 602),
+	'import_key' => array('type' => 'varchar(14)', 'label' => 'Import key', 'enabled' => 1, 'visible' => 0, 'position' => 700),
+	'status' => array('type' => 'integer', 'label' => 'Status', 'enabled' => 1, 'visible' => 1, 'position' => 1000, 'notnull' => 1, 'index' => 1, 'arrayofkeyval' => array('0' => 'Draft', '1' => 'Closed')),
 	);
 
 	/**
 	 * @var int Object Id
 	 */
 	public $id;
+
+	/**
+	 * @var string Label
+	 */
+	public $label;
+
+	/**
+	 * @var float Amount at opening
+	 */
 	public $opening;
+
+	/**
+	 * @var int Status
+	 */
 	public $status;
+
+	/**
+	 * @var int Year close
+	 */
 	public $year_close;
+
+	/**
+	 * @var int Month close
+	 */
 	public $month_close;
+
+	/**
+	 * @var int Day close
+	 */
 	public $day_close;
+
+	/**
+	 * @var ?int Hour close
+	 */
+	public $hour_close;
+
+	/**
+	 * @var ?int Minute close
+	 */
+	public $min_close;
+
+	/**
+	 * @var ?int Second close
+	 */
+	public $sec_close;
+
+	/**
+	 * @var string posmodule
+	 */
 	public $posmodule;
+
+	/**
+	 * @var string posnumber
+	 */
 	public $posnumber;
+
+	/**
+	 * @var float 	Cash amount earned during period (calculated)
+	 */
 	public $cash;
+
+	/**
+	 * @var float 	Cheque amount earned during period (calculated)
+	 */
 	public $cheque;
+
+	/**
+	 * @var float 	Card amount earned during period (calculated)
+	 */
 	public $card;
 
 	/**
-	 * @var integer|string date_creation
+	 * @var ?float 	Cash found/declared in account (is the
 	 */
-	public $date_creation;
+	public $cash_declared;
+
+	/**
+	 * @var ?float 	Cheque found/declared in account
+	 */
+	public $cheque_declared;
+
+	/**
+	 * @var ?float 	Card found/declared in account
+	 */
+	public $card_declared;
+
+	/**
+	 * @var ?float 	Lifetime cash earned
+	 */
+	public $cash_lifetime;
+
+	/**
+	 * @var ?float 	Lifetime cheque amount
+	 */
+	public $cheque_lifetime;
+
+	/**
+	 * @var ?float 	Lifetime card amountS
+	 */
+	public $card_lifetime;
+
+	/**
+	 * @var ?int 	Date when lifetime value start
+	 */
+	public $lifetime_start;
+
+	/**
+	 * @var int User ID create
+	 */
 	public $fk_user_creat;
 
 	/**
-	 * @var integer|string $date_modification
-	 */
-	public $date_modification;
-
-	/**
-	 * @var integer|string $date_valid
+	 * @var int|''
 	 */
 	public $date_valid;
+
+	/**
+	 * @var int User ID
+	 */
 	public $fk_user_valid;
 
 
 	const STATUS_DRAFT = 0;
 	const STATUS_VALIDATED = 1;
-	const STATUS_CLOSED = 1; // For the moment CLOSED = VALIDATED
+	const STATUS_CLOSED = 1; 		// For the moment CLOSED = VALIDATED
 
 
 	/**
@@ -148,6 +243,9 @@ class CashControl extends CommonObject
 	public function __construct(DoliDB $db)
 	{
 		$this->db = $db;
+
+		$this->ismultientitymanaged = 1;
+		$this->isextrafieldmanaged = 0;
 	}
 
 
@@ -156,7 +254,7 @@ class CashControl extends CommonObject
 	 *
 	 * @param  User $user User that create
 	 * @param  int $notrigger 0=launch triggers after, 1=disable triggers
-	 * @return int <0 if KO, Id of created object if OK
+	 * @return int Return integer <0 if KO, Id of created object if OK
 	 */
 	public function create(User $user, $notrigger = 0)
 	{
@@ -187,9 +285,13 @@ class CashControl extends CommonObject
 		$sql .= ", day_close";
 		$sql .= ", month_close";
 		$sql .= ", year_close";
+		$sql .= ", hour_close";
+		$sql .= ", min_close";
+		$sql .= ", sec_close";
 		$sql .= ", cash";
 		$sql .= ", cheque";
 		$sql .= ", card";
+		$sql .= ", fk_user_creat";
 		$sql .= ") VALUES (";
 		//$sql .= "'(PROV)', ";
 		$sql .= ((int) $conf->entity);
@@ -198,12 +300,16 @@ class CashControl extends CommonObject
 		$sql .= ", '".$this->db->idate(dol_now())."'";
 		$sql .= ", '".$this->db->escape($this->posmodule)."'";
 		$sql .= ", '".$this->db->escape($this->posnumber)."'";
-		$sql .= ", ".($this->day_close > 0 ? $this->day_close : "null");
-		$sql .= ", ".($this->month_close > 0 ? $this->month_close : "null");
+		$sql .= ", ".($this->day_close > 0 ? ((int) $this->day_close) : "null");
+		$sql .= ", ".($this->month_close > 0 ? ((int) $this->month_close) : "null");
 		$sql .= ", ".((int) $this->year_close);
+		$sql .= ", ".(isset($this->hour_close) ? (int) $this->hour_close : 23);
+		$sql .= ", ".(isset($this->min_close) ? (int) $this->min_close : 59);
+		$sql .= ", ".(isset($this->sec_close) ? (int) $this->sec_close : 59);
 		$sql .= ", ".price2num($this->cash, 'MT');
 		$sql .= ", ".price2num($this->cheque, 'MT');
 		$sql .= ", ".price2num($this->card, 'MT');
+		$sql .= ", ".((int) $user->id);
 		$sql .= ")";
 
 		$this->db->begin();
@@ -222,6 +328,15 @@ class CashControl extends CommonObject
 			$this->db->query($sql);
 		}
 
+		if (!$error && !$notrigger) {
+			// Call trigger
+			$result = $this->call_trigger('CASHCONTROL_CREATE', $user);
+			if ($result < 0) {
+				$error++;
+			}
+			// End call triggers
+		}
+
 		// Commit or rollback
 		if ($error) {
 			foreach ($this->errors as $errmsg) {
@@ -237,42 +352,31 @@ class CashControl extends CommonObject
 	}
 
 	/**
-	 * Validate cash fence
+	 * Validate a cash register control
 	 *
 	 * @param 	User 		$user		User
-	 * @param 	number 		$notrigger	No trigger
-	 * @return 	int						<0 if KO, >0 if OK
+	 * @param 	int 		$notrigger	No trigger
+	 * @return 	int						Return integer <0 if KO, >0 if OK
 	 */
 	public function valid(User $user, $notrigger = 0)
 	{
-		global $conf, $langs;
 		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 
 		$error = 0;
 
 		// Protection
 		if ($this->status == self::STATUS_VALIDATED) {
-			dol_syslog(get_class($this)."::valid action abandonned: already validated", LOG_WARNING);
+			dol_syslog(get_class($this)."::valid action abandoned: already validated", LOG_WARNING);
 			return 0;
 		}
-
-		/*
-		 $posmodule = $this->posmodule;
-		 if (! empty($user->rights->$posmodule->use))
-		 {
-		 $this->error='NotEnoughPermissions';
-		 dol_syslog(get_class($this)."::valid ".$this->error, LOG_ERR);
-		 return -1;
-		 }
-		 */
 
 		$now = dol_now();
 
 		// Update request
 		$sql = "UPDATE ".MAIN_DB_PREFIX."pos_cash_fence";
-		$sql .= " SET status = ".self::STATUS_VALIDATED.",";
+		$sql .= " SET status = ".((int) self::STATUS_VALIDATED).",";
 		$sql .= " date_valid='".$this->db->idate($now)."',";
-		$sql .= " fk_user_valid = ".$user->id;
+		$sql .= " fk_user_valid = ".((int) $user->id);
 		$sql .= " WHERE rowid=".((int) $this->id);
 
 		$this->db->begin();
@@ -315,11 +419,78 @@ class CashControl extends CommonObject
 
 
 	/**
+	 * Close a cash register control
+	 *
+	 * @param 	User 		$user		User
+	 * @param 	int 		$notrigger	No trigger
+	 * @return 	int						Return integer <0 if KO, >0 if OK
+	 */
+	public function close(User $user, $notrigger = 0)
+	{
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+
+		$error = 0;
+
+		// Protection
+		if ($this->status == self::STATUS_CLOSED) {
+			$this->error = get_class($this)."::valid action abandoned: already validated";
+			dol_syslog($this->error, LOG_WARNING);
+			return 0;
+		}
+
+		$now = dol_now();
+
+		// Update request
+		$sql = "UPDATE ".MAIN_DB_PREFIX."pos_cash_fence";
+		$sql .= " SET status = ".((int) self::STATUS_CLOSED).",";
+		$sql .= " date_valid = '".$this->db->idate($now)."',";
+		$sql .= " fk_user_valid = ".((int) $user->id);
+		$sql .= " WHERE rowid=".((int) $this->id);
+
+		$this->db->begin();
+
+		dol_syslog(get_class($this)."::close", LOG_DEBUG);
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			$error++;
+			$this->errors[] = "Error ".$this->db->lasterror();
+		}
+
+		if (!$error) {
+			$this->status = self::STATUS_CLOSED;
+			$this->date_valid = $now;
+			$this->fk_user_valid = $user->id;
+		}
+
+		if (!$error && !$notrigger) {
+			// Call trigger
+			$result = $this->call_trigger('CASHCONTROL_CLOSE', $user);
+			if ($result < 0) {
+				$error++;
+			}
+			// End call triggers
+		}
+
+		// Commit or rollback
+		if ($error) {
+			foreach ($this->errors as $errmsg) {
+				dol_syslog(get_class($this)."::create ".$errmsg, LOG_ERR);
+				$this->error .= ($this->error ? ', '.$errmsg : $errmsg);
+			}
+			$this->db->rollback();
+			return -1 * $error;
+		} else {
+			$this->db->commit();
+			return $this->id;
+		}
+	}
+
+	/**
 	 * Load object in memory from the database
 	 *
 	 * @param int    $id   Id object
 	 * @param string $ref  Ref
-	 * @return int         <0 if KO, 0 if not found, >0 if OK
+	 * @return int         Return integer <0 if KO, 0 if not found, >0 if OK
 	 */
 	public function fetch($id, $ref = null)
 	{
@@ -332,10 +503,10 @@ class CashControl extends CommonObject
 	 * Update object into database
 	 *
 	 * @param  User $user      User that modifies
-	 * @param  bool $notrigger false=launch triggers after, true=disable triggers
-	 * @return int             <0 if KO, >0 if OK
+	 * @param  int 	$notrigger 0=launch triggers after, 1=disable triggers
+	 * @return int             Return integer <0 if KO, >0 if OK
 	 */
-	public function update(User $user, $notrigger = false)
+	public function update(User $user, $notrigger = 0)
 	{
 		return $this->updateCommon($user, $notrigger);
 	}
@@ -343,11 +514,11 @@ class CashControl extends CommonObject
 	/**
 	 * Delete object in database
 	 *
-	 * @param User $user       User that deletes
-	 * @param bool $notrigger  false=launch triggers after, true=disable triggers
-	 * @return int             <0 if KO, >0 if OK
+	 * @param User 	$user       User that deletes
+	 * @param int 	$notrigger  0=launch triggers after, 1=disable triggers
+	 * @return int             	Return integer <0 if KO, >0 if OK
 	 */
-	public function delete(User $user, $notrigger = false)
+	public function delete(User $user, $notrigger = 0)
 	{
 		return $this->deleteCommon($user, $notrigger);
 		//return $this->deleteCommon($user, $notrigger, 1);
@@ -393,7 +564,7 @@ class CashControl extends CommonObject
 	}
 
 	/**
-	 *  Return clicable link of object (with eventually picto)
+	 *  Return clickable link of object (with eventually picto)
 	 *
 	 *  @param  int     $withpicto                  Add picto into link
 	 *  @param  string  $option                     On what the link point to ('nolink', ...)
@@ -423,7 +594,7 @@ class CashControl extends CommonObject
 		if ($option != 'nolink') {
 			// Add param to save lastsearch_values or not
 			$add_save_lastsearch_values = ($save_lastsearch_value == 1 ? 1 : 0);
-			if ($save_lastsearch_value == -1 && preg_match('/list\.php/', $_SERVER["PHP_SELF"])) {
+			if ($save_lastsearch_value == -1 && isset($_SERVER["PHP_SELF"]) && preg_match('/list\.php/', $_SERVER["PHP_SELF"])) {
 				$add_save_lastsearch_values = 1;
 			}
 			if ($add_save_lastsearch_values) {
@@ -433,11 +604,11 @@ class CashControl extends CommonObject
 
 		$linkclose = '';
 		if (empty($notooltip)) {
-			if (!empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER)) {
+			if (getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER')) {
 				$label = $langs->trans("ShowMyObject");
-				$linkclose .= ' alt="'.dol_escape_htmltag($label, 1).'"';
+				$linkclose .= ' alt="'.dolPrintHTMLForAttribute($label).'"';
 			}
-			$linkclose .= ' title="'.dol_escape_htmltag($label, 1).'"';
+			$linkclose .= ' title="'.dolPrintHTMLForAttribute($label).'"';
 			$linkclose .= ' class="classfortooltip'.($morecss ? ' '.$morecss : '').'"';
 		} else {
 			$linkclose = ($morecss ? ' class="'.$morecss.'"' : '');
@@ -459,7 +630,7 @@ class CashControl extends CommonObject
 
 		global $action;
 		$hookmanager->initHooks(array('cashfencedao'));
-		$parameters = array('id'=>$this->id, 'getnomurl' => &$result);
+		$parameters = array('id' => $this->id, 'getnomurl' => &$result);
 		$reshook = $hookmanager->executeHooks('getNomUrl', $parameters, $this, $action); // Note that $action and $object may have been modified by some hooks
 		if ($reshook > 0) {
 			$result = $hookmanager->resPrint;
@@ -468,5 +639,44 @@ class CashControl extends CommonObject
 		}
 
 		return $result;
+	}
+
+	/**
+	 *	Return clickable link of object (with eventually picto)
+	 *
+	 *	@param      string	    			$option                 Where point the link (0=> main card, 1,2 => shipment, 'nolink'=>No link)
+	 *  @param		?array<string,mixed>	$arraydata				Array of data
+	 *  @return		string											HTML Code for Kanban thumb.
+	 */
+	public function getKanbanView($option = '', $arraydata = null)
+	{
+		global $langs;
+
+		$selected = (empty($arraydata['selected']) ? 0 : $arraydata['selected']);
+
+		$return = '<div class="box-flex-item box-flex-grow-zero">';
+		$return .= '<div class="info-box info-box-sm">';
+		$return .= '<span class="info-box-icon bg-infobox-action">';
+		$return .= img_picto('', $this->picto);
+		//var_dump($this->fields['rowid']);exit;
+		$return .= '</span>';
+		$return .= '<div class="info-box-content">';
+		$return .= '<span class="info-box-ref inline-block tdoverflowmax150 valignmiddle">'.(method_exists($this, 'getNomUrl') ? $this->getNomUrl(1, '', 1) : $this->ref).'</span>';
+		if ($selected >= 0) {
+			$return .= '<input id="cb'.$this->id.'" class="flat checkforselect fright" type="checkbox" name="toselect[]" value="'.$this->id.'"'.($selected ? ' checked="checked"' : '').'>';
+		}
+		if (property_exists($this, 'posmodule')) {
+			$return .= '<br><span class="opacitymedium">'.substr($langs->trans("Module/Application"), 0, 12).'</span> : <span class="info-box-label">'.$this->posmodule.'</span>';
+		}
+		if (property_exists($this, 'year_close')) {
+			$return .= '<br><span class="info-box-label opacitymedium" >'.$langs->trans("Year").'</span> : <span>'.$this->year_close.'</span>';
+		}
+		if (method_exists($this, 'getLibStatut')) {
+			$return .= '<br><div class="info-box-status">'.$this->getLibStatut(3).'</div>';
+		}
+		$return .= '</div>';
+		$return .= '</div>';
+		$return .= '</div>';
+		return $return;
 	}
 }

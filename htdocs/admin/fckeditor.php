@@ -3,6 +3,8 @@
  * Copyright (C) 2005-2012	Regis Houssin		<regis.houssin@inodbox.com>
  * Copyright (C) 2012-2013	Juanjo Menent		<jmenent@2byte.es>
  * Copyright (C) 2019		Christophe Battarel <christophe@altairis.fr>
+ * Copyright (C) 2024-2026  Frédéric France             <frederic.france@free.fr>
+ * Copyright (C) 2024		MDW							<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,13 +26,22 @@
  *  \brief      Activation page for the FCKeditor module in the other modules
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var Form $form
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/doleditor.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/doleditor.class.php';
 
 // Load translation files required by the page
-$langs->loadLangs(array('admin', 'fckeditor'));
+$langs->loadLangs(array('admin', 'fckeditor', 'website'));
 
 $action = GETPOST('action', 'aZ09');
 // Possible modes are:
@@ -39,7 +50,7 @@ $action = GETPOST('action', 'aZ09');
 // dolibarr_readonly
 // dolibarr_mailings
 // Full (not sure this one is used)
-$mode = GETPOST('mode') ?GETPOST('mode', 'alpha') : 'dolibarr_notes';
+$mode = GETPOST('mode') ? GETPOST('mode', 'alpha') : 'dolibarr_notes';
 
 if (!$user->admin) {
 	accessforbidden();
@@ -50,36 +61,36 @@ $modules = array(
 	'NOTE_PUBLIC' => 'FCKeditorForNotePublic',
 	'NOTE_PRIVATE' => 'FCKeditorForNotePrivate',
 	'SOCIETE' => 'FCKeditorForCompany',
-	'PRODUCTDESC' => 'FCKeditorForProduct',
 	'DETAILS' => 'FCKeditorForProductDetails',
 	'USERSIGN' => 'FCKeditorForUserSignature',
 	'MAILING' => 'FCKeditorForMailing',
 	'MAIL' => 'FCKeditorForMail',
 	'TICKET' => 'FCKeditorForTicket',
+	//'SPECIALCHAR' => 'SpecialCharActivation',
 );
 // Conditions for the option to be offered
 $conditions = array(
 	'NOTE_PUBLIC' => 1,
 	'NOTE_PRIVATE' => 1,
 	'SOCIETE' => 1,
-	'PRODUCTDESC' => (!empty($conf->product->enabled) || !empty($conf->service->enabled)),
-	'DETAILS' => (isModEnabled('facture') || !empty($conf->propal->enabled) || !empty($conf->commande->enabled) || !empty($conf->supplier_proposal->enabled) || (!empty($conf->fournisseur->enabled) && empty($conf->global->MAIN_USE_NEW_SUPPLIERMOD)) || !empty($conf->supplier_order->enabled) || !empty($conf->supplier_invoice->enabled)),
+	'DETAILS' => (isModEnabled('invoice') || isModEnabled("propal") || isModEnabled('order') || isModEnabled('supplier_proposal') || isModEnabled("supplier_order") || isModEnabled("supplier_invoice")),
 	'USERSIGN' => 1,
-	'MAILING' => !empty($conf->mailing->enabled),
-	'MAIL' => (isModEnabled('facture') || !empty($conf->propal->enabled) || !empty($conf->commande->enabled)),
-	'TICKET' => !empty($conf->ticket->enabled),
+	'MAILING' => isModEnabled('mailing'),
+	'MAIL' => (isModEnabled('invoice') || isModEnabled("propal") || isModEnabled('order')),
+	'TICKET' => isModEnabled('ticket'),
+	//'SPECIALCHAR' => 1,
 );
 // Picto
 $picto = array(
 	'NOTE_PUBLIC' => 'generic',
 	'NOTE_PRIVATE' => 'generic',
 	'SOCIETE' => 'generic',
-	'PRODUCTDESC' => 'product',
 	'DETAILS' => 'product',
 	'USERSIGN' => 'user',
 	'MAILING' => 'email',
 	'MAIL' => 'email',
 	'TICKET' => 'ticket',
+	//'SPECIALCHAR' => 'generic'
 );
 
 
@@ -91,32 +102,37 @@ $picto = array(
 foreach ($modules as $const => $desc) {
 	if ($action == 'enable_'.strtolower($const)) {
 		dolibarr_set_const($db, "FCKEDITOR_ENABLE_".$const, "1", 'chaine', 0, '', $conf->entity);
-		// If fckeditor is active in the product/service description, it is activated in the forms
-		if ($const == 'PRODUCTDESC' && !empty($conf->global->PRODUIT_DESC_IN_FORM)) {
-			dolibarr_set_const($db, "FCKEDITOR_ENABLE_DETAILS", "1", 'chaine', 0, '', $conf->entity);
-		}
-		header("Location: ".$_SERVER["PHP_SELF"]);
-		exit;
 	}
 	if ($action == 'disable_'.strtolower($const)) {
-		dolibarr_del_const($db, "FCKEDITOR_ENABLE_".$const, $conf->entity);
-		header("Location: ".$_SERVER["PHP_SELF"]);
-		exit;
+		dolibarr_set_const($db, "FCKEDITOR_ENABLE_".$const, "0", 'chaine', 0, '', $conf->entity);
+	}
+}
+
+if (GETPOST('action') == 'enable_specialchar') {
+	dolibarr_set_const($db, "FCKEDITOR_ENABLE_SPECIALCHAR", "1", 'chaine', 0, '', $conf->entity);
+}
+if (GETPOST('action') == 'disable_specialchar') {
+	dolibarr_del_const($db, "FCKEDITOR_ENABLE_SPECIALCHAR", $conf->entity);
+}
+
+if (GETPOST('action', 'aZ09') == 'setbackend') {
+	$newbackend = GETPOST('editorbackend', 'aZ09');
+	if (in_array($newbackend, array('ckeditor', 'tinymce'), true)) {
+		$res = dolibarr_set_const($db, 'FCKEDITOR_EDITORNAME', $newbackend, 'chaine', 0, '', $conf->entity);
+		if ($res > 0) {
+			setEventMessages($langs->trans("SetupSaved"), null, 'mesgs');
+		} else {
+			dol_syslog("admin/fckeditor.php: failed to save FCKEDITOR_EDITORNAME=".$newbackend.": ".$db->lasterror(), LOG_ERR);
+			setEventMessages($langs->trans("Error").' '.$db->lasterror(), null, 'errors');
+		}
+	} else {
+		dol_syslog("admin/fckeditor.php: invalid editor backend value: ".$newbackend, LOG_WARNING);
+		setEventMessages($langs->trans("ErrorBadValue"), null, 'errors');
 	}
 }
 
 if (GETPOST('save', 'alpha')) {
 	$error = 0;
-
-	$fckeditor_skin = GETPOST('fckeditor_skin', 'alpha');
-	if (!empty($fckeditor_skin)) {
-		$result = dolibarr_set_const($db, 'FCKEDITOR_SKIN', $fckeditor_skin, 'chaine', 0, '', $conf->entity);
-		if ($result <= 0) {
-			$error++;
-		}
-	} else {
-		$error++;
-	}
 
 	$fckeditor_test = GETPOST('formtestfield', 'restricthtml');
 	if (!empty($fckeditor_test)) {
@@ -125,33 +141,44 @@ if (GETPOST('save', 'alpha')) {
 			$error++;
 		}
 	} else {
-		$error++;
+		$error = -1;	// -1 means a warning message
 	}
 
-	if (!$error) {
+	if ($error == 0) {
 		setEventMessages($langs->trans("SetupSaved"), null, 'mesgs');
+	} elseif ($error == -1) {
+		$langs->load('errors');
+		setEventMessages($langs->trans("EmptyMessageNotAllowedError"), null, 'warnings');
 	} else {
 		setEventMessages($langs->trans("Error").' '.$db->lasterror(), null, 'errors');
 	}
 }
 
+
 /*
  * View
  */
 
-llxHeader();
+llxHeader('', '', '', '', 0, 0, '', '', '', 'mod-admin page-fckeditor');
 
-$linkback = '<a href="'.DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1">'.$langs->trans("BackToModuleList").'</a>';
+$linkback = '<a href="'.dolBuildUrl(DOL_URL_ROOT.'/admin/modules.php', ['restore_lastsearch_values' => 1]).'">'.img_picto($langs->trans("BackToModuleList"), 'back', 'class="pictofixedwidth"').'<span class="hideonsmartphone">'.$langs->trans("BackToModuleList").'</span></a>';
+
 print load_fiche_titre($langs->trans("AdvancedEditor"), $linkback, 'title_setup');
 print '<br>';
 
 if (empty($conf->use_javascript_ajax)) {
-	setEventMessages(array($langs->trans("NotAvailable"), $langs->trans("JavascriptDisabled")), null, 'errors');
+	setEventMessages(null, array($langs->trans("NotAvailable"), $langs->trans("JavascriptDisabled")), 'errors');
 } else {
+	// Editor backend choice (CKEditor vs TinyMCE)
+	$currentbackend = getDolGlobalString('FCKEDITOR_EDITORNAME', 'ckeditor');
+	if (!in_array($currentbackend, array('ckeditor', 'tinymce'), true)) {
+		$currentbackend = 'ckeditor';
+	}
+
 	print '<table class="noborder centpercent">';
 	print '<tr class="liste_titre">';
 	print '<td colspan="2">'.$langs->trans("ActivateFCKeditor").'</td>';
-	print '<td class="center" width="100">'.$langs->trans("Action").'</td>';
+	print '<td class="center width100"></td>';
 	print "</tr>\n";
 
 	// Modules
@@ -164,14 +191,23 @@ if (empty($conf->use_javascript_ajax)) {
 		$constante = 'FCKEDITOR_ENABLE_'.$const;
 		print '<!-- constant = '.$constante.' -->'."\n";
 		print '<tr class="oddeven">';
-		print '<td width="16">'.img_object("", $picto[$const]).'</td>';
-		print '<td>'.$langs->trans($desc).'</td>';
-		print '<td class="center" width="100">';
-		$value = (isset($conf->global->$constante) ? $conf->global->$constante : 0);
+		print '<td class="width20">'.img_object("", $picto[$const]).'</td>';
+		print '<td>';
+		print $langs->trans($desc);
+		if ($const == 'DETAILS') {
+			print $form->textwithpicto('', '<span class="warning">'.$langs->trans("FCKeditorForProductDetails2").'</span>');
+		}
+		print '</td>';
+		print '<td class="center centpercent width100">';
+		$value = getDolGlobalInt($constante, 0);
 		if ($value == 0) {
-			print '<a href="'.$_SERVER['PHP_SELF'].'?action=enable_'.strtolower($const).'&token='.newToken().'">'.img_picto($langs->trans("Disabled"), 'switch_off').'</a>';
+			print '<a class="reposition" href="'.$_SERVER['PHP_SELF'].'?action=enable_'.strtolower($const).'&token='.newToken().'">'.img_picto($langs->trans("Disabled"), 'switch_off').'</a>';
 		} elseif ($value == 1) {
-			print '<a href="'.$_SERVER['PHP_SELF'].'?action=disable_'.strtolower($const).'&token='.newToken().'">'.img_picto($langs->trans("Enabled"), 'switch_on').'</a>';
+			if ($const == 'DETAILS') {
+				print '<a class="reposition" href="'.$_SERVER['PHP_SELF'].'?action=disable_'.strtolower($const).'&token='.newToken().'">'.img_picto($langs->trans("Enabled").' - '.$langs->trans("FCKeditorForProductDetails2"), 'switch_on', '', 0, 0, 0, '', 'warning').'</a>';
+			} else {
+				print '<a class="reposition" href="'.$_SERVER['PHP_SELF'].'?action=disable_'.strtolower($const).'&token='.newToken().'">'.img_picto($langs->trans("Enabled"), 'switch_on').'</a>';
+			}
 		}
 
 		print "</td>";
@@ -182,43 +218,95 @@ if (empty($conf->use_javascript_ajax)) {
 
 	print '<br>'."\n";
 
-	print '<form name="formtest" method="POST" action="'.$_SERVER["PHP_SELF"].'">'."\n";
+
+	// Other options
+
+	print '<form name="formeditorbackend" method="POST" action="'.$_SERVER["PHP_SELF"].'" spellcheck="false">'."\n";
 	print '<input type="hidden" name="token" value="'.newToken().'">';
+	print '<input type="hidden" name="action" value="setbackend">';
+	print '<input type="hidden" name="mode" value="'.$mode.'">';
+	print '<input type="hidden" name="page_y" value="">';
+
+	print '<table class="noborder centpercent">';
+	print '<tr class="liste_titre">';
+	print '<td>'.$langs->trans("Other").'</td>';
+	print '<td></td>';
+	print '<td></td>';
+	print "</tr>\n";
+
+
+	print '<tr class="oddeven">';
+	print '<td>';
+	print $langs->trans("EditorBackend");
+	print '</td>';
+	print '<td class="right">';
+	$arrayofeditor = array(
+		'ckeditor' => array('label' => 'CKEditor 4'),
+		'tinymce' => array('label' => 'TinyMCE ('.$langs->trans("Experimental").')', 'data-html' => 'TinyMCE <span class="opacitymedium">('.$langs->trans("Experimental").')</span>')
+	);
+	print $form->selectarray("editorbackend", $arrayofeditor, $currentbackend);
+	print ' '.$form->textwithpicto('', $langs->trans("EditorBackendHelp"));
+	print '</td>';
+	print '<td class="center width100"><input type="submit" class="button smallpaddingimp reposition" value="'.dol_escape_htmltag($langs->trans("Save")).'"></td>';
+	print '</tr>';
+
+
+	$constante = 'FCKEDITOR_ENABLE_SPECIALCHAR';
+	print '<!-- constant = '.$constante.' -->'."\n";
+	print '<tr class="oddeven">';
+	print '<td>';
+	print $langs->trans('SpecialCharActivation');
+	print '</td>';
+	print '<td class="center width100" colspan="2">';
+	$value = getDolGlobalInt($constante, 0);
+	if ($value == 0) {
+		print '<a class="reposition" href="'.$_SERVER['PHP_SELF'].'?action=enable_specialchar&token='.newToken().'">'.img_picto($langs->trans("Disabled"), 'switch_off').'</a>';
+	} elseif ($value == 1) {
+		print '<a class="reposition" href="'.$_SERVER['PHP_SELF'].'?action=disable_specialchar&token='.newToken().'">'.img_picto($langs->trans("Enabled"), 'switch_on').'</a>';
+	}
+
+	print "</td>";
+	print '</tr>';
+
+	print '</table>'."\n";
+
+	print '</form>'."\n";
+
+	print '<br><br><br>'."\n";
+
+
+	print '<form name="formtest" method="POST" action="'.$_SERVER["PHP_SELF"].'" spellcheck="false">'."\n";
+	print '<input type="hidden" name="token" value="'.newToken().'">';
+	print '<input type="hidden" name="page_y" value="">';
 
 	// Skins
-	show_skin(null, 1);
-	print '<br>'."\n";
+	//show_skin(null, 1);
+	//print '<br>'."\n";
 
-	$listofmodes = array('dolibarr_mailings', 'dolibarr_notes', 'dolibarr_details', 'dolibarr_readonly', 'Full', 'Full_inline');
+	$listofmodes = array('dolibarr_readonly' => 'ReadOnly', 'dolibarr_details' => 'DetailOfLines', 'dolibarr_notes' => 'Notes', 'dolibarr_mailings' => 'Emails', 'Full' => 'AllFeatures', 'Full_inline' => 'EditInLine');
 	$linkstomode = '';
-	foreach ($listofmodes as $newmode) {
-		if ($linkstomode) {
-			$linkstomode .= ' - ';
+	foreach ($listofmodes as $newmode => $newmodelabel) {
+		if (!$linkstomode) {
+			$linkstomode = '<span class="opacitymedium">'.$langs->trans("Mode").': </span>';
 		}
-		$linkstomode .= '<a class="reposition" href="'.$_SERVER["PHP_SELF"].'?mode='.$newmode.'">';
-		if ($mode == $newmode) {
-			$linkstomode .= '<strong>';
-		}
-		$linkstomode .= $newmode;
-		if ($mode == $newmode) {
-			$linkstomode .= '</strong>';
-		}
+		$linkstomode .= '<a class="a-selection'.($mode != $newmode ? '-disabled' : '').' marginleftonly marginrightonly reposition nounderline" href="'.$_SERVER["PHP_SELF"].'?mode='.$newmode.'">';
+		$linkstomode .= $langs->trans($newmodelabel);
 		$linkstomode .= '</a>';
 	}
-	$linkstomode .= '';
 	print load_fiche_titre($langs->trans("TestSubmitForm"), $linkstomode, '');
 	print '<input type="hidden" name="mode" value="'.dol_escape_htmltag($mode).'">';
 	if ($mode != 'Full_inline') {
 		$uselocalbrowser = true;
 		$readonly = ($mode == 'dolibarr_readonly' ? 1 : 0);
-		$editor = new DolEditor('formtestfield', isset($conf->global->FCKEDITOR_TEST) ? $conf->global->FCKEDITOR_TEST : 'Test', '', 200, $mode, 'In', true, $uselocalbrowser, 1, 120, 8, $readonly);
+		$editor = new DolEditor('formtestfield', getDolGlobalString('FCKEDITOR_TEST', 'Test'), '', 200, $mode, 'In', true, $uselocalbrowser, 1, 120, '8', $readonly);
 		$editor->Create();
 	} else {
+		// CKEditor inline enabled with the contenteditable="true"
 		print '<div style="border: 1px solid #888;" contenteditable="true">';
-		print $conf->global->FCKEDITOR_TEST;
+		print getDolGlobalString('FCKEDITOR_TEST');
 		print '</div>';
 	}
-	print $form->buttonsSaveCancel("Save", '');
+	print $form->buttonsSaveCancel("Save", '', array(), 0, 'reposition');
 	print '<div id="divforlog"></div>';
 	print '</form>'."\n";
 

@@ -6,6 +6,7 @@
  * Copyright (C) 2005      Simon TOSSER          <simon@kornog-computing.com>
  * Copyright (C) 2011-2012 Juanjo Menent         <jmenent@2byte.es>
  * Copyright (C) 2013      Cédric Salvador       <csalvador@gpcsolutions.fr>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,16 +29,25 @@
  *       \brief      Page of linked files onto trip and expens reports
  */
 
+// Load Dolibarr environment
 require '../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/expensereport.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/expensereport/class/expensereport.class.php';
 
+
 // Load translation files required by the page
 $langs->loadLangs(array("other", "trips", "companies", "interventions"));
 
-$id = GETPOST('id', 'int');
+$id = GETPOSTINT('id');
 $ref = GETPOST('ref', 'alpha');
 $action = GETPOST('action', 'aZ09');
 $confirm = GETPOST('confirm', 'alpha');
@@ -45,10 +55,10 @@ $confirm = GETPOST('confirm', 'alpha');
 $childids = $user->getAllChildIds(1);
 
 // Get parameters
-$limit = GETPOST('limit', 'int') ? GETPOST('limit', 'int') : $conf->liste_limit;
+$limit = GETPOSTINT('limit') ? GETPOSTINT('limit') : $conf->liste_limit;
 $sortfield = GETPOST('sortfield', 'aZ09comma');
 $sortorder = GETPOST('sortorder', 'aZ09comma');
-$page = GETPOSTISSET('pageplusone') ? (GETPOST('pageplusone') - 1) : GETPOST("page", 'int');
+$page = GETPOSTISSET('pageplusone') ? (GETPOSTINT('pageplusone') - 1) : GETPOSTINT("page");
 if (empty($page) || $page == -1) {
 	$page = 0;
 }     // If $page is not defined, or '' or -1
@@ -64,6 +74,8 @@ if (!$sortfield) {
 
 
 $object = new ExpenseReport($db);
+// Load object
+// include DOL_DOCUMENT_ROOT.'/core/actions_fetchobject.inc.php';  // Must be 'include', not 'include_once'. Include fetch and fetch_thirdparty but not fetch_optionals
 if (!$object->fetch($id, $ref) > 0) {
 	dol_print_error($db);
 }
@@ -71,30 +83,35 @@ if (!$object->fetch($id, $ref) > 0) {
 $upload_dir = $conf->expensereport->dir_output.'/'.dol_sanitizeFileName($object->ref);
 $modulepart = 'trip';
 
-// Load object
-//include DOL_DOCUMENT_ROOT.'/core/actions_fetchobject.inc.php';  // Must be include, not include_once  // Must be include, not include_once. Include fetch and fetch_thirdparty but not fetch_optionals
 
 // Security check
-if ($user->socid) {
-	$socid = $user->socid;
+if ($user->isExternalUser()) {
+	$socid = $user->isExternalUser();
 }
 $result = restrictedArea($user, 'expensereport', $id, 'expensereport');
 
 if ($object->id > 0) {
 	// Check current user can read this expense report
 	$canread = 0;
-	if (!empty($user->rights->expensereport->readall)) {
+	if ($user->hasRight('expensereport', 'readall')) {
 		$canread = 1;
 	}
-	if (!empty($user->rights->expensereport->lire) && in_array($object->fk_user_author, $childids)) {
+	if (getDolGlobalString('MAIN_USE_ADVANCED_PERMS') && $user->hasRight('expensereport', 'writeall_advance')) {
+		$canread = 1;	// Can create an expense report for everybody, so can also read it
+	}
+	if ($user->hasRight('expensereport', 'lire') && in_array($object->fk_user_author, $childids)) {
 		$canread = 1;
+	}
+	if ($user->hasRight('expensereport', 'approve') && $object->fk_user_validator == $user->id) {
+		$canread = 1;	// The user designated to approve this expense report
 	}
 	if (!$canread) {
 		accessforbidden();
 	}
 }
 
-$permissiontoadd = $user->rights->expensereport->creer;	// Used by the include of actions_dellink.inc.php
+// An expense report can be modified only if it is for the user or one of his subordinates, or with the permission to write the expense reports of everybody
+$permissiontoadd = $user->hasRight('expensereport', 'creer') && (in_array($object->fk_user_author, $childids) || (getDolGlobalString('MAIN_USE_ADVANCED_PERMS') && $user->hasRight('expensereport', 'writeall_advance')));	// Used by the include of actions_linkedfiles.inc.php
 
 
 /*
@@ -120,7 +137,7 @@ if ($object->id) {
 
 	$head = expensereport_prepare_head($object);
 
-	print dol_get_fiche_head($head, 'documents', $langs->trans("ExpenseReport"), -1, 'trip');
+	print dol_get_fiche_head($head, 'documents', $langs->trans("ExpenseReport"), -1, 'trip', 0, '', '', 0, '', 1);
 
 	$linkback = '<a href="'.DOL_URL_ROOT.'/expensereport/list.php?restore_lastsearch_values=1'.(!empty($socid) ? '&socid='.$socid : '').'">'.$langs->trans("BackToList").'</a>';
 
@@ -132,7 +149,7 @@ if ($object->id) {
 
 
 	// Build file list
-	$filearray = dol_dir_list($upload_dir, "files", 0, '', '(\.meta|_preview.*\.png)$', $sortfield, (strtolower($sortorder) == 'desc' ?SORT_DESC:SORT_ASC), 1);
+	$filearray = dol_dir_list($upload_dir, "files", 0, '', '(\.meta|_preview.*\.png)$', $sortfield, (strtolower($sortorder) == 'desc' ? SORT_DESC : SORT_ASC), 1);
 	$totalsize = 0;
 	foreach ($filearray as $key => $file) {
 		$totalsize += $file['size'];
@@ -155,8 +172,7 @@ if ($object->id) {
 
 
 	$modulepart = 'expensereport';
-	$permissiontoadd = $user->rights->expensereport->creer;
-	$permtoedit = $user->rights->expensereport->creer;
+	$permtoedit = $permissiontoadd;
 	$param = '&id='.$object->id;
 	include DOL_DOCUMENT_ROOT.'/core/tpl/document_actions_post_headers.tpl.php';
 } else {

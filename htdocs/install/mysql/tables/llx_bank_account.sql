@@ -1,8 +1,10 @@
 -- =============================================================================
--- Copyright (C) 2000-2004	Rodolphe Quiedeville	<rodolphe@quiedeville.org>
--- Copyright (C) 2004-2014	Laurent Destailleur 	<eldy@users.sourceforge.net>
--- Copyright (C) 2005-2012	Regis Houssin       	<regis.houssin@inodbox.com>
--- Copyright (C) 2014		Alexandre Spangaro		<aspangaro@open-dsi.fr>
+-- Copyright (C) 2000-2004  Rodolphe Quiedeville    <rodolphe@quiedeville.org>
+-- Copyright (C) 2004-2014  Laurent Destailleur     <eldy@users.sourceforge.net>
+-- Copyright (C) 2005-2012  Regis Houssin           <regis.houssin@inodbox.com>
+-- Copyright (C) 2014-2023  Alexandre Spangaro      <aspangaro@easya.solutions>
+-- Copyright (C) 2026       Sylvain Legrand         <contact@infras.fr>
+-- Copyright (C) 2026       Lucky Ranasolonirina    <technique@infras.fr>
 --
 -- This program is free software; you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -28,8 +30,8 @@ create table llx_bank_account
   datec						datetime,
   tms						timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   ref						varchar(12) NOT NULL,
-  label						varchar(30) NOT NULL,
-  entity					integer DEFAULT 1 NOT NULL,	-- multi company id
+  label						varchar(50) NOT NULL,
+  entity					integer DEFAULT 1 NOT NULL, -- multi company id
   fk_user_author			integer,
   fk_user_modif				integer,
   bank						varchar(60),
@@ -37,16 +39,24 @@ create table llx_bank_account
   code_guichet				varchar(6),
   number					varchar(255),
   cle_rib					varchar(5),
-  bic						varchar(11),
-  iban_prefix				varchar(34),				-- full iban. 34 according to ISO 13616
+  bic						varchar(11),                -- 11 according to ISO 9362
+  bic_intermediate          varchar(11),                -- 11 according to ISO 9362. Same as bic but for intermediate bank
+  iban_prefix				varchar(100),				-- full iban. 34 according to ISO 13616 but we set 100 to allow to store it with encryption information
   country_iban				varchar(2),					-- deprecated
   cle_iban					varchar(2),
   domiciliation				varchar(255),
-  pti_in_ctti         smallint DEFAULT 0,
+  pti_in_ctti               smallint DEFAULT 0,
+  sepa_category_purpose		varchar(4) DEFAULT 'CORE',	-- SEPA file, PmtTpInf/CtgyPurp/Cd (ISO 20022 code, see Account::SEPA_CATEGORY_PURPOSES)
+  sepa_local_instrument		varchar(4) DEFAULT 'CORE',	-- SEPA file, PmtTpInf/LclInstrm/Cd (ISO 20022 code, see Account::SEPA_LOCAL_INSTRUMENTS)
+  sepa_transfer_schema_version	varchar(2),			-- Credit transfer file, see Account::SEPA_TRANSFER_SCHEMA_VERSIONS (null = PAYMENTBYBANKTRANSFER_SEPA_SCHEMA_VERSION)
+  sepa_charge_bearer		varchar(4) DEFAULT 'SHAR',	-- Credit transfer file, ChrgBr of the payments outside SEPA (see Account::SEPA_CHARGE_BEARERS)
   state_id					integer        DEFAULT NULL,
   fk_pays					integer        NOT NULL,
   proprio					varchar(60),
   owner_address				varchar(255),
+  owner_zip					varchar(25),
+  owner_town				varchar(50),
+  owner_country_id			integer DEFAULT NULL,
   courant					smallint DEFAULT 0 NOT NULL,
   clos						smallint DEFAULT 0 NOT NULL,
   rappro					smallint DEFAULT 1,
@@ -61,6 +71,6 @@ create table llx_bank_account
   model_pdf					varchar(255),
   import_key				varchar(14),
   extraparams			    varchar(255),				-- for other parameters with json format
-  ics						varchar(32),			-- Creditor Identifier CI
-  ics_transfer			varchar(32)				-- Creditor Identifier CI for transfer
+  ics						varchar(32),                -- Creditor Identifier CI
+  ics_transfer              varchar(32)                 -- Creditor Identifier CI for transfer
 )ENGINE=innodb;

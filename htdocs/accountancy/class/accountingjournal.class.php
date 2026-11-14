@@ -1,5 +1,11 @@
 <?php
-/* Copyright (C) 2017-2022  OpenDSI     <support@open-dsi.fr>
+/* Copyright (C) 2017-2022  OpenDSI                     <support@open-dsi.fr>
+ * Copyright (C) 2026		Jose Martinez				<jose.martinez@pichinov.com>
+ * Copyright (C) 2024-2026  MDW                         <mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2025  Frédéric France             <frederic.france@free.fr>
+ * Copyright (C) 2024       Alexandre Janniaux          <alexandre.janniaux@gmail.com>
+ * Copyright (C) 2025-2026  Alexandre Spangaro          <alexandre@inovea-conseil.com>
+ * Copyright (C) 2026       Joachim Kueter              <git-jk@bloxera.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +28,7 @@
  */
 
 /**
- * Class to manage accounting accounts
+ * Class to manage accounting journals
  */
 class AccountingJournal extends CommonObject
 {
@@ -40,11 +46,6 @@ class AccountingJournal extends CommonObject
 	 * @var string Fieldname with ID of parent key if this field has a parent
 	 */
 	public $fk_element = '';
-
-	/**
-	 * @var int 0=No test on entity, 1=Test with field entity, 2=Test with link by societe
-	 */
-	public $ismultientitymanaged = 0;
 
 	/**
 	 * @var string String with name of icon for myobject. Must be the part after the 'object_' into object_myobject.png
@@ -77,24 +78,20 @@ class AccountingJournal extends CommonObject
 	public $active;
 
 	/**
-	 * @var array array of lines
+	 * @var array<string,array{found:bool,label:string,code_formatted_1:string,label_formatted_1:string,label_formatted_2:string}> 	Accounting account cached
 	 */
-	public $lines;
+	public static $accounting_account_cached = array();
 
 	/**
-	 * @var array 		Accounting account cached
+	 * @var array<int,string>	Nature mapping
 	 */
-	static public $accounting_account_cached = array();
-
-	/**
-	 * @var array 		Nature mapping
-	 */
-	static public $nature_maps = array(
+	public static $nature_maps = array(
 		1 => 'variousoperations',
 		2 => 'sells',
 		3 => 'purchases',
 		4 => 'bank',
 		5 => 'expensereports',
+		6 => 'cash_sells',
 		8 => 'inventories',
 		9 => 'hasnew',
 	);
@@ -107,16 +104,62 @@ class AccountingJournal extends CommonObject
 	public function __construct($db)
 	{
 		$this->db = $db;
+
+		$this->ismultientitymanaged = 0;
+	}
+
+	/**
+	 * Create a new Accounting Journal.
+	 *
+	 * @param  User	$user the user that created the journal, currently unused
+	 * @return int  Return integer <0 on error, or the ID of the created object
+	 */
+	public function create($user)
+	{
+		$valid_nature = array(1, 2, 3, 4, 5, 8, 9);
+		if (!in_array((int) $this->nature, $valid_nature)) {
+			$this->error = get_class($this)."::Create Error invalid field nature '" . strval($this->nature) . "'";
+			dol_syslog($this->error, LOG_ERR);
+			return -1;
+		}
+
+		$sql = "INSERT INTO ".MAIN_DB_PREFIX."accounting_journal";
+		$sql .= " (entity, code, label, nature, active)";
+		$sql .= " VALUES ("
+			. ((int) $this->entity)           .",'"
+			. $this->db->escape($this->code)  ."','"
+			. $this->db->escape($this->label) ."',"
+			. ((int) $this->nature)           .","
+			. ((int) $this->active)           .")";
+
+		dol_syslog(get_class($this)."::create", LOG_DEBUG);
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			$this->error = get_class($this)."::Create Error: " . $this->db->lasterror();
+			dol_syslog($this->error, LOG_ERR);
+			return -1;
+		}
+
+		$id = $this->db->last_insert_id(MAIN_DB_PREFIX."accounting_journal");
+		if ($id <= 0) {
+			$this->error = get_class($this)."::Create Error " . $id . ": " . $this->db->lasterror();
+			dol_syslog($this->error, LOG_ERR);
+			return -2;
+		}
+
+		$this->id = $id;
+		$this->rowid = $id;
+		return $id;
 	}
 
 	/**
 	 * Load an object from database
 	 *
-	 * @param	int		$rowid				Id of record to load
-	 * @param 	string 	$journal_code		Journal code
-	 * @return	int							<0 if KO, Id of record if OK and found
+	 * @param	int			$rowid			Id of record to load
+	 * @param 	?string		$journal_code	Journal code
+	 * @return	int							Return integer <0 if KO, Id of record if OK and found
 	 */
-	public function fetch($rowid = null, $journal_code = null)
+	public function fetch($rowid = 0, $journal_code = null)
 	{
 		global $conf;
 
@@ -128,7 +171,7 @@ class AccountingJournal extends CommonObject
 				$sql .= " rowid = ".((int) $rowid);
 			} elseif ($journal_code) {
 				$sql .= " code = '".$this->db->escape($journal_code)."'";
-				$sql .= " AND entity  = ".$conf->entity;
+				$sql .= " AND entity  = ".((int) $conf->entity);
 			}
 
 			dol_syslog(get_class($this)."::fetch", LOG_DEBUG);
@@ -159,79 +202,10 @@ class AccountingJournal extends CommonObject
 	}
 
 	/**
-	 * Load object in memory from the database
-	 *
-	 * @param string $sortorder Sort Order
-	 * @param string $sortfield Sort field
-	 * @param int $limit offset limit
-	 * @param int $offset offset limit
-	 * @param array $filter filter array
-	 * @param string $filtermode filter mode (AND or OR)
-	 *
-	 * @return int <0 if KO, >0 if OK
-	 */
-	public function fetchAll($sortorder = '', $sortfield = '', $limit = 0, $offset = 0, array $filter = array(), $filtermode = 'AND')
-	{
-		$sql = "SELECT rowid, code, label, nature, active";
-		$sql .= ' FROM '.MAIN_DB_PREFIX.$this->table_element.' as t';
-		// Manage filter
-		$sqlwhere = array();
-		if (count($filter) > 0) {
-			foreach ($filter as $key => $value) {
-				if ($key == 't.code' || $key == 't.label' || $key == 't.nature') {
-					$sqlwhere[] = $key.'\''.$this->db->escape($value).'\'';
-				} elseif ($key == 't.rowid' || $key == 't.active') {
-					$sqlwhere[] = $key.'='.$value;
-				}
-			}
-		}
-		$sql .= ' WHERE 1 = 1';
-		$sql .= " AND entity IN (".getEntity('accountancy').")";
-		if (count($sqlwhere) > 0) {
-			$sql .= " AND ".implode(" ".$filtermode." ", $sqlwhere);
-		}
-
-		if (!empty($sortfield)) {
-			$sql .= $this->db->order($sortfield, $sortorder);
-		}
-		if (!empty($limit)) {
-			$sql .= $this->db->plimit($limit + 1, $offset);
-		}
-		$this->lines = array();
-
-		dol_syslog(get_class($this)."::fetch", LOG_DEBUG);
-		$resql = $this->db->query($sql);
-		if ($resql) {
-			$num = $this->db->num_rows($resql);
-
-			while ($obj = $this->db->fetch_object($resql)) {
-				$line = new self($this->db);
-
-				$line->id = $obj->rowid;
-				$line->code = $obj->code;
-				$line->label = $obj->label;
-				$line->nature = $obj->nature;
-				$line->active = $obj->active;
-
-				$this->lines[] = $line;
-			}
-
-			$this->db->free($resql);
-
-			return $num;
-		} else {
-			$this->errors[] = 'Error '.$this->db->lasterror();
-			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
-
-			return -1;
-		}
-	}
-
-	/**
-	 * Return clicable name (with picto eventually)
+	 * Return clickable name (with picto eventually)
 	 *
 	 * @param	int		$withpicto		0=No picto, 1=Include picto into link, 2=Only picto
-	 * @param	int		$withlabel		0=No label, 1=Include label of journal
+	 * @param	int		$withlabel		0=No label, 1=Include label of journal, 2=Include nature of journal
 	 * @param	int  	$nourl			1=Disable url
 	 * @param	string  $moretitle		Add more text to title tooltip
 	 * @param	int  	$notooltip		1=Disable tooltip
@@ -239,7 +213,7 @@ class AccountingJournal extends CommonObject
 	 */
 	public function getNomUrl($withpicto = 0, $withlabel = 0, $nourl = 0, $moretitle = '', $notooltip = 0)
 	{
-		global $langs, $conf, $user, $hookmanager;
+		global $langs, $conf, $hookmanager;
 
 		if (!empty($conf->dol_no_mouse_hover)) {
 			$notooltip = 1; // Force disable tooltips
@@ -247,7 +221,7 @@ class AccountingJournal extends CommonObject
 
 		$result = '';
 
-		$url = DOL_URL_ROOT.'/accountancy/admin/journals_list.php?id=35';
+		$url = dolBuildUrl(DOL_URL_ROOT.'/accountancy/admin/journals_list.php', ['id' => 35]);
 
 		$label = '<u>'.$langs->trans("ShowAccountingJournal").'</u>';
 		if (!empty($this->code)) {
@@ -262,11 +236,11 @@ class AccountingJournal extends CommonObject
 
 		$linkclose = '';
 		if (empty($notooltip)) {
-			if (!empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER)) {
+			if (getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER')) {
 				$label = $langs->trans("ShowAccountingJournal");
-				$linkclose .= ' alt="'.dol_escape_htmltag($label, 1).'"';
+				$linkclose .= ' alt="'.dolPrintHTMLForAttribute($label).'"';
 			}
-			$linkclose .= ' title="'.dol_escape_htmltag($label, 1).'"';
+			$linkclose .= ' title="'.dolPrintHTMLForAttribute($label).'"';
 			$linkclose .= ' class="classfortooltip"';
 		}
 
@@ -281,8 +255,13 @@ class AccountingJournal extends CommonObject
 		}
 
 		$label_link = $this->code;
-		if ($withlabel) {
+		if ($withlabel == 1 && !empty($this->label)) {
 			$label_link .= ' - '.($nourl ? '<span class="opacitymedium">' : '').$langs->transnoentities($this->label).($nourl ? '</span>' : '');
+		}
+		if ($withlabel == 2 && !empty($this->nature)) {
+			$key = $langs->trans("AccountingJournalType".$this->nature);
+			$transferlabel = ($key != "AccountingJournalType".strtoupper($langs->trans((string) $this->nature)) ? $key : $this->label);
+			$label_link .= ' - '.($nourl ? '<span class="opacitymedium">' : '').$transferlabel.($nourl ? '</span>' : '');
 		}
 
 		$result .= $linkstart;
@@ -296,7 +275,7 @@ class AccountingJournal extends CommonObject
 
 		global $action;
 		$hookmanager->initHooks(array('accountingjournaldao'));
-		$parameters = array('id'=>$this->id, 'getnomurl' => &$result);
+		$parameters = array('id' => $this->id, 'getnomurl' => &$result);
 		$reshook = $hookmanager->executeHooks('getNomUrl', $parameters, $this, $action); // Note that $action and $object may have been modified by some hooks
 		if ($reshook > 0) {
 			$result = $hookmanager->resPrint;
@@ -307,10 +286,10 @@ class AccountingJournal extends CommonObject
 	}
 
 	/**
-	 *  Retourne le libelle du statut d'un user (actif, inactif)
+	 *  Return the label of the status
 	 *
-	 *  @param	int		$mode		  0=libelle long, 1=libelle court
-	 *  @return	string 				   Label of type
+	 *  @param  int<0,6>	$mode          0=long label, 1=short label, 2=Picto + short label, 3=Picto, 4=Picto + long label, 5=Short label + Picto, 6=Long label + Picto
+	 *  @return	string 				       Label of status
 	 */
 	public function getLibType($mode = 0)
 	{
@@ -321,8 +300,8 @@ class AccountingJournal extends CommonObject
 	/**
 	 *  Return type of an accounting journal
 	 *
-	 *  @param	int		$nature			Id type
-	 *  @param  int		$mode		  	0=libelle long, 1=libelle court
+	 *  @param	int			$nature		Id type
+	 *  @param  int<0,1>	$mode	  	0=label long, 1=label short
 	 *  @return string 				   	Label of type
 	 */
 	public function LibType($nature, $mode = 0)
@@ -336,6 +315,8 @@ class AccountingJournal extends CommonObject
 			$prefix = '';
 			if ($nature == 9) {
 				return $langs->trans('AccountingJournalType9');
+			} elseif ($nature == 6 && getDolGlobalInt('ACCOUNTING_DISSOCIATE_CASH_SALES')) {
+				return $langs->trans('AccountingJournalType6');
 			} elseif ($nature == 5) {
 				return $langs->trans('AccountingJournalType5');
 			} elseif ($nature == 4) {
@@ -350,6 +331,8 @@ class AccountingJournal extends CommonObject
 		} elseif ($mode == 1) {
 			if ($nature == 9) {
 				return $langs->trans('AccountingJournalType9');
+			} elseif ($nature == 6 && getDolGlobalInt('ACCOUNTING_DISSOCIATE_CASH_SALES')) {
+				return $langs->trans('AccountingJournalType6');
 			} elseif ($nature == 5) {
 				return $langs->trans('AccountingJournalType5');
 			} elseif ($nature == 4) {
@@ -362,6 +345,7 @@ class AccountingJournal extends CommonObject
 				return $langs->trans('AccountingJournalType1');
 			}
 		}
+		return "";
 	}
 
 
@@ -373,20 +357,18 @@ class AccountingJournal extends CommonObject
 	 * @param 	int				$date_start			Filter 'start date'
 	 * @param 	int				$date_end			Filter 'end date'
 	 * @param 	string			$in_bookkeeping		Filter 'in bookkeeping' ('already', 'notyet')
-	 * @return 	array|int							<0 if KO, >0 if OK
+	 * @return	int<-1,-1>|array<int,array{ref:string,error:?string,blocks:array<array<array{date:string,piece:string,account_accounting:string,subledger_account:string,label_operation:string,debit:string,credit:string}|array{doc_date:string,date_lim_reglement:string,doc_ref:string,date_creation:string,doc_type:string,fk_doc:string,fk_docdet:string,thirdparty_code:string,subledger_account:string,subledger_label:string,numero_compte:string,label_compte:string,label_operation:string,montant:float,sens:string,debit:string,credit:string,code_journal:string,journal_label:string,piece_num:string,import_key:string,fk_user_author:string,entity:string}>>}>	Return integer <0 if KO, array
 	 */
 	public function getData(User $user, $type = 'view', $date_start = null, $date_end = null, $in_bookkeeping = 'notyet')
 	{
 		global $hookmanager;
 
 		// Clean parameters
-		if (empty($type)) $type = 'view';
-		if (empty($in_bookkeeping)) $in_bookkeeping = 'notyet';
-
-		// Hook
-		if (!is_object($hookmanager)) {
-			include_once DOL_DOCUMENT_ROOT . '/core/class/hookmanager.class.php';
-			$hookmanager = new HookManager($this->db);
+		if (empty($type)) {
+			$type = 'view';
+		}
+		if (empty($in_bookkeeping)) {
+			$in_bookkeeping = 'notyet';
 		}
 
 		$data = array();
@@ -401,14 +383,31 @@ class AccountingJournal extends CommonObject
 		} elseif (empty($reshook)) {
 			switch ($this->nature) {
 				case 1: // Various Journal
-					$data = $this->getAssetData($user, $type, $date_start, $date_end, $in_bookkeeping);
+					if (isModEnabled('asset') && !getDolGlobalInt('ACCOUNTING_DISABLE_TRANSFER_ON_ASSETS')) {
+						$tmp = $this->getAssetData($user, $type, $date_start, $date_end, $in_bookkeeping);
+						if (is_array($tmp)) {
+							$data = array_merge($data, $tmp);
+						}
+					}
+					if (isModEnabled('invoice') && !getDolGlobalInt('ACCOUNTING_DISABLE_TRANSFER_ON_DISCOUNTS')) {
+						$tmp = $this->getDiscountCustomer($user, $type, $date_start, $date_end, $in_bookkeeping);
+						if (is_array($tmp)) {
+							$data = array_merge($data, $tmp);
+						}
+					}
+					if (isModEnabled('supplier_invoice') && !getDolGlobalInt('ACCOUNTING_DISABLE_TRANSFER_ON_DISCOUNTS')) {
+						$tmp = $this->getDiscountSupplier($user, $type, $date_start, $date_end, $in_bookkeeping);
+						if (is_array($tmp)) {
+							$data = array_merge($data, $tmp);
+						}
+					}
 					break;
-				//              case 2: // Sells Journal
-				//              case 3: // Purchases Journal
-				//              case 4: // Bank Journal
-				//              case 5: // Expense reports Journal
-				//              case 8: // Inventory Journal
-				//              case 9: // hasnew Journal
+					//              case 2: // Sells Journal
+					//              case 3: // Purchases Journal
+					//              case 4: // Bank Journal
+					//              case 5: // Expense reports Journal
+					//              case 8: // Inventory Journal
+					//              case 9: // hasnew Journal
 			}
 		}
 
@@ -419,17 +418,17 @@ class AccountingJournal extends CommonObject
 	 *  Get asset data for various journal
 	 *
 	 * @param 	User			$user				User who get infos
-	 * @param 	string			$type				Type data returned ('view', 'bookkeeping', 'csv')
-	 * @param 	int				$date_start			Filter 'start date'
-	 * @param 	int				$date_end			Filter 'end date'
-	 * @param 	string			$in_bookkeeping		Filter 'in bookkeeping' ('already', 'notyet')
-	 * @return 	array|int							<0 if KO, >0 if OK
+	 * @param 	'view'|'bookkeeping'|'csv'	$type	Type data returned ('view', 'bookkeeping', 'csv')
+	 * @param 	?int			$date_start			Filter 'start date'
+	 * @param 	?int			$date_end			Filter 'end date'
+	 * @param 	'already'|'notyet'	$in_bookkeeping		Filter 'in bookkeeping' ('already', 'notyet')
+	 * @return	int<-1,-1>|array<int,array{ref:string,error:?string,blocks:array<array<array{date:string,piece:string,account_accounting:string,subledger_account:string,label_operation:string,debit:string,credit:string}|array{doc_date:''|int,date_lim_reglement:string,doc_ref:string,date_creation:int,doc_type:string,fk_doc:int,fk_docdet:int,thirdparty_code:string,subledger_account:string,subledger_label:string,numero_compte:string,label_compte:string,label_operation:string,montant:float,sens:string,debit:float|string,credit:float|string,code_journal:string,journal_label:string,piece_num:string,import_key:string,fk_user_author:int,entity:string}>>}>	Return integer <0 if KO, array
 	 */
 	public function getAssetData(User $user, $type = 'view', $date_start = null, $date_end = null, $in_bookkeeping = 'notyet')
 	{
-		global $conf, $langs;
+		global $conf, $langs, $mysoc;
 
-		if (empty($conf->asset->enabled)) {
+		if (!isModEnabled('asset')) {
 			return array();
 		}
 
@@ -441,37 +440,33 @@ class AccountingJournal extends CommonObject
 		$langs->loadLangs(array("assets"));
 
 		// Clean parameters
-		if (empty($type)) $type = 'view';
-		if (empty($in_bookkeeping)) $in_bookkeeping = 'notyet';
+		if (empty($type)) {
+			$type = 'view';
+		}
+		if (empty($in_bookkeeping)) {
+			$in_bookkeeping = 'notyet';
+		}
 
 		$sql = "";
-		if ($in_bookkeeping == 'already' || $in_bookkeeping == 'notyet') {
-			$sql .= "WITH in_accounting_bookkeeping(fk_docdet) AS (";
-			$sql .= " SELECT DISTINCT fk_docdet";
-			$sql .= " FROM " . MAIN_DB_PREFIX . "accounting_bookkeeping";
-			$sql .= " WHERE doc_type = 'asset'";
-			$sql .= ")";
-		}
 		$sql .= "SELECT ad.fk_asset AS rowid, a.ref AS asset_ref, a.label AS asset_label, a.acquisition_value_ht AS asset_acquisition_value_ht";
 		$sql .= ", a.disposal_date AS asset_disposal_date, a.disposal_amount_ht AS asset_disposal_amount_ht, a.disposal_subject_to_vat AS asset_disposal_subject_to_vat";
 		$sql .= ", ad.rowid AS depreciation_id, ad.depreciation_mode, ad.ref AS depreciation_ref, ad.depreciation_date, ad.depreciation_ht, ad.accountancy_code_debit, ad.accountancy_code_credit";
 		$sql .= " FROM " . MAIN_DB_PREFIX . "asset_depreciation as ad";
 		$sql .= " LEFT JOIN " . MAIN_DB_PREFIX . "asset as a ON a.rowid = ad.fk_asset";
-		if ($in_bookkeeping == 'already' || $in_bookkeeping == 'notyet') {
-			$sql .= " LEFT JOIN in_accounting_bookkeeping as iab ON iab.fk_docdet = ad.rowid";
-		}
 		$sql .= " WHERE a.entity IN (" . getEntity('asset', 0) . ')'; // We don't share object for accountancy, we use source object sharing
+		$sql .= " AND a.status > 0";
+		if ($in_bookkeeping == 'already') {
+			$sql .= " AND EXISTS (SELECT iab.fk_docdet FROM " . MAIN_DB_PREFIX . "accounting_bookkeeping AS iab WHERE iab.fk_docdet = ad.rowid AND doc_type = 'asset')";
+		} elseif ($in_bookkeeping == 'notyet') {
+			$sql .= " AND NOT EXISTS (SELECT iab.fk_docdet FROM " . MAIN_DB_PREFIX . "accounting_bookkeeping AS iab WHERE iab.fk_docdet = ad.rowid AND doc_type = 'asset')";
+		}
 		$sql .= " AND ad.ref != ''"; // not reversal lines
 		if ($date_start && $date_end) {
 			$sql .= " AND ad.depreciation_date >= '" . $this->db->idate($date_start) . "' AND ad.depreciation_date <= '" . $this->db->idate($date_end) . "'";
 		}
 		// Define begin binding date
-		if (!empty($conf->global->ACCOUNTING_DATE_START_BINDING)) {
-			$sql .= " AND ad.depreciation_date >= '" . $this->db->idate($conf->global->ACCOUNTING_DATE_START_BINDING) . "'";
-		}
-		// Already in bookkeeping or not
-		if ($in_bookkeeping == 'already' || $in_bookkeeping == 'notyet') {
-			$sql .= " AND iab.fk_docdet IS" . ($in_bookkeeping == 'already' ? " NOT" : "") . " NULL";
+		if (getDolGlobalString('ACCOUNTING_DATE_START_BINDING')) {
+			$sql .= " AND ad.depreciation_date >= '" . $this->db->idate(getDolGlobalInt('ACCOUNTING_DATE_START_BINDING')) . "'";
 		}
 		$sql .= " ORDER BY ad.depreciation_date";
 
@@ -518,6 +513,11 @@ class AccountingJournal extends CommonObject
 		}
 
 		$disposal_ref = $langs->transnoentitiesnoconv('AssetDisposal');
+		// VAT rate of a disposal: option ASSET_DISPOSAL_VAT, else default VAT rate of the company country
+		$disposal_vat = (float) price2num(getDolGlobalString('ASSET_DISPOSAL_VAT'));
+		if (!($disposal_vat > 0)) {
+			$disposal_vat = (float) price2num(preg_replace('/\s*\(.*\)/', '', (string) get_default_tva($mysoc, $mysoc)));
+		}
 		$journal = $this->code;
 		$journal_label = $this->label;
 		$journal_label_formatted = $langs->transnoentities($journal_label);
@@ -527,20 +527,18 @@ class AccountingJournal extends CommonObject
 
 		$journal_data = array();
 		foreach ($pre_data['elements'] as $pre_data_id => $pre_data_info) {
-			$element_static->id = $pre_data_id;
+			$element_static->id = (int) $pre_data_id;
 			$element_static->ref = (string) $pre_data_info["ref"];
 			$element_static->label = (string) $pre_data_info["label"];
 			$element_static->acquisition_value_ht = $pre_data_info["acquisition_value_ht"];
 			$element_link = $element_static->getNomUrl(1, 'with_label');
 
 			$element_name_formatted_0 = dol_trunc($element_static->label, 16);
-			$element_name_formatted_1 = utf8_decode(dol_trunc($element_static->label, 32));
-			$element_name_formatted_2 = utf8_decode(dol_trunc($element_static->label, 16));
 			$label_operation = $element_static->getNomUrl(0, 'label', 16);
 
 			$element = array(
 				'ref' => dol_trunc($element_static->ref, 16, 'right', 'UTF-8', 1),
-				'error' => $pre_data_info['error'],
+				'error' => array_key_exists('error', $pre_data_info) ? $pre_data_info['error'] : '',  // @phpstan-ignore-line
 				'blocks' => array(),
 			);
 
@@ -557,7 +555,7 @@ class AccountingJournal extends CommonObject
 					$account_infos = $this->getAccountingAccountInfos($account);
 
 					if ($type == 'view') {
-						$account_to_show = length_accounta($account);
+						$account_to_show = length_accountg($account);
 						if (($account_to_show == "") || $account_to_show == 'NotDefined') {
 							$account_to_show = '<span class="error">' . $langs->trans("AssetInAccountNotDefined") . '</span>';
 						}
@@ -580,14 +578,14 @@ class AccountingJournal extends CommonObject
 								'date_creation' => $now,
 								'doc_type' => 'asset',
 								'fk_doc' => $element_static->id,
-								'fk_docdet' => $depreciation_id, // Useless, can be several lines that are source of this record to add
+								'fk_docdet' => (int) $depreciation_id, // Useless, can be several lines that are source of this record to add
 								'thirdparty_code' => '',
 								'subledger_account' => '',
 								'subledger_label' => '',
-								'numero_compte' => $account,
+								'numero_compte' => (string) $account,
 								'label_compte' => $account_infos['label'],
 								'label_operation' => $element_name_formatted_0 . ' - ' . $depreciation_ref,
-								'montant' => $mt,
+								'montant' => (float) $mt,
 								'sens' => $mt < 0 ? 'D' : 'C',
 								'debit' => $mt < 0 ? -$mt : 0,
 								'credit' => $mt >= 0 ? $mt : 0,
@@ -619,12 +617,11 @@ class AccountingJournal extends CommonObject
 				$disposal_date = $pre_data_info['disposal']['date'];
 
 				if ((!($date_start && $date_end) || ($date_start <= $disposal_date && $disposal_date <= $date_end)) &&
-					(empty($conf->global->ACCOUNTING_DATE_START_BINDING) || $conf->global->ACCOUNTING_DATE_START_BINDING <= $disposal_date)
+					(!getDolGlobalString('ACCOUNTING_DATE_START_BINDING') || getDolGlobalInt('ACCOUNTING_DATE_START_BINDING') <= $disposal_date)
 				) {
 					$disposal_amount = $pre_data_info['disposal']['amount'];
 					$disposal_subject_to_vat = $pre_data_info['disposal']['subject_to_vat'];
 					$disposal_date_formatted = dol_print_date($disposal_date, 'day');
-					$disposal_vat = $conf->global->ASSET_DISPOSAL_VAT > 0 ? $conf->global->ASSET_DISPOSAL_VAT : 20;
 
 					// Get accountancy codes
 					//---------------------------
@@ -660,13 +657,15 @@ class AccountingJournal extends CommonObject
 							}
 
 							$lines = array();
-							$lines[0][$accountancy_code_value_asset_sold] = -($element_static->acquisition_value_ht - $last_cumulative_amount_ht);
-							$lines[0][$accountancy_code_depreciation_asset] = -$last_cumulative_amount_ht;
+							$lines[0][$accountancy_code_value_asset_sold] = -((float) $element_static->acquisition_value_ht - $last_cumulative_amount_ht);
+							$lines[0][$accountancy_code_depreciation_asset] = - (float) $last_cumulative_amount_ht;
 							$lines[0][$accountancy_code_asset] = $element_static->acquisition_value_ht;
 
-							$disposal_amount_vat = $disposal_subject_to_vat ? (double) price2num($disposal_amount * $disposal_vat / 100, 'MT') : 0;
+							$disposal_amount_vat = $disposal_subject_to_vat ? (float) price2num($disposal_amount * $disposal_vat / 100, 'MT') : 0;
 							$lines[1][$accountancy_code_receivable_on_assignment] = -($disposal_amount + $disposal_amount_vat);
-							if ($disposal_subject_to_vat) $lines[1][$accountancy_code_vat_collected] = $disposal_amount_vat;
+							if ($disposal_subject_to_vat) {
+								$lines[1][$accountancy_code_vat_collected] = $disposal_amount_vat;
+							}
 							$lines[1][$accountancy_code_proceeds_from_sales] = $disposal_amount;
 
 							foreach ($lines as $lines_block) {
@@ -675,7 +674,7 @@ class AccountingJournal extends CommonObject
 									$account_infos = $this->getAccountingAccountInfos($account);
 
 									if ($type == 'view') {
-										$account_to_show = length_accounta($account);
+										$account_to_show = length_accountg($account);
 										if (($account_to_show == "") || $account_to_show == 'NotDefined') {
 											$account_to_show = '<span class="error">' . $langs->trans("AssetInAccountNotDefined") . '</span>';
 										}
@@ -702,10 +701,10 @@ class AccountingJournal extends CommonObject
 												'thirdparty_code' => '',
 												'subledger_account' => '',
 												'subledger_label' => '',
-												'numero_compte' => $account,
+												'numero_compte' => (string) $account,
 												'label_compte' => $account_infos['label'],
 												'label_operation' => $element_name_formatted_0 . ' - ' . $disposal_ref,
-												'montant' => $mt,
+												'montant' => (float) $mt,
 												'sens' => $mt < 0 ? 'D' : 'C',
 												'debit' => $mt < 0 ? -$mt : 0,
 												'credit' => $mt >= 0 ? $mt : 0,
@@ -735,9 +734,637 @@ class AccountingJournal extends CommonObject
 				}
 			}
 
-			$journal_data[$pre_data_id] = $element;
+			$journal_data[(int) $pre_data_id] = $element;
 		}
 		unset($pre_data);
+
+		return $journal_data;
+	}
+
+	/**
+	 *  Get customer discount (escompte) data for various journal
+	 *
+	 * @param	User						$user				User who get infos
+	 * @param	'view'|'bookkeeping'|'csv'	$type				Type data returned ('view', 'bookkeeping', 'csv')
+	 * @param	?int						$date_start			Filter 'start date'
+	 * @param	?int						$date_end			Filter 'end date'
+	 * @param	'already'|'notyet'			$in_bookkeeping		Filter 'in bookkeeping' ('already', 'notyet')
+	 * @return	int<-1,-1>|array<int,array{ref:string,error:?string,blocks:array<array<array{date:string,piece:string,account_accounting:string,subledger_account:string,label_operation:string,debit:string,credit:string}|array{doc_date:''|int,date_lim_reglement:string,doc_ref:string,date_creation:int,doc_type:string,fk_doc:int,fk_docdet:int,thirdparty_code:string,subledger_account:string,subledger_label:string,numero_compte:string,label_compte:string,label_operation:string,montant:float,sens:string,debit:float|string,credit:float|string,code_journal:string,journal_label:string,piece_num:string,import_key:string,fk_user_author:int,entity:string}>>}>    Return integer <0 if KO, array
+	 */
+	public function getDiscountCustomer(User $user, $type = 'view', $date_start = null, $date_end = null, $in_bookkeeping = 'notyet')
+	{
+		global $conf, $langs, $hookmanager;
+
+		require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
+		require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/accounting.lib.php';
+
+		$langs->loadLangs(array('bills'));
+
+		// Clean parameters
+		if (empty($type)) {
+			$type = 'view';
+		}
+		if (empty($in_bookkeeping)) {
+			$in_bookkeeping = 'notyet';
+		}
+
+		// Build SQL - Customer invoices closed by discount
+		$sql = "SELECT f.rowid, f.ref, f.datef, f.date_closing, f.fk_soc, f.total_ttc";
+		$sql .= " FROM ".MAIN_DB_PREFIX."facture as f";
+		$sql .= " WHERE f.entity IN (".getEntity('invoice', 0).')'; // We don't share object for accountancy, we use source object sharing
+		$sql .= " AND f.fk_statut > 0";
+		if (getDolGlobalString('FACTURE_DEPOSITS_ARE_JUST_PAYMENTS')) {	// Non common setup
+			$sql .= " AND f.type IN (".Facture::TYPE_STANDARD.",".Facture::TYPE_REPLACEMENT.",".Facture::TYPE_CREDIT_NOTE.",".Facture::TYPE_SITUATION.")";
+		} else {
+			$sql .= " AND f.type IN (".Facture::TYPE_STANDARD.",".Facture::TYPE_REPLACEMENT.",".Facture::TYPE_CREDIT_NOTE.",".Facture::TYPE_DEPOSIT.",".Facture::TYPE_SITUATION.")";
+		}
+		// Add SQL restrictions from hooks (context accountingjournaldao), e.g. a deposit pivot date restricting deposits by their date
+		$hookmanager->initHooks(array('accountingjournaldao'));
+		$parameters = array('invoicealias' => 'f', 'issupplier' => 0, 'datefield' => 'datef');
+		$reshook = $hookmanager->executeHooks('printFieldListWhere', $parameters, $this); // Note that $action and $object may have been modified by some hooks
+		$sql .= $hookmanager->resPrint;
+		$sql .= " AND f.close_code = 'discount_vat'";
+		if ($date_start && $date_end) {
+			$sql .= " AND f.date_closing >= '".$this->db->idate($date_start)."' AND f.date_closing <= '".$this->db->idate($date_end)."'";
+		}
+		if (getDolGlobalString('ACCOUNTING_DATE_START_BINDING')) {
+			$sql .= " AND f.date_closing >= '".$this->db->idate(getDolGlobalInt('ACCOUNTING_DATE_START_BINDING'))."'";
+		}
+		if ($in_bookkeeping == 'already') {
+			$sql .= " AND EXISTS (SELECT 1 FROM ".MAIN_DB_PREFIX."accounting_bookkeeping ab";
+			$sql .= "              WHERE ab.doc_type = 'customer_invoice' AND ab.fk_doc = f.rowid";
+			$sql .= "                AND ab.code_journal = '".$this->db->escape($this->code)."')";
+		} elseif ($in_bookkeeping == 'notyet') {
+			$sql .= " AND NOT EXISTS (SELECT 1 FROM ".MAIN_DB_PREFIX."accounting_bookkeeping ab";
+			$sql .= "              WHERE ab.doc_type = 'customer_invoice' AND ab.fk_doc = f.rowid";
+			$sql .= "                AND ab.code_journal = '".$this->db->escape($this->code)."')";
+		}
+		$sql .= " ORDER BY f.date_closing";
+
+		dol_syslog(__METHOD__, LOG_DEBUG);
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			$this->errors[] = $this->db->lasterror();
+			return -1;
+		}
+
+		$journal = $this->code;
+		$journal_label_formatted = $langs->transnoentities($this->label);
+		$now = dol_now();
+
+		$journal_data = array();
+		$invoice_static = new Facture($this->db);
+		$customer_static = new Societe($this->db);
+
+		// Accounting accounts
+		$acc_disc_granted = getDolGlobalString('ACCOUNTING_ACCOUNT_DISCOUNT_GRANTED');
+		$acc_vat_coll_def = getDolGlobalString('ACCOUNTING_VAT_BUY_ACCOUNT');			// Normal to apply vat default account for buy with customer's discount
+
+		while ($obj = $this->db->fetch_object($resql)) {
+			if ($invoice_static->fetch((int) $obj->rowid) <= 0) {
+				continue;
+			}
+
+			$customer_static->fetch($invoice_static->socid);
+			$account_customer_general = (!empty($customer_static->accountancy_code_customer_general) && $customer_static->accountancy_code_customer_general != '-1') ? $customer_static->accountancy_code_customer_general : getDolGlobalString('ACCOUNTING_ACCOUNT_CUSTOMER');
+			$account_customer_subsidiary = !empty($customer_static->code_compta_client) ? $customer_static->code_compta_client : '';
+
+			$piece_link = $invoice_static->getNomUrl(1, 'withlabel');
+
+			// Discounted amount including tax
+			$paid    = (float) price2num($invoice_static->getSommePaiement(), 'MT');
+			$usedcn  = (float) price2num($invoice_static->getSumCreditNotesUsed(), 'MT');
+			$useddep = (float) price2num($invoice_static->getSumDepositsUsed(), 'MT');
+			$ttc_inv = (float) price2num($invoice_static->total_ttc, 'MT');
+			$escompte_ttc = (float) price2num(max(0, $ttc_inv - $paid - $usedcn - $useddep), 'MT');
+			if ($escompte_ttc <= 0) {
+				continue;
+			}
+
+			$bookkeeping_static = new BookKeeping($this->db);
+			$thirdpartyname = (string) $customer_static->name;
+			$label_discount = $bookkeeping_static->accountingLabelForOperation($thirdpartyname, $invoice_static->ref, $langs->trans('DiscountGranted'));
+
+			// Distribution including VAT by rate
+			$ttcByRate = array();
+			$totalTTC = 0.0;
+			foreach ((array) $invoice_static->lines as $li) {
+				$ttc = (float) $li->total_ttc;
+				if (!$ttc) {
+					continue;
+				}
+				$key = number_format((float) $li->tva_tx, 3, '.', '');
+				if (!isset($ttcByRate[$key])) {
+					$ttcByRate[$key] = 0.0;
+				}
+				$ttcByRate[$key] += $ttc;
+				$totalTTC += $ttc;
+			}
+			if ($totalTTC <= 0) {
+				$ttcByRate = array("0.000" => $escompte_ttc);
+				$totalTTC = $escompte_ttc;
+			}
+
+			$element = array(
+				'ref'   => dol_trunc($invoice_static->ref, 16, 'right', 'UTF-8', 1),
+				'error' => '',
+				'blocks' => array(),
+			);
+
+			$closingdate = !empty($obj->date_closing) ? $obj->date_closing : $obj->datef;
+
+			$docdate = $this->db->jdate($closingdate);
+			$docdate_fmt = dol_print_date($docdate, 'day');
+
+			$sumTTC = 0.0;
+			$i = 0;
+			$n = count($ttcByRate);
+			foreach ($ttcByRate as $rateStr => $ttcRateOnInvoice) {
+				$i++;
+				$rate = (float) $rateStr;
+
+				$ttc_part = (float) $escompte_ttc * ($ttcRateOnInvoice / $totalTTC);
+				if ($i == $n) {
+					$ttc_part = (float) price2num($escompte_ttc - $sumTTC, 'MT');
+				} else {
+					$ttc_part = (float) price2num($ttc_part, 'MT');
+					$sumTTC = (float) price2num($sumTTC + $ttc_part, 'MT');
+				}
+
+				if ($rate > 0) {
+					$ht_part  = (float) price2num($ttc_part / (1 + $rate / 100), 'MT');
+					$tva_part = (float) price2num($ttc_part - $ht_part, 'MT');
+				} else {
+					$ht_part = $ttc_part;
+					$tva_part = 0.0;
+				}
+
+				// VAT deductible account (by rate if available)
+				// TODO write function to search the same vat code like the invoice
+				$acc_vat_coll = $acc_vat_coll_def;
+
+				$lines_view = array();
+				$lines_book = array();
+
+				// Discount granted
+				$acc_info_discountgranted = $this->getAccountingAccountInfos($acc_disc_granted);
+				if ($type == 'view') {
+					$lines_view[] = array(
+						'date' => $docdate_fmt,
+						'piece' => $piece_link,
+						'account_accounting' => length_accountg($acc_disc_granted),
+						'subledger_account' => '',
+						'label_operation' => $label_discount." - " .$langs->transnoentitiesnoconv('HT') . " (".$rateStr."%)",
+						'debit' => price($ht_part),
+						'credit' => '',
+					);
+				} elseif ($type == 'bookkeeping' && $acc_info_discountgranted['found']) {
+					$lines_book[] = array(
+						'doc_date' => $docdate,
+						'date_lim_reglement' => '',
+						'doc_ref' => $invoice_static->ref,
+						'date_creation' => $now,
+						'doc_type' => 'customer_invoice',
+						'fk_doc' => $invoice_static->id,
+						'fk_docdet' => 0,
+						'thirdparty_code' => $customer_static->code_client,
+						'subledger_account' => '',
+						'subledger_label' => '',
+						'numero_compte' => (string) $acc_disc_granted,
+						'label_compte' => $acc_info_discountgranted['label'],
+						'label_operation' => $label_discount." - " .$langs->transnoentitiesnoconv('HT') . " (".$rateStr."%)",
+						'montant' => $ht_part,
+						'sens' => 'D',
+						'debit' => $ht_part,
+						'credit' => 0,
+						'code_journal' => $journal,
+						'journal_label' => $journal_label_formatted,
+						'piece_num' => 'OD-ESC-'.$invoice_static->ref,
+						'import_key' => '',
+						'fk_user_author' => $user->id,
+						'entity' => $conf->entity,
+					);
+				}
+
+				// VAT
+				if ($tva_part > 0) {
+					$acc_info_vatbuy = $this->getAccountingAccountInfos($acc_vat_coll);
+					if ($type == 'view') {
+						$lines_view[] = array(
+							'date' => $docdate_fmt,
+							'piece' => $piece_link,
+							'account_accounting' => length_accountg($acc_vat_coll),
+							'subledger_account' => '',
+							'label_operation' => $label_discount." - " .$langs->transnoentitiesnoconv('VAT') . " (".$rateStr."%)",
+							'debit' => price($tva_part),
+							'credit' => '',
+						);
+					} elseif ($type == 'bookkeeping' && $acc_info_vatbuy['found']) {
+						$lines_book[] = array(
+							'doc_date' => $docdate,
+							'date_lim_reglement' => '',
+							'doc_ref' => $invoice_static->ref,
+							'date_creation' => $now,
+							'doc_type' => 'customer_invoice',
+							'fk_doc' => $invoice_static->id,
+							'fk_docdet' => 0,
+							'thirdparty_code' => $customer_static->code_client,
+							'subledger_account' => '',
+							'subledger_label' => '',
+							'numero_compte' => (string) $acc_vat_coll,
+							'label_compte' => $acc_info_vatbuy['label'],
+							'label_operation' => $label_discount." - " .$langs->transnoentitiesnoconv('VAT') . " (".$rateStr."%)",
+							'montant' => $tva_part,
+							'sens' => 'D',
+							'debit' => $tva_part,
+							'credit' => 0,
+							'code_journal' => $journal,
+							'journal_label' => $journal_label_formatted,
+							'piece_num' => 'OD-ESC-'.$invoice_static->ref,
+							'import_key' => '',
+							'fk_user_author' => $user->id,
+							'entity' => $conf->entity,
+						);
+					}
+				}
+
+				// Thirdparty
+				$acc_info_customeraccount = $this->getAccountingAccountInfos($account_customer_general);
+				if ($type == 'view') {
+					$lines_view[] = array(
+						'date' => $docdate_fmt,
+						'piece' => $piece_link,
+						'account_accounting' => length_accountg($account_customer_general),
+						'subledger_account' => length_accounta($account_customer_subsidiary),
+						'label_operation' => $label_discount.' - '.$langs->transnoentitiesnoconv('Customer'),
+						'debit' => '',
+						'credit' => price($ttc_part),
+					);
+					$element['blocks'][] = $lines_view;
+				} elseif ($type == 'bookkeeping' && $acc_info_customeraccount['found']) {
+					$lines_book[] = array(
+						'doc_date' => $docdate,
+						'date_lim_reglement' => '',
+						'doc_ref' => $invoice_static->ref,
+						'date_creation' => $now,
+						'doc_type' => 'customer_invoice',
+						'fk_doc' => $invoice_static->id,
+						'fk_docdet' => 0,
+						'thirdparty_code' => $customer_static->code_client,
+						'subledger_account' => $account_customer_subsidiary,
+						'subledger_label' => $customer_static->name,
+						'numero_compte' => (string) $account_customer_general,
+						'label_compte' => $acc_info_customeraccount['label'],
+						'label_operation' => $label_discount.' - '.$langs->transnoentitiesnoconv('Customer'),
+						'montant' => $ttc_part,
+						'sens' => 'C',
+						'debit' => 0,
+						'credit' => $ttc_part,
+						'code_journal' => $journal,
+						'journal_label' => $journal_label_formatted,
+						'piece_num' => 'OD-ESC-'.$invoice_static->ref,
+						'import_key' => '',
+						'fk_user_author' => $user->id,
+						'entity' => $conf->entity,
+					);
+					$element['blocks'][] = $lines_book;
+				} else { // CSV
+					$element['blocks'][] = array(
+						$docdate,                         // Date
+						$invoice_static->ref,             // Piece
+						length_accountg($acc_disc_granted), // Account
+						$label_discount." (".$rateStr."%)",   // Label
+						price($ht_part),                  // Debit
+						'',                               // Credit
+					);
+					if ($tva_part > 0) {
+						$element['blocks'][] = array(
+							$docdate, $invoice_static->ref, length_accountg($acc_vat_coll), $label_discount." ". $langs->transnoentitiesnoconv('VAT') . " (".$rateStr."%)", price($tva_part), ''
+						);
+					}
+					$element['blocks'][] = array(
+						$docdate, $invoice_static->ref, length_accountg($account_customer_general), $label_discount.' - '.$langs->transnoentitiesnoconv('Customer'), '', price($ttc_part)
+					);
+				}
+			}
+
+			$journal_data[(int) $invoice_static->id] = $element;
+		}
+
+		return $journal_data;
+	}
+
+	/**
+	 *  Get supplier discount (escompte) data for various journal
+	 *
+	 * @param	User						$user				User who get infos
+	 * @param	'view'|'bookkeeping'|'csv'	$type				Type data returned ('view', 'bookkeeping', 'csv')
+	 * @param	?int						$date_start			Filter 'start date'
+	 * @param	?int						$date_end			Filter 'end date'
+	 * @param	'already'|'notyet'			$in_bookkeeping		Filter 'in bookkeeping' ('already', 'notyet')
+	 * @return	int<-1,-1>|array<int,array{ref:string,error:?string,blocks:array<array<array{date:string,piece:string,account_accounting:string,subledger_account:string,label_operation:string,debit:string,credit:string}|array{doc_date:''|int,date_lim_reglement:string,doc_ref:string,date_creation:int,doc_type:string,fk_doc:int,fk_docdet:int,thirdparty_code:string,subledger_account:string,subledger_label:string,numero_compte:string,label_compte:string,label_operation:string,montant:float,sens:string,debit:float|string,credit:float|string,code_journal:string,journal_label:string,piece_num:string,import_key:string,fk_user_author:string,entity:string}>>}>    Return integer <0 if KO, array
+	 */
+	public function getDiscountSupplier(User $user, $type = 'view', $date_start = null, $date_end = null, $in_bookkeeping = 'notyet')
+	{
+		global $conf, $langs, $hookmanager;
+
+		require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.facture.class.php';
+		require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/accounting.lib.php';
+
+		$langs->loadLangs(array('suppliers'));
+
+		// Clean parameters
+		if (empty($type)) {
+			$type = 'view';
+		}
+		if (empty($in_bookkeeping)) {
+			$in_bookkeeping = 'notyet';
+		}
+
+		// SQL - Supplier invoices closed by discount
+		$sql = "SELECT ff.rowid, ff.ref, ff.datef, ff.date_closing, ff.fk_soc, ff.total_ttc";
+		$sql .= " FROM ".MAIN_DB_PREFIX."facture_fourn as ff";
+		$sql .= " WHERE ff.entity IN (".getEntity('facture_fourn', 0).")"; // We don't share object for accountancy
+		$sql .= " AND ff.fk_statut > 0";
+		if (getDolGlobalString('FACTURE_SUPPLIER_DEPOSITS_ARE_JUST_PAYMENTS')) {
+			$sql .= " AND ff.type IN (".FactureFournisseur::TYPE_STANDARD.",".FactureFournisseur::TYPE_REPLACEMENT.",".FactureFournisseur::TYPE_CREDIT_NOTE.",".FactureFournisseur::TYPE_SITUATION.")";
+		} else {
+			$sql .= " AND ff.type IN (".FactureFournisseur::TYPE_STANDARD.",".FactureFournisseur::TYPE_REPLACEMENT.",".FactureFournisseur::TYPE_CREDIT_NOTE.",".FactureFournisseur::TYPE_DEPOSIT.",".FactureFournisseur::TYPE_SITUATION.")";
+		}
+		// Add SQL restrictions from hooks (context accountingjournaldao), e.g. a deposit pivot date restricting deposits by their date
+		$hookmanager->initHooks(array('accountingjournaldao'));
+		$parameters = array('invoicealias' => 'ff', 'issupplier' => 1, 'datefield' => 'datef');
+		$reshook = $hookmanager->executeHooks('printFieldListWhere', $parameters, $this); // Note that $action and $object may have been modified by some hooks
+		$sql .= $hookmanager->resPrint;
+		$sql .= " AND ff.close_code = 'discount_vat'";
+		if ($date_start && $date_end) {
+			$sql .= " AND ff.date_closing >= '".$this->db->idate($date_start)."' AND ff.date_closing <= '".$this->db->idate($date_end)."'";
+		}
+		if (getDolGlobalString('ACCOUNTING_DATE_START_BINDING')) {
+			$sql .= " AND ff.date_closing >= '".$this->db->idate(getDolGlobalInt('ACCOUNTING_DATE_START_BINDING'))."'";
+		}
+		if ($in_bookkeeping == 'already') {
+			$sql .= " AND EXISTS (SELECT 1 FROM ".MAIN_DB_PREFIX."accounting_bookkeeping ab";
+			$sql .= "              WHERE ab.doc_type = 'supplier_invoice' AND ab.fk_doc = ff.rowid";
+			$sql .= "                AND ab.code_journal = '".$this->db->escape($this->code)."')";
+		} elseif ($in_bookkeeping == 'notyet') {
+			$sql .= " AND NOT EXISTS (SELECT 1 FROM ".MAIN_DB_PREFIX."accounting_bookkeeping ab";
+			$sql .= "              WHERE ab.doc_type = 'supplier_invoice' AND ab.fk_doc = ff.rowid";
+			$sql .= "                AND ab.code_journal = '".$this->db->escape($this->code)."')";
+		}
+		$sql .= " ORDER BY ff.date_closing";
+
+		dol_syslog(__METHOD__, LOG_DEBUG);
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			$this->errors[] = $this->db->lasterror();
+			return -1;
+		}
+
+		$journal = $this->code;
+		$journal_label_formatted = $langs->transnoentities($this->label);
+		$now = dol_now();
+
+		$journal_data = array();
+		$invoicesupplier_static = new FactureFournisseur($this->db);
+		$supplier_static = new Societe($this->db);
+
+		// Accounting accounts
+		$acc_disc_recv    = getDolGlobalString('ACCOUNTING_ACCOUNT_DISCOUNT_RECEIVED');
+		$acc_vat_ded_def  = getDolGlobalString('ACCOUNTING_VAT_SOLD_ACCOUNT');			// Normal to apply vat default account for sold with supplier's discount
+
+		while ($obj = $this->db->fetch_object($resql)) {
+			if ($invoicesupplier_static->fetch((int) $obj->rowid) <= 0) {
+				continue;
+			}
+
+			$supplier_static->fetch($invoicesupplier_static->socid);
+			$account_supplier_general = (!empty($supplier_static->accountancy_code_supplier_general) && $supplier_static->accountancy_code_supplier_general != '-1') ? $supplier_static->accountancy_code_supplier_general : getDolGlobalString('ACCOUNTING_ACCOUNT_SUPPLIER');
+			$account_supplier_subsidiary = !empty($supplier_static->code_compta_fournisseur) ? $supplier_static->code_compta_fournisseur : '';
+
+			$piece_link = $invoicesupplier_static->getNomUrl(1, 'withlabel');
+
+			// Discounted amount including tax
+			$paid    = (float) price2num($invoicesupplier_static->getSommePaiement(), 'MT');
+			$usedcn  = (float) price2num($invoicesupplier_static->getSumCreditNotesUsed(), 'MT');
+			$useddep = (float) price2num($invoicesupplier_static->getSumDepositsUsed(), 'MT');
+			$ttc_inv = (float) price2num($invoicesupplier_static->total_ttc, 'MT');
+			$escompte_ttc = (float) price2num(max(0, $ttc_inv - $paid - $usedcn - $useddep), 'MT');
+			if ($escompte_ttc <= 0) {
+				continue;
+			}
+
+			$bookkeeping_static = new BookKeeping($this->db);
+			$thirdpartyname = (string) $supplier_static->name;
+			$label_discount = $bookkeeping_static->accountingLabelForOperation($thirdpartyname, $invoicesupplier_static->ref, $langs->trans('DiscountReceived'));
+
+			// Distribution including VAT by rate
+			$ttcByRate = array();
+			$totalTTC = 0.0;
+			foreach ((array) $invoicesupplier_static->lines as $li) {
+				$ttc = (float) $li->total_ttc;
+				if (!$ttc) {
+					continue;
+				}
+				$key = number_format((float) $li->tva_tx, 3, '.', '');
+				if (!isset($ttcByRate[$key])) {
+					$ttcByRate[$key] = 0.0;
+				}
+				$ttcByRate[$key] += $ttc;
+				$totalTTC += $ttc;
+			}
+			if ($totalTTC <= 0) {
+				$ttcByRate = array("0.000" => $escompte_ttc);
+				$totalTTC = $escompte_ttc;
+			}
+
+			$element = array(
+				'ref'   => dol_trunc($invoicesupplier_static->ref, 16, 'right', 'UTF-8', 1),
+				'error' => '',
+				'blocks' => array(),
+			);
+
+			$closingdate = !empty($obj->date_closing) ? $obj->date_closing : $obj->datef;
+
+			$docdate = $this->db->jdate($closingdate);
+			$docdate_fmt = dol_print_date($docdate, 'day');
+
+			$sumTTC = 0.0;
+			$i = 0;
+			$n = count($ttcByRate);
+			foreach ($ttcByRate as $rateStr => $ttcRateOnInvoice) {
+				$i++;
+				$rate = (float) $rateStr;
+
+				$ttc_part = $escompte_ttc * ($ttcRateOnInvoice / $totalTTC);
+				if ($i == $n) {
+					$ttc_part = (float) price2num($escompte_ttc - $sumTTC, 'MT');
+				} else {
+					$ttc_part = (float) price2num($ttc_part, 'MT');
+					$sumTTC = (float) price2num($sumTTC + $ttc_part, 'MT');
+				}
+
+				if ($rate > 0) {
+					$ht_part  = (float) price2num($ttc_part / (1 + $rate / 100), 'MT');
+					$tva_part = (float) price2num($ttc_part - $ht_part, 'MT');
+				} else {
+					$ht_part = $ttc_part;
+					$tva_part = 0.0;
+				}
+
+				// VAT collected account (by rate if available)
+				// TODO write function to search the same vat code like the supplier invoice
+				$acc_vat_ded = $acc_vat_ded_def;
+
+				$lines_view = array();
+				$lines_book = array();
+
+				// Thirdparty
+				$acc_info_supplieraccount = $this->getAccountingAccountInfos($account_supplier_general);
+				if ($type == 'view') {
+					$lines_view[] = array(
+						'date' => $docdate_fmt,
+						'piece' => $piece_link,
+						'account_accounting' => length_accountg($account_supplier_general),
+						'subledger_account' => length_accounta($account_supplier_subsidiary),
+						'label_operation' => $label_discount.' - '.$langs->transnoentitiesnoconv('Supplier'),
+						'debit' => price($ttc_part),
+						'credit' => '',
+					);
+				} elseif ($type == 'bookkeeping' && $acc_info_supplieraccount['found']) {
+					$lines_book[] = array(
+						'doc_date' => $docdate,
+						'date_lim_reglement' => '',
+						'doc_ref' => $invoicesupplier_static->ref,
+						'date_creation' => $now,
+						'doc_type' => 'supplier_invoice',
+						'fk_doc' => $invoicesupplier_static->id,
+						'fk_docdet' => 0,
+						'thirdparty_code' => $supplier_static->code_fournisseur,
+						'subledger_account' => $account_supplier_subsidiary,
+						'subledger_label' => $supplier_static->name,
+						'numero_compte' => $account_supplier_general,
+						'label_compte' => $acc_info_supplieraccount['label'],
+						'label_operation' => $label_discount.' - '.$langs->transnoentitiesnoconv('Supplier'),
+						'montant' => $ttc_part,
+						'sens' => 'D',
+						'debit' => $ttc_part,
+						'credit' => 0,
+						'code_journal' => $journal,
+						'journal_label' => $journal_label_formatted,
+						'piece_num' => 'OD-ESC-FRS-'.$invoicesupplier_static->ref,
+						'import_key' => '',
+						'fk_user_author' => $user->id,
+						'entity' => $conf->entity,
+					);
+				}
+
+				// Discount received
+				$acc_info_discountreceived = $this->getAccountingAccountInfos($acc_disc_recv);
+				if ($type == 'view') {
+					$lines_view[] = array(
+						'date' => $docdate_fmt,
+						'piece' => $piece_link,
+						'account_accounting' => length_accountg($acc_disc_recv),
+						'subledger_account' => '',
+						'label_operation' => $label_discount." - " .$langs->transnoentitiesnoconv('HT') . " (".$rateStr."%)",
+						'debit' => '',
+						'credit' => price($ht_part),
+					);
+				} elseif ($type == 'bookkeeping' && $acc_info_discountreceived['found']) {
+					$lines_book[] = array(
+						'doc_date' => $docdate,
+						'date_lim_reglement' => '',
+						'doc_ref' => $invoicesupplier_static->ref,
+						'date_creation' => $now,
+						'doc_type' => 'supplier_invoice',
+						'fk_doc' => $invoicesupplier_static->id,
+						'fk_docdet' => 0,
+						'thirdparty_code' => $supplier_static->code_fournisseur,
+						'subledger_account' => '',
+						'subledger_label' => '',
+						'numero_compte' => $acc_disc_recv,
+						'label_compte' => $acc_info_discountreceived['label'],
+						'label_operation' => $label_discount." - " .$langs->transnoentitiesnoconv('HT') . " (".$rateStr."%)",
+						'montant' => $ht_part,
+						'sens' => 'C',
+						'debit' => 0,
+						'credit' => $ht_part,
+						'code_journal' => $journal,
+						'journal_label' => $journal_label_formatted,
+						'piece_num' => 'OD-ESC-FRS-'.$invoicesupplier_static->ref,
+						'import_key' => '',
+						'fk_user_author' => $user->id,
+						'entity' => $conf->entity,
+					);
+				}
+
+				// VAT
+				if ($tva_part > 0) {
+					$acc_info_vatbuy = $this->getAccountingAccountInfos($acc_vat_ded);
+					if ($type == 'view') {
+						$lines_view[] = array(
+							'date' => $docdate_fmt,
+							'piece' => $piece_link,
+							'account_accounting' => length_accountg($acc_vat_ded),
+							'subledger_account' => '',
+							'label_operation' => $label_discount." - " .$langs->transnoentitiesnoconv('VAT') . " (".$rateStr."%)",
+							'debit' => '',
+							'credit' => price($tva_part),
+						);
+						$element['blocks'][] = $lines_view;
+					} elseif ($type == 'bookkeeping' && $acc_info_vatbuy['found']) {
+						$lines_book[] = array(
+							'doc_date' => $docdate,
+							'date_lim_reglement' => '',
+							'doc_ref' => $invoicesupplier_static->ref,
+							'date_creation' => $now,
+							'doc_type' => 'supplier_invoice',
+							'fk_doc' => $invoicesupplier_static->id,
+							'fk_docdet' => 0,
+							'thirdparty_code' => $supplier_static->code_fournisseur,
+							'subledger_account' => '',
+							'subledger_label' => '',
+							'numero_compte' => $acc_vat_ded,
+							'label_compte' => $acc_info_vatbuy['label'],
+							'label_operation' => $label_discount." - " .$langs->transnoentitiesnoconv('VAT') . " (".$rateStr."%)",
+							'montant' => $tva_part,
+							'sens' => 'C',
+							'debit' => 0,
+							'credit' => $tva_part,
+							'code_journal' => $journal,
+							'journal_label' => $journal_label_formatted,
+							'piece_num' => 'OD-ESC-FRS-'.$invoicesupplier_static->ref,
+							'import_key' => '',
+							'fk_user_author' => $user->id,
+							'entity' => $conf->entity,
+						);
+						$element['blocks'][] = $lines_book;
+					}
+				} else {
+					// When VAT = 0, push the 2 lines view/bookkeeping already prepared
+					if ($type == 'view') {
+						$element['blocks'][] = $lines_view;
+					} elseif ($type == 'bookkeeping') {
+						$element['blocks'][] = $lines_book;
+					} else { // csv
+						$element['blocks'][] = array($docdate, $invoicesupplier_static->ref, length_accountg($account_supplier_general), $label_discount.' - '.$langs->transnoentitiesnoconv('Supplier'), price($ttc_part), '');
+						$element['blocks'][] = array($docdate, $invoicesupplier_static->ref, length_accountg($acc_disc_recv), $label_discount.' ('.$rateStr.'%)', '', price($ht_part));
+					}
+				}
+
+				// CSV
+				if ($type == 'csv') {
+					$element['blocks'][] = array(
+						$docdate, $invoicesupplier_static->ref, length_accountg($acc_vat_ded), $label_discount." ". $langs->transnoentitiesnoconv('VAT') . " (".$rateStr."%)", '', $tva_part > 0 ? price($tva_part) : ''
+					);
+				}
+			}
+
+			$journal_data[(int) $invoicesupplier_static->id] = $element;
+		}
 
 		return $journal_data;
 	}
@@ -746,55 +1373,49 @@ class AccountingJournal extends CommonObject
 	 *  Write bookkeeping
 	 *
 	 * @param	User		$user				User who write in the bookkeeping
-	 * @param	array		$journal_data		Journal data to write in the bookkeeping
-	 * 											$journal_data = array(
-	 *                                          id_element => array(
-	 *                                          'ref' => 'ref',
-	 *                                          'error' => '',
-	 *                                          'blocks' => array(
-	 *                                          pos_block => array(
-	 *                                          num_line => array(
-	 *                                          'doc_date' => '',
-	 *                                          'date_lim_reglement' => '',
-	 *                                          'doc_ref' => '',
-	 *                                          'date_creation' => '',
-	 *                                          'doc_type' => '',
-	 *                                          'fk_doc' => '',
-	 *                                          'fk_docdet' => '',
-	 *                                          'thirdparty_code' => '',
-	 *                                          'subledger_account' => '',
-	 *                                          'subledger_label' => '',
-	 *                                          'numero_compte' => '',
-	 *                                          'label_compte' => '',
-	 *                                          'label_operation' => '',
-	 *                                          'montant' => '',
-	 *                                          'sens' => '',
-	 *                                          'debit' => '',
-	 *                                          'credit' => '',
-	 *                                          'code_journal' => '',
-	 *                                          'journal_label' => '',
-	 *                                          'piece_num' => '',
-	 *                                          'import_key' => '',
-	 *                                          'fk_user_author' => '',
-	 *                                          'entity' => '',
-	 *                                          ),
-	 *                                          ),
-	 *                                          ),
-	 *                                          ),
-	 * 											);
-	 * @param	int		$max_nb_errors			Nb error authorized before stop the process
-	 * @return 	int								<0 if KO, >0 if OK
+	 * @param	array<int,array{ref?:string,error?:string,blocks:array<array<array{doc_date:int,date_lim_reglement:int,doc_ref:string,date_creation:int,doc_type:string,fk_doc:int,fk_docdet:int,thirdparty_code:string,subledger_account:string,subledger_label:string,numero_compte:string,label_compte:string,label_operation:string,montant:float|string,sens:string,debit:float|string,credit:float|string,code_journal:string,journal_label:string,piece_num:int|string,import_key:string,fk_user_author:string,entity:string}>>}>	$journal_data		Journal data to write in the bookkeeping
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          $journal_data = array(
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .	id_element => array(
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'ref' => 'ref',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'error' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'blocks' => array(
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		pos_block => array(
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		num_line => array(
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'doc_date' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'date_lim_reglement' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'doc_ref' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'date_creation' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'doc_type' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'fk_doc' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'fk_docdet' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'thirdparty_code' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          . 		'subledger_account' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'subledger_label' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'numero_compte' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'label_compte' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'label_operation' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'montant' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'sens' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'debit' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'credit' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'code_journal' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'journal_label' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'piece_num' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'import_key' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'fk_user_author' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .		'entity' => '',
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .	),
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .	),
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .	),
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          .	),
+	 *                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          );
+	 * @param	int		$max_nb_errors			Nb errors authorized before stopping the process
+	 * @return 	int								Return integer <0 if KO, >0 if OK
 	 */
 	public function writeIntoBookkeeping(User $user, &$journal_data = array(), $max_nb_errors = 10)
 	{
 		global $conf, $langs, $hookmanager;
 		require_once DOL_DOCUMENT_ROOT . '/accountancy/class/bookkeeping.class.php';
-
-		// Hook
-		if (!is_object($hookmanager)) {
-			include_once DOL_DOCUMENT_ROOT . '/core/class/hookmanager.class.php';
-			$hookmanager = new HookManager($this->db);
-		}
 
 		$error = 0;
 
@@ -807,7 +1428,9 @@ class AccountingJournal extends CommonObject
 			return -1;
 		} elseif (empty($reshook)) {
 			// Clean parameters
-			$journal_data = is_array($journal_data) ? $journal_data : array();
+			if (!is_array($journal_data)) {
+				$journal_data = array();
+			}
 
 			foreach ($journal_data as $element_id => $element) {
 				$error_for_line = 0;
@@ -826,8 +1449,8 @@ class AccountingJournal extends CommonObject
 					foreach ($element['blocks'] as $lines) {
 						foreach ($lines as $line) {
 							$bookkeeping = new BookKeeping($this->db);
-							$bookkeeping->doc_date = $line['doc_date'];
-							$bookkeeping->date_lim_reglement = $line['date_lim_reglement'];
+							$bookkeeping->doc_date = (int) $line['doc_date'];
+							$bookkeeping->date_lim_reglement = (int) $line['date_lim_reglement'];
 							$bookkeeping->doc_ref = $line['doc_ref'];
 							$bookkeeping->date_creation = $line['date_creation']; // not used
 							$bookkeeping->doc_type = $line['doc_type'];
@@ -839,13 +1462,13 @@ class AccountingJournal extends CommonObject
 							$bookkeeping->numero_compte = $line['numero_compte'];
 							$bookkeeping->label_compte = $line['label_compte'];
 							$bookkeeping->label_operation = $line['label_operation'];
-							$bookkeeping->montant = $line['montant'];
+							$bookkeeping->montant = $line['montant']; // Deprecated: sens/debit/credit (and deprecated amount...)
 							$bookkeeping->sens = $line['sens'];
-							$bookkeeping->debit = $line['debit'];
-							$bookkeeping->credit = $line['credit'];
+							$bookkeeping->debit = (float) $line['debit'];
+							$bookkeeping->credit = (float) $line['credit'];
 							$bookkeeping->code_journal = $line['code_journal'];
 							$bookkeeping->journal_label = $line['journal_label'];
-							$bookkeeping->piece_num = $line['piece_num'];
+							$bookkeeping->piece_num = (int) $line['piece_num'];
 							$bookkeeping->import_key = $line['import_key'];
 							$bookkeeping->fk_user_author = $user->id;
 							$bookkeeping->entity = $conf->entity;
@@ -867,7 +1490,7 @@ class AccountingJournal extends CommonObject
 								}
 							}
 							//
-							//                          if (!$error_for_line && !empty($conf->asset->enabled) && $this->nature == 1 && $bookkeeping->fk_doc > 0) {
+							//                          if (!$error_for_line && isModEnabled('asset') && $this->nature == 1 && $bookkeeping->fk_doc > 0) {
 							//                              // Set last cumulative depreciation
 							//                              require_once DOL_DOCUMENT_ROOT . '/asset/class/asset.class.php';
 							//                              $asset = new Asset($this->db);
@@ -892,7 +1515,7 @@ class AccountingJournal extends CommonObject
 					$error++;
 					$error_for_line++;
 					$journal_data[$element_id]['error'] = 'amountsnotbalanced';
-					$this->errors[] = 'Try to insert a non balanced transaction in book for ' . $element['blocks'] . '. Canceled. Surely a bug.';
+					$this->errors[] = 'Try to insert a non balanced transaction in book for ' . json_encode($element['blocks']) . '. Canceled. Surely a bug.';
 				}
 
 				if (!$error_for_line) {
@@ -901,6 +1524,7 @@ class AccountingJournal extends CommonObject
 					$this->db->rollback();
 
 					if ($error >= $max_nb_errors) {
+						$langs->load('errors');
 						$this->errors[] = $langs->trans("ErrorTooManyErrorsProcessStopped");
 						break; // Break in the foreach
 					}
@@ -915,36 +1539,33 @@ class AccountingJournal extends CommonObject
 	 *	Export journal CSV
 	 * 	ISO and not UTF8 !
 	 *
-	 * @param	array			$journal_data			Journal data to write in the bookkeeping
-	 * 													$journal_data = array(
-	 *                                                  id_element => array(
-	 *                                                  'continue' => false,
-	 *                                                  'blocks' => array(
-	 *                                                  pos_block => array(
-	 *                                                  num_line => array(
-	 *                                                  data to write in the CSV line
-	 *                                                  ),
-	 *                                                  ),
-	 *                                                  ),
-	 *                                                  ),
-	 * 													);
+	 * @param	array<int,array{blocks:array<array<array<string>>>}>	$journal_data			Journal data to write in the bookkeeping
+	 *                                                                                          $journal_data = array(
+	 *                                                                                          id_element => array(
+	 *                                                                                          'continue' => false,
+	 *                                                                                          'blocks' => array(
+	 *                                                                                          pos_block => array(
+	 *                                                                                          num_line => array(
+	 *                                                                                          data to write in the CSV line
+	 *                                                                                          ),
+	 *                                                                                          ),
+	 *                                                                                          ),
+	 *                                                                                          ),
+	 *                                                                                          );
 	 * @param	int				$search_date_end		Search date end
 	 * @param	string			$sep					CSV separator
-	 * @return 	int|string								<0 if KO, >0 if OK
+	 * @return 	int|string								Return integer <0 if KO, >0 if OK
 	 */
 	public function exportCsv(&$journal_data = array(), $search_date_end = 0, $sep = '')
 	{
 		global $conf, $langs, $hookmanager;
 
-		if (empty($sep)) $sep = $conf->global->ACCOUNTING_EXPORT_SEPARATORCSV;
+		if (empty($sep)) {
+			$sep = getDolGlobalString('ACCOUNTING_EXPORT_SEPARATORCSV');
+		}
 		$out = '';
 
 		// Hook
-		if (!is_object($hookmanager)) {
-			include_once DOL_DOCUMENT_ROOT . '/core/class/hookmanager.class.php';
-			$hookmanager = new HookManager($this->db);
-		}
-
 		$hookmanager->initHooks(array('accountingjournaldao'));
 		$parameters = array('journal_data' => &$journal_data, 'search_date_end' => &$search_date_end, 'sep' => &$sep, 'out' => &$out);
 		$reshook = $hookmanager->executeHooks('exportCsv', $parameters, $this); // Note that $action and $object may have been
@@ -967,8 +1588,8 @@ class AccountingJournal extends CommonObject
 					$langs->transnoentitiesnoconv("LedgerAccount"),
 					$langs->transnoentitiesnoconv("SubledgerAccount"),
 					$langs->transnoentitiesnoconv("Label"),
-					$langs->transnoentitiesnoconv("Debit"),
-					$langs->transnoentitiesnoconv("Credit"),
+					$langs->transnoentitiesnoconv("AccountingDebit"),
+					$langs->transnoentitiesnoconv("AccountingCredit"),
 					$langs->transnoentitiesnoconv("Journal"),
 					$langs->transnoentitiesnoconv("Note"),
 				);
@@ -978,8 +1599,8 @@ class AccountingJournal extends CommonObject
 					$langs->transnoentitiesnoconv("Piece"),
 					$langs->transnoentitiesnoconv("AccountAccounting"),
 					$langs->transnoentitiesnoconv("LabelOperation"),
-					$langs->transnoentitiesnoconv("Debit"),
-					$langs->transnoentitiesnoconv("Credit"),
+					$langs->transnoentitiesnoconv("AccountingDebit"),
+					$langs->transnoentitiesnoconv("AccountingCredit"),
 				);
 			} elseif ($this->nature == 1) {
 				$header = array(
@@ -987,12 +1608,14 @@ class AccountingJournal extends CommonObject
 					$langs->transnoentitiesnoconv("Piece"),
 					$langs->transnoentitiesnoconv("AccountAccounting"),
 					$langs->transnoentitiesnoconv("LabelOperation"),
-					$langs->transnoentitiesnoconv("Debit"),
-					$langs->transnoentitiesnoconv("Credit"),
+					$langs->transnoentitiesnoconv("AccountingDebit"),
+					$langs->transnoentitiesnoconv("AccountingCredit"),
 				);
 			}
 
-			if (!empty($header)) $out .= '"' . implode('"' . $sep . '"', $header) . '"' . "\n";
+			if (!empty($header)) {
+				$out .= '"' . implode('"' . $sep . '"', $header) . '"' . "\n";
+			}
 			foreach ($journal_data as $element_id => $element) {
 				foreach ($element['blocks'] as $lines) {
 					foreach ($lines as $line) {
@@ -1006,10 +1629,10 @@ class AccountingJournal extends CommonObject
 	}
 
 	/**
-	 *  Get accounting account infos
+	 *  Get accounting account info
 	 *
-	 * @param string	$account	Accounting account number
-	 * @return array				Accounting account infos
+	 * @param	string	$account	Accounting account number
+	 * @return	array{found:bool,label:string,code_formatted_1:string,label_formatted_1:string,label_formatted_2:string}		Accounting account info
 	 */
 	public function getAccountingAccountInfos($account)
 	{
@@ -1017,20 +1640,20 @@ class AccountingJournal extends CommonObject
 			require_once DOL_DOCUMENT_ROOT . '/core/lib/accounting.lib.php';
 			require_once DOL_DOCUMENT_ROOT . '/accountancy/class/accountingaccount.class.php';
 			$accountingaccount = new AccountingAccount($this->db);
-			$result = $accountingaccount->fetch(null, $account, true);
+			$result = $accountingaccount->fetch(0, $account, true);
 			if ($result > 0) {
 				self::$accounting_account_cached[$account] = array(
 					'found' => true,
 					'label' => $accountingaccount->label,
-					'code_formatted_1' => length_accounta(html_entity_decode($account)),
-					'label_formatted_1' => utf8_decode(dol_trunc($accountingaccount->label, 32)),
+					'code_formatted_1' => length_accountg(html_entity_decode($account)),
+					'label_formatted_1' => mb_convert_encoding(dol_trunc($accountingaccount->label, 32), 'ISO-8859-1'),
 					'label_formatted_2' => dol_trunc($accountingaccount->label, 32),
 				);
 			} else {
 				self::$accounting_account_cached[$account] = array(
 					'found' => false,
 					'label' => '',
-					'code_formatted_1' => length_accounta(html_entity_decode($account)),
+					'code_formatted_1' => length_accountg(html_entity_decode($account)),
 					'label_formatted_1' => '',
 					'label_formatted_2' => '',
 				);

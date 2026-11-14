@@ -1,4 +1,5 @@
 <?php
+
 if (!defined('NOREQUIREUSER')) {
 	define('NOREQUIREUSER', '1');
 }
@@ -13,12 +14,6 @@ if (!defined('NOREQUIRETRAN')) {
 }
 if (!defined('NOSTYLECHECK')) {
 	define('NOSTYLECHECK', '1'); // Do not check style html tag into posted data
-}
-if (!defined('NOCSRFCHECK')) {
-	define('NOCSRFCHECK', '1'); // Do not check anti CSRF attack test
-}
-if (!defined('NOTOKENRENEWAL')) {
-	define('NOTOKENRENEWAL', '1'); // Do not check anti POST attack test
 }
 if (!defined('NOREQUIREMENU')) {
 	define('NOREQUIREMENU', '1'); // If there is no need to load and show top and left menu
@@ -41,22 +36,20 @@ if (!defined("NOSESSION")) {
 	define("NOSESSION", '1');
 }
 
-print "*** SHOW SESSION STATUS<br>\n";
-print "Legend:<br>\n";
-print 'PHP_SESSION_DISABLED='.PHP_SESSION_DISABLED."<br>\n";
-print 'PHP_SESSION_NONE='.PHP_SESSION_NONE."<br>\n";
-print 'PHP_SESSION_ACTIVE='.PHP_SESSION_ACTIVE."<br>\n";
-print '<br>';
-
-print 'session_status='.session_status().' (before main.inc.php)<br>';
-
-print '<br><br>'."\n";
-
-require '../../main.inc.php';
+// Load Dolibarr environment
+@include '../../main.inc.php';
+/**
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ *
+ * @var string $dolibarr_main_prod
+ * @var string $dolibarr_main_test
+ */
 
 // Security
-if ($dolibarr_main_prod) {
-	accessforbidden('Access forbidden when $dolibarr_main_prod is set to 1');
+if (!empty($dolibarr_main_prod) || empty($dolibarr_main_test)) {
+	accessforbidden('Access forbidden when $dolibarr_main_prod is set to 1 or $dolibarr_main_test is NOT set to 1 into conf.php');
 }
 
 
@@ -64,7 +57,13 @@ if ($dolibarr_main_prod) {
  * View
  */
 
-print "*** TEST READ OF /tmp/test.txt FILE<br>\n";
+header("Content-type: text/html; charset=UTF8");
+
+// Security options
+header("X-Content-Type-Options: nosniff"); // With the nosniff option, if the server says the content is text/html, the browser will render it as text/html (note that most browsers now force this option to on)
+header("X-Frame-Options: SAMEORIGIN"); // Frames allowed only if on same domain (stop some XSS attacks)
+
+print "*** TEST READ OF /tmp/test.txt FILE (Example: if file exists and owned by apache process owner + PrivateTmp is false + apparmor rules allows read of owned files in /tmp/, then you should see the file)<br>\n";
 
 $out='';
 $ret=0;
@@ -85,7 +84,7 @@ print '<br><br>'."\n";
 print "*** TEST READ OF /test.txt FILE AND LS /dev/std*<br>\n";
 
 exec('cat /test.txt; ls /dev/std*; sleep 1;', $out, $ret);
-print $ret."<br>\n";
+print "ret=".$ret."<br>\n";
 print_r($out);
 print '<br>';
 
@@ -97,5 +96,5 @@ print "*** TRY TO RUN CLAMDSCAN<br>\n";
 $ret = 0;
 $out = null;
 exec('/usr/bin/clamdscan --fdpass filethatdoesnotexists.php', $out, $ret);
-print $ret."<br>\n";
+print "ret=".$ret."<br>\n";
 print_r($out);

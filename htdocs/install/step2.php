@@ -3,6 +3,7 @@
  * Copyright (C) 2004-2010  Laurent Destailleur     <eldy@users.sourceforge.net>
  * Copyright (C) 2015       Cedric GROSS            <c.gross@kreiz-it.fr>
  * Copyright (C) 2015-2016  Raphaël Doursenaud      <rdoursenaud@gpcsolutions.fr>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,17 +26,32 @@
  */
 
 include 'inc.php';
+
+/**
+ * @var string	$conffile
+ * @var string	$conffiletoshow
+ *
+ * @var Conf $conf
+ * @var Translate $langs
+ *
+ * @var string	$dolibarr_main_document_root
+ * @var string	$dolibarr_main_db_type
+ * @var string	$dolibarr_main_instance_unique_id
+ */
+
+require_once $dolibarr_main_document_root.'/blockedlog/lib/blockedlog.lib.php';
 require_once $dolibarr_main_document_root.'/core/class/conf.class.php';
 require_once $dolibarr_main_document_root.'/core/lib/admin.lib.php';
+require_once $dolibarr_main_document_root.'/core/lib/security.lib.php';
 
 global $langs;
 
-$step = 2;
 $ok = 0;
+$db = null;
 
 
 // This page can be long. We increase the time allowed. / Cette page peut etre longue. On augmente le delai autorise.
-// Only works if you are not in safe_mode. / Ne fonctionne que si on est pas en safe_mode.
+// Only works if you are not in safe_mode.
 
 $err = error_reporting();
 error_reporting(0);      // Disable all errors
@@ -43,8 +59,8 @@ error_reporting(0);      // Disable all errors
 @set_time_limit(1800);   // Need 1800 on some very slow OS like Windows 7/64
 error_reporting($err);
 
-$action = GETPOST('action', 'aZ09') ?GETPOST('action', 'aZ09') : (empty($argv[1]) ? '' : $argv[1]);
-$setuplang = GETPOST('selectlang', 'aZ09', 3) ?GETPOST('selectlang', 'aZ09', 3) : (empty($argv[2]) ? 'auto' : $argv[2]);
+$action = GETPOST('action', 'aZ09') ? GETPOST('action', 'aZ09') : (empty($argv[1]) ? '' : $argv[1]);
+$setuplang = GETPOST('selectlang', 'aZ09', 3) ? GETPOST('selectlang', 'aZ09', 3) : (empty($argv[2]) ? 'auto' : $argv[2]);
 $langs->setDefaultLang($setuplang);
 
 $langs->loadLangs(array("admin", "install"));
@@ -68,7 +84,7 @@ if ($dolibarr_main_db_type == "sqlite") {
 if ($dolibarr_main_db_type == "sqlite3") {
 	$choix = 5;
 }
-//if (empty($choix)) dol_print_error('','Database type '.$dolibarr_main_db_type.' not supported into step2.php page');
+//if (empty($choix)) dol_print_error(null,'Database type '.$dolibarr_main_db_type.' not supported into step2.php page');
 
 
 // Now we load forced values from install.forced.php file.
@@ -87,14 +103,24 @@ if (@file_exists($forcedfile)) {
 	}
 }
 
-dolibarr_install_syslog("- step2: entering step2.php page");
+dolibarr_install_syslog("--- step2: entering step2.php page");
+
+/** @var string $dolibarr_main_db_prefix */
+'@phan-var-force string $dolibarr_main_db_prefix';  // From configuration file or install/inc.php
+
+
+/*
+ * Actions
+ */
+
+// None
 
 
 /*
  *	View
  */
 
-pHeader($langs->trans("CreateDatabaseObjects"), "step4");
+pHeader($langs->trans("DolibarrSetup").' - '.$langs->trans("CreateDatabaseObjects"), "step4");
 
 // Test if we can run a first install process
 if (!is_writable($conffile)) {
@@ -103,20 +129,20 @@ if (!is_writable($conffile)) {
 	exit;
 }
 
-if ($action == "set") {
-	print '<h3><img class="valignmiddle inline-block paddingright" src="../theme/common/octicons/build/svg/database.svg" width="20" alt="Database"> '.$langs->trans("Database").'</h3>';
+if ($action == "set") {		// Test on permission not required. Already managed by test in inc.php
+	print '<h3><img class="valignmiddle inline-block paddingright" src="../public/theme/common/database.svg" width="20" alt="Database"> '.$langs->trans("Database").'</h3>';
 
 	print '<table cellspacing="0" style="padding: 4px 4px 4px 0" border="0" width="100%">';
 	$error = 0;
 
-	$db = getDoliDBInstance($conf->db->type, $conf->db->host, $conf->db->user, $conf->db->pass, $conf->db->name, $conf->db->port);
+	$db = getDoliDBInstance($conf->db->type, $conf->db->host, (string) $conf->db->user, (string) $conf->db->pass, (string) $conf->db->name, (int) $conf->db->port);
 
 	if ($db->connected) {
 		print "<tr><td>";
-		print $langs->trans("ServerConnection")." : ".$conf->db->host.'</td><td><img src="../theme/eldy/img/tick.png" alt="Ok"></td></tr>';
+		print $langs->trans("ServerConnection")." : ".$conf->db->host.'</td><td>'.img_picto('OK', 'tick').'</td></tr>';
 		$ok = 1;
 	} else {
-		print "<tr><td>Failed to connect to server : ".$conf->db->host.'</td><td><img src="../theme/eldy/img/error.png" alt="Error"></td></tr>';
+		print "<tr><td>Failed to connect to server : ".$conf->db->host.'</td><td>'.img_picto('Error', 'warning', 'class="error"').'</td></tr>';
 	}
 
 	if ($ok) {
@@ -124,12 +150,13 @@ if ($action == "set") {
 			dolibarr_install_syslog("step2: successful connection to database: ".$conf->db->name);
 		} else {
 			dolibarr_install_syslog("step2: failed connection to database :".$conf->db->name, LOG_ERR);
-			print "<tr><td>Failed to select database ".$conf->db->name.'</td><td><img src="../theme/eldy/img/error.png" alt="Error"></td></tr>';
+			print "<tr><td>Failed to select database ".$conf->db->name.'</td><td>'.img_picto('Error', 'warning', 'class="error"').'</td></tr>';
 			$ok = 0;
 		}
 	}
 
 
+	$versionarray = array();
 	// Display version / Affiche version
 	if ($ok) {
 		$version = $db->getVersion();
@@ -147,15 +174,16 @@ if ($action == "set") {
 
 	// To disable some code, so you can call step2 with url like
 	// http://localhost/dolibarrnew/install/step2.php?action=set&token='.newToken().'&createtables=0&createkeys=0&createfunctions=0&createdata=llx_20_c_departements
-	$createtables = isset($_GET['createtables']) ?GETPOST('createtables') : 1;
-	$createkeys = isset($_GET['createkeys']) ?GETPOST('createkeys') : 1;
-	$createfunctions = isset($_GET['createfunctions']) ?GETPOST('createfunction') : 1;
-	$createdata = isset($_GET['createdata']) ?GETPOST('createdata') : 1;
+	$createtables = GETPOSTISSET('createtables') ? GETPOST('createtables') : 1;
+	$createkeys = GETPOSTISSET('createkeys') ? GETPOST('createkeys') : 1;
+	$createfunctions = GETPOSTISSET('createfunctions') ? GETPOST('createfunction') : 1;
+	$createdata = GETPOSTISSET('createdata') ? GETPOST('createdata') : 1;
 
 
-	// To say sql requests are escaped for mysql so we need to unescape them
-	$db->unescapeslashquot = true;
-
+	// To say that SQL we pass to query are already escaped for mysql, so we need to unescape them
+	if (property_exists($db, 'unescapeslashquot')) {
+		$db->unescapeslashquot = true;  // @phan-suppress-current-line PhanUndeclaredProperty
+	}
 
 	/**************************************************************************************
 	 *
@@ -169,7 +197,7 @@ if ($action == "set") {
 
 		$ok = 0;
 		$handle = opendir($dir);
-		dolibarr_install_syslog("step2: open tables directory ".$dir." handle=".$handle);
+		dolibarr_install_syslog("step2: open tables directory ".$dir." handle=".(is_bool($handle) ? json_encode($handle) : $handle));
 		$tablefound = 0;
 		$tabledata = array();
 		if (is_resource($handle)) {
@@ -185,13 +213,13 @@ if ($action == "set") {
 		// Sort list of sql files on alphabetical order (load order is important)
 		sort($tabledata);
 		foreach ($tabledata as $file) {
-			$name = substr($file, 0, dol_strlen($file) - 4);
+			$name = dol_substr($file, 0, dol_strlen($file) - 4);
 			$buffer = '';
 			$fp = fopen($dir.$file, "r");
 			if ($fp) {
 				while (!feof($fp)) {
 					$buf = fgets($fp, 4096);
-					if (substr($buf, 0, 2) <> '--') {
+					if (substr($buf, 0, 2) != '--') {
 						$buf = preg_replace('/--(.+)*/', '', $buf);
 						$buffer .= $buf;
 					}
@@ -245,11 +273,11 @@ if ($action == "set") {
 		if ($tablefound) {
 			if ($error == 0) {
 				print '<tr><td>';
-				print $langs->trans("TablesAndPrimaryKeysCreation").'</td><td><img src="../theme/eldy/img/tick.png" alt="Ok"></td></tr>';
+				print $langs->trans("TablesAndPrimaryKeysCreation").'</td><td>'.img_picto('OK', 'tick').'</td></tr>';
 				$ok = 1;
 			}
 		} else {
-			print '<tr><td>'.$langs->trans("ErrorFailedToFindSomeFiles", $dir).'</td><td><img src="../theme/eldy/img/error.png" alt="Error"></td></tr>';
+			print '<tr><td>'.$langs->trans("ErrorFailedToFindSomeFiles", $dir).'</td><td>'.img_picto('Error', 'warning', 'class="error"').'</td></tr>';
 			dolibarr_install_syslog("step2: failed to find files to create database in directory ".$dir, LOG_ERR);
 		}
 	}
@@ -261,13 +289,13 @@ if ($action == "set") {
 	 * To do after the files *.sql
 	 *
 	 ***************************************************************************************/
-	if ($ok && $createkeys) {
+	if ($ok && $createkeys && $db !== null) {
 		// We always choose in mysql directory (Conversion is done by driver to translate SQL syntax)
 		$dir = "mysql/tables/";
 
 		$okkeys = 0;
 		$handle = opendir($dir);
-		dolibarr_install_syslog("step2: open keys directory ".$dir." handle=".$handle);
+		dolibarr_install_syslog("step2: open keys directory ".$dir." handle=".(is_bool($handle) ? json_encode($handle) : $handle));
 		$tablefound = 0;
 		$tabledata = array();
 		if (is_resource($handle)) {
@@ -283,7 +311,7 @@ if ($action == "set") {
 		// Sort list of sql files on alphabetical order (load order is important)
 		sort($tabledata);
 		foreach ($tabledata as $file) {
-			$name = substr($file, 0, dol_strlen($file) - 4);
+			$name = dol_substr($file, 0, dol_strlen($file) - 4);
 			//print "<tr><td>Creation of table $name</td>";
 			$buffer = '';
 			$fp = fopen($dir.$file, "r");
@@ -291,8 +319,8 @@ if ($action == "set") {
 				while (!feof($fp)) {
 					$buf = fgets($fp, 4096);
 
-					// Special case of lines allowed for some version only
-					 // MySQL
+					// Special case of lines allowed for some versions only
+					// MySQL
 					if ($choix == 1 && preg_match('/^--\sV([0-9\.]+)/i', $buf, $reg)) {
 						$versioncommande = explode('.', $reg[1]);
 						//var_dump($versioncommande);
@@ -304,7 +332,7 @@ if ($action == "set") {
 							//print "Ligne $i qualifiee par version: ".$buf.'<br>';
 						}
 					}
-					 // PGSQL
+					// PGSQL
 					if ($choix == 2 && preg_match('/^--\sPOSTGRESQL\sV([0-9\.]+)/i', $buf, $reg)) {
 						$versioncommande = explode('.', $reg[1]);
 						//var_dump($versioncommande);
@@ -325,7 +353,7 @@ if ($action == "set") {
 				fclose($fp);
 
 				// If several requests, we loop on each
-				$listesql = explode(';', $buffer);
+				$listesql = explode(';', $buffer);  // @phan-suppress-current-line SqlInjection
 				foreach ($listesql as $req) {
 					$buffer = trim($req);
 					if ($buffer) {
@@ -371,7 +399,7 @@ if ($action == "set") {
 
 		if ($tablefound && $error == 0) {
 			print '<tr><td>';
-			print $langs->trans("OtherKeysCreation").'</td><td><img src="../theme/eldy/img/tick.png" alt="Ok"></td></tr>';
+			print $langs->trans("OtherKeysCreation").'</td><td>'.img_picto('OK', 'tick').'</td></tr>';
 			$okkeys = 1;
 		}
 	}
@@ -384,6 +412,7 @@ if ($action == "set") {
 	 ***************************************************************************************/
 	if ($ok && $createfunctions) {
 		// For this file, we use a directory according to database type
+		$dir = null;
 		if ($choix == 1) {
 			$dir = "mysql/functions/";
 		} elseif ($choix == 2) {
@@ -396,14 +425,14 @@ if ($action == "set") {
 
 		// Creation of data
 		$file = "functions.sql";
-		if (file_exists($dir.$file)) {
+		if ($dir !== null && file_exists($dir.$file)) {
 			$fp = fopen($dir.$file, "r");
-			dolibarr_install_syslog("step2: open function file ".$dir.$file." handle=".$fp);
+			dolibarr_install_syslog("step2: open function file ".$dir.$file." handle=".(is_bool($fp) ? json_encode($fp) : $fp));
+			$buffer = '';
 			if ($fp) {
-				$buffer = '';
 				while (!feof($fp)) {
 					$buf = fgets($fp, 4096);
-					if (substr($buf, 0, 2) <> '--') {
+					if (substr($buf, 0, 2) != '--') {
 						$buffer .= $buf."§";
 					}
 				}
@@ -412,7 +441,7 @@ if ($action == "set") {
 			//$buffer=preg_replace('/;\';/',";'§",$buffer);
 
 			// If several requests, we loop on each of them
-			$listesql = explode('§', $buffer);
+			$listesql = explode('§', $buffer);  // @phan-suppress-current-line SqlInjection
 			foreach ($listesql as $buffer) {
 				$buffer = trim($buffer);
 				if ($buffer) {
@@ -445,9 +474,9 @@ if ($action == "set") {
 
 			print "<tr><td>".$langs->trans("FunctionsCreation")."</td>";
 			if ($ok) {
-				print '<td><img src="../theme/eldy/img/tick.png" alt="Ok"></td></tr>';
+				print '<td>'.img_picto('OK', 'tick').'</td></tr>';
 			} else {
-				print '<td><img src="../theme/eldy/img/error.png" alt="Error"></td></tr>';
+				print '<td>'.img_picto('Error', 'warning', 'class="error"').'</td></tr>';
 				$ok = 1;
 			}
 		}
@@ -465,7 +494,7 @@ if ($action == "set") {
 
 		// Insert data
 		$handle = opendir($dir);
-		dolibarr_install_syslog("step2: open directory data ".$dir." handle=".$handle);
+		dolibarr_install_syslog("step2: open directory data ".$dir." handle=".(is_bool($handle) ? json_encode($handle) : $handle));
 		$tablefound = 0;
 		$tabledata = array();
 		if (is_resource($handle)) {
@@ -476,7 +505,7 @@ if ($action == "set") {
 					}
 
 					//print 'x'.$file.'-'.$createdata.'<br>';
-					if (is_numeric($createdata) || preg_match('/'.preg_quote($createdata).'/i', $file)) {
+					if (is_numeric($createdata) || preg_match('/'.preg_quote($createdata).'/i', $file)) {  // @phpstan-ignore argument.invalidPregQuote
 						$tablefound++;
 						$tabledata[] = $file;
 					}
@@ -488,9 +517,9 @@ if ($action == "set") {
 		// Sort list of data files on alphabetical order (load order is important)
 		sort($tabledata);
 		foreach ($tabledata as $file) {
-			$name = substr($file, 0, dol_strlen($file) - 4);
+			$name = dol_substr($file, 0, dol_strlen($file) - 4);
 			$fp = fopen($dir.$file, "r");
-			dolibarr_install_syslog("step2: open data file ".$dir.$file." handle=".$fp);
+			dolibarr_install_syslog("step2: open data file ".$dir.$file." handle=".(is_bool($fp) ? json_encode($fp) : $fp));
 			if ($fp) {
 				$arrayofrequests = array();
 				$linefound = 0;
@@ -532,13 +561,16 @@ if ($action == "set") {
 						$buffer = preg_replace('/llx_/i', $dolibarr_main_db_prefix, $buffer);
 					}
 
+					// Replace __ENTITY__ tag with 1 (master entity), this is only for dictionaries.
+					$buffer = preg_replace('/__ENTITY__/i', '1', $buffer);
+
 					//dolibarr_install_syslog("step2: request: " . $buffer);
 					$resql = $db->query($buffer, 1);
 					if ($resql) {
 						//$db->free($resql);     // Not required as request we launch here does not return memory needs.
 					} else {
 						if ($db->lasterrno() == 'DB_ERROR_RECORD_ALREADY_EXISTS') {
-							//print "<tr><td>Insertion ligne : $buffer</td><td>";
+							//print "<tr><td>Insert line : $buffer</td><td>";
 						} else {
 							$ok = 0;
 							$okallfile = 0;
@@ -557,9 +589,9 @@ if ($action == "set") {
 
 		print "<tr><td>".$langs->trans("ReferenceDataLoading")."</td>";
 		if ($ok) {
-			print '<td><img src="../theme/eldy/img/tick.png" alt="Ok"></td></tr>';
+			print '<td>'.img_picto('OK', 'tick').'</td></tr>';
 		} else {
-			print '<td><img src="../theme/eldy/img/error.png" alt="Error"></td></tr>';
+			print '<td>'.img_picto('Error', 'warning', 'class="error"').'</td></tr>';
 			$ok = 1; // Data loading are not blocking errors
 		}
 	}
@@ -583,10 +615,11 @@ dolibarr_install_syslog("- step2: end");
 
 $conf->file->instance_unique_id = (empty($dolibarr_main_instance_unique_id) ? (empty($dolibarr_main_cookie_cryptkey) ? '' : $dolibarr_main_cookie_cryptkey) : $dolibarr_main_instance_unique_id); // Unique id of instance
 
-$hash_unique_id = md5('dolibarr'.$conf->file->instance_unique_id);
+$hash_unique_id = getHashUniqueIdOfRegistration('sha256');
 
-$out  = '<input type="checkbox" name="dolibarrpingno" id="dolibarrpingno"'.((!empty($conf->global->MAIN_FIRST_PING_OK_ID) && $conf->global->MAIN_FIRST_PING_OK_ID == 'disabled') ? '' : ' value="checked" checked="true"').'> ';
-$out .= '<label for="dolibarrpingno">'.$langs->trans("MakeAnonymousPing").'</label>';
+$out  = '<br>';
+$out .= '<input type="checkbox" name="dolibarrpingno" id="dolibarrpingno"'.((getDolGlobalString('MAIN_FIRST_PING_OK_ID') == 'disabled') ? '' : ' value="checked" checked="true"').'> ';
+$out .= '<label for="dolibarrpingno" class="opacitymedium">'.$langs->trans("MakeAnonymousPing").'</label>';
 
 $out .= '<!-- Add js script to manage the uncheck of option to not send the ping -->';
 $out .= '<script type="text/javascript">';

@@ -1,6 +1,7 @@
 <?php
 /* Copyright (C) 2014-2015 Laurent Destailleur  <eldy@users.sourceforge.net>
- * Copyright (C) 2014      Frederic France      <frederic.france@free.fr>
+ * Copyright (C) 2014-2025  Frédéric France      <frederic.france@free.fr>
+ * Copyright (C) 2026		MDW					<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,7 +70,7 @@ class modPrinting extends DolibarrModules
 		$this->depends = array(); // List of module class names as string that must be enabled if this module is enabled
 		$this->requiredby = array(); // List of module ids to disable if this one is disabled
 		$this->conflictwith = array(); // List of module class names as string this module is in conflict with
-		$this->phpmin = array(5, 6); // Minimum version of PHP required by module
+		$this->phpmin = array(7, 0); // Minimum version of PHP required by module
 		$this->need_dolibarr_version = array(3, 7, -2); // Minimum version of Dolibarr required by module
 		$this->conflictwith = array();
 		$this->langfiles = array("printing");
@@ -80,17 +81,17 @@ class modPrinting extends DolibarrModules
 		// Boxes
 		$this->boxes = array();
 
-		// Permissions
+		// Rights
 		$this->rights = array();
 		$this->rights_class = 'printing';
 
 		$r = 0;
-		// $this->rights[$r][0]     Id permission (unique tous modules confondus)
-		// $this->rights[$r][1]     Libelle par defaut si traduction de cle "PermissionXXX" non trouvee (XXX = Id permission)
-		// $this->rights[$r][2]     Non utilise
-		// $this->rights[$r][3]     1=Permis par defaut, 0=Non permis par defaut
-		// $this->rights[$r][4]     Niveau 1 pour nommer permission dans code
-		// $this->rights[$r][5]     Niveau 2 pour nommer permission dans code
+		// $this->rights[$r][0]     Id for right (unique across all modules)
+		// $this->rights[$r][1]     Default label if the translation key "PermissionXXX" is not found (XXX = Id for right)
+		// $this->rights[$r][2]     Not used
+		// $this->rights[$r][3]     1=Authorised by default, 0=Denied by default
+		// $this->rights[$r][4]     Level 1 to name right in the code
+		// $this->rights[$r][5]     Level 2 to name right in the code
 
 		$r++;
 		$this->rights[$r][0] = 64001;
@@ -100,7 +101,7 @@ class modPrinting extends DolibarrModules
 		$this->rights[$r][4] = 'read';
 
 		// Main menu entries
-		$this->menus = array(); // List of menus to add
+		$this->menu = array(); // List of menus to add
 		$r = 0;
 
 		// This is to declare the Top Menu entry:
@@ -110,8 +111,8 @@ class modPrinting extends DolibarrModules
 								'url'=>'/printing/index.php?mainmenu=home&leftmenu=admintools',
 								'langs'=>'printing', // Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
 								'position'=>300,
-								'enabled'=>'$conf->printing->enabled && preg_match(\'/^(admintools|all)/\', $leftmenu)',
-								'perms'=>'$user->rights->printing->read', // Use 'perms'=>'1' if you want your menu with no permission rules
+								'enabled'=>'isModEnabled("printing") && isStringVarMatching("leftmenu", "(admintools|all)")',
+								'perms'=>'$user->hasRight("printing", "read")', // Use 'perms'=>'1' if you want your menu with no permission rules
 								'target'=>'',
 								'user'=>0); // 0=Menu for internal users, 1=external users, 2=both
 

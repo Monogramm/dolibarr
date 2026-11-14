@@ -1,6 +1,9 @@
 <?php
 /* Copyright (C) 2001-2004	Andreu Bisquerra	<jove@bisquerra.com>
  * Copyright (C) 2020		Thibault FOUCART	<support@ptibogxiv.net>
+ * Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2025		MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2026		Jose Martinez			<jose.martinez@pichinov.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,9 +24,6 @@
  *	\brief      Ajax search component for TakePos. It search products of a category.
  */
 
-if (!defined('NOCSRFCHECK')) {
-	define('NOCSRFCHECK', '1');
-}
 if (!defined('NOTOKENRENEWAL')) {
 	define('NOTOKENRENEWAL', '1');
 }
@@ -40,81 +40,156 @@ if (!defined('NOBROWSERNOTIF')) {
 	define('NOBROWSERNOTIF', '1');
 }
 
+// Load Dolibarr environment
 require '../../main.inc.php'; // Load $user and permissions
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
+require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
 require_once DOL_DOCUMENT_ROOT."/product/class/product.class.php";
+require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
 
 $category = GETPOST('category', 'alphanohtml');	// Can be id of category or 'supplements'
 $action = GETPOST('action', 'aZ09');
 $term = GETPOST('term', 'alpha');
-$id = GETPOST('id', 'int');
-$search_start = GETPOST('search_start', 'int');
-$search_limit = GETPOST('search_limit', 'int');
+$search_term = GETPOST('search_term', 'alpha');
+$id = GETPOSTINT('id');
+$search_start = GETPOSTINT('search_start');
+$search_limit = GETPOSTINT('search_limit');
 
-if (empty($user->rights->takepos->run)) {
+if (!$user->hasRight('takepos', 'run')) {
 	accessforbidden();
 }
 
-// Initialize technical object to manage hooks. Note that conf->hooks_modules contains array of hooks
+// Initialize a technical object to manage hooks. Note that conf->hooks_modules contains array of hooks
 $hookmanager->initHooks(array('takeposproductsearch')); // new context for product search hooks
+
+$pricelevel = 1;	// default price level if PRODUIT_MULTIPRICES. TODO Get price level from thirdparty.
+
+
 
 /*
  * View
  */
 
-if ($action == 'getProducts') {
+$thirdparty = new Societe($db);
+
+if ($action == 'getProducts' && $user->hasRight('takepos', 'run')) {
+	$tosell = GETPOSTISSET('tosell') ? GETPOSTINT('tosell') : '';
+	$limit = GETPOSTISSET('limit') ? GETPOSTINT('limit') : 0;
+	$offset = GETPOSTISSET('offset') ? GETPOSTINT('offset') : 0;
+
+	top_httphead('application/json');
+
+	// Search
+	if (GETPOSTINT('thirdpartyid') > 0) {
+		$result = $thirdparty->fetch(GETPOSTINT('thirdpartyid'));
+		if ($result > 0) {
+			$pricelevel = $thirdparty->price_level;
+		}
+	}
+
 	$object = new Categorie($db);
 	if ($category == "supplements") {
 		$category = getDolGlobalInt('TAKEPOS_SUPPLEMENTS_CATEGORY');
+		if (empty($category)) {
+			echo 'Error, the category to use for supplements is not defined. Go into setup of module TakePOS.';
+			exit;
+		}
 	}
+
 	$result = $object->fetch($category);
 	if ($result > 0) {
-		$prods = $object->getObjectsInCateg("product", 0, 0, 0, getDolGlobalString('TAKEPOS_SORTPRODUCTFIELD'), 'ASC');
+		$filter = '';
+		if ($tosell != '') {
+			$filter = '(o.tosell:=:'.((int) $tosell).')';
+		}
+		$prods = $object->getObjectsInCateg("product", 0, $limit, $offset, getDolGlobalString('TAKEPOS_SORTPRODUCTFIELD'), 'ASC', $filter);
 		// Removed properties we don't need
 		$res = array();
 		if (is_array($prods) && count($prods) > 0) {
+			$productChildrenNb = 0;
 			foreach ($prods as $prod) {
+				'@phan-var-force Product $prod';
 				if (getDolGlobalInt('TAKEPOS_PRODUCT_IN_STOCK') == 1) {
-					// remove products without stock
-					$prod->load_stock('nobatch,novirtual');
-					if ($prod->stock_warehouse[getDolGlobalString('CASHDESK_ID_WAREHOUSE'.$_SESSION['takeposterminal'])]->real <= 0) {
-						continue;
+					if (getDolGlobalInt('PRODUIT_SOUSPRODUITS')) {
+						$productChildrenNb = $prod->hasFatherOrChild(1);
+					}
+					// always show virtual products (don't manage stock)
+					if ($productChildrenNb == 0) {
+						// remove products without stock
+						$prod->load_stock('nobatch,novirtual');
+						if ($prod->stock_warehouse[getDolGlobalString('CASHDESK_ID_WAREHOUSE'.$_SESSION['takeposterminal'])]->real <= 0) {
+							continue;
+						}
 					}
 				}
 				unset($prod->fields);
 				unset($prod->db);
+
+				$prod->price_formated = price(price2num(empty($prod->multiprices[$pricelevel]) ? $prod->price : $prod->multiprices[$pricelevel], 'MT'), 1, $langs, 1, -1, -1, $conf->currency);
+				$prod->price_ttc_formated = price(price2num(empty($prod->multiprices_ttc[$pricelevel]) ? $prod->price_ttc : $prod->multiprices_ttc[$pricelevel], 'MT'), 1, $langs, 1, -1, -1, $conf->currency);
+
+				// Add entries to product from hooks, like the 'search' action below does for its rows.
+				// Browsing a category returns product objects, so the values returned by hooks are set as
+				// properties. Existing properties are never overwritten.
+				// The search action hands hooks an object carrying rowid: expose it here too, so a module
+				// written for that action also works when a category is browsed.
+				$prod->rowid = $prod->id;
+				$parameters = array();
+				$parameters['row'] = array('rowid' => $prod->id, 'object' => 'product');
+				$parameters['obj'] = $prod;
+				$hookmanager->executeHooks('takeposCompleteProductOrCategory', $parameters);
+				foreach ($hookmanager->resArray as $key => $val) {
+					if (!isset($prod->$key)) {
+						$prod->$key = $val;
+					}
+				}
+
 				$res[] = $prod;
 			}
 		}
 		echo json_encode($res);
 	} else {
-		echo 'Failed to load category with id='.$category;
+		echo 'Failed to load category with id='.dol_escape_htmltag($category);
 	}
-} elseif ($action == 'search' && $term != '') {
-	// Change thirdparty with barcode
-	require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+} elseif ($action == 'search' && $search_term != '' && $user->hasRight('takepos', 'run')) {
+	top_httphead('application/json');
 
-	$thirdparty = new Societe($db);
-	$result = $thirdparty->fetch('', '', '', $term);
+	// Search barcode into third parties. If found, it means we want to change third parties.
+	$result = $thirdparty->fetch(0, '', '', $search_term);
 
 	if ($result && $thirdparty->id > 0) {
 		$rows = array();
-			$rows[] = array(
+		$rows[] = array(
 				'rowid' => $thirdparty->id,
 				'name' => $thirdparty->name,
 				'barcode' => $thirdparty->barcode,
 				'object' => 'thirdparty'
 			);
-			echo json_encode($rows);
-			exit;
+		echo json_encode($rows);
+		exit;
+	}
+
+	// Search
+	if (GETPOSTINT('thirdpartyid') > 0) {
+		$result = $thirdparty->fetch(GETPOSTINT('thirdpartyid'));
+		if ($result > 0) {
+			$pricelevel = $thirdparty->price_level;
+		}
 	}
 
 	// Define $filteroncategids, the filter on category ID if there is a Root category defined.
 	$filteroncategids = '';
-	if ($conf->global->TAKEPOS_ROOT_CATEGORY_ID > 0) {	// A root category is defined, we must filter on products inside this category tree
+	if (getDolGlobalInt('TAKEPOS_ROOT_CATEGORY_ID') > 0) {	// A root category is defined, we must filter on products inside this category tree
 		$object = new Categorie($db);
 		//$result = $object->fetch($conf->global->TAKEPOS_ROOT_CATEGORY_ID);
-		$arrayofcateg = $object->get_full_arbo('product', $conf->global->TAKEPOS_ROOT_CATEGORY_ID, 1);
+		$arrayofcateg = $object->get_full_arbo('product', getDolGlobalInt('TAKEPOS_ROOT_CATEGORY_ID'), 1);
 		if (is_array($arrayofcateg) && count($arrayofcateg) > 0) {
 			foreach ($arrayofcateg as $val) {
 				$filteroncategids .= ($filteroncategids ? ', ' : '').$val['id'];
@@ -123,7 +198,7 @@ if ($action == 'getProducts') {
 	}
 
 	$barcode_rules = getDolGlobalString('TAKEPOS_BARCODE_RULE_TO_INSERT_PRODUCT');
-	if (!empty($conf->barcode->enabled) && !empty($barcode_rules)) {
+	if (isModEnabled('barcode') && !empty($barcode_rules)) {
 		$barcode_rules_list = array();
 
 		// get barcode rules
@@ -140,7 +215,7 @@ if ($action == 'getProducts') {
 
 		$barcode_value_list = array();
 		$barcode_offset = 0;
-		$barcode_length = dol_strlen($term);
+		$barcode_length = dol_strlen($search_term);
 		if ($barcode_length == $barcode_char_nb) {
 			$rows = array();
 
@@ -148,13 +223,13 @@ if ($action == 'getProducts') {
 			foreach ($barcode_rules_list as $barcode_rule_arr) {
 				$code = $barcode_rule_arr['code'];
 				$char_nb = $barcode_rule_arr['char_nb'];
-				$barcode_value_list[$code] = substr($term, $barcode_offset, $char_nb);
+				$barcode_value_list[$code] = substr($search_term, $barcode_offset, $char_nb);
 				$barcode_offset += $char_nb;
 			}
 
 			if (isset($barcode_value_list['ref'])) {
 				// search product from reference
-				$sql  = "SELECT rowid, ref, label, tosell, tobuy, barcode, price";
+				$sql  = "SELECT rowid, ref, label, tosell, tobuy, barcode, price, price_ttc";
 				$sql .= " FROM " . $db->prefix() . "product as p";
 				$sql .= " WHERE entity IN (" . getEntity('product') . ")";
 				$sql .= " AND ref = '" . $db->escape($barcode_value_list['ref']) . "'";
@@ -162,7 +237,7 @@ if ($action == 'getProducts') {
 					$sql .= " AND EXISTS (SELECT cp.fk_product FROM " . $db->prefix() . "categorie_product as cp WHERE cp.fk_product = p.rowid AND cp.fk_categorie IN (".$db->sanitize($filteroncategids)."))";
 				}
 				$sql .= " AND tosell = 1";
-				$sql .= " AND (barcode IS NULL OR barcode != '" . $db->escape($term) . "')";
+				$sql .= " AND (barcode IS NULL OR barcode <> '" . $db->escape($search_term) . "')";
 
 				$resql = $db->query($sql);
 				if ($resql && $db->num_rows($resql) == 1) {
@@ -173,14 +248,15 @@ if ($action == 'getProducts') {
 							if (isset($barcode_value_list['qd'])) {
 								$qty_str .= '.' . $barcode_value_list['qd'];
 							}
-							$qty = floatval($qty_str);
+							$qty = (float) $qty_str;
 						}
 
+						$objProd = new Product($db);
+						$objProd->fetch($obj->rowid);
+
 						$ig = '../public/theme/common/nophoto.png';
-						if (empty($conf->global->TAKEPOS_HIDE_PRODUCT_IMAGES)) {
-							$objProd = new Product($db);
-							$objProd->fetch($obj->rowid);
-							$image = $objProd->show_photos('product', $conf->product->multidir_output[$objProd->entity], 'small', 1);
+						if (!getDolGlobalString('TAKEPOS_HIDE_PRODUCT_IMAGES')) {
+							$image = $objProd->show_photos('product', $conf->product->multidir_output[(int) $objProd->entity], 'small', 1);
 
 							$match = array();
 							preg_match('@src="([^"]+)"@', $image, $match);
@@ -201,8 +277,9 @@ if ($action == 'getProducts') {
 							'label' => $obj->label,
 							'tosell' => $obj->tosell,
 							'tobuy' => $obj->tobuy,
-							'barcode' => $obj->barcode,
-							'price' => $obj->price,
+							'barcode' => $search_term, // there is only one product matches the barcode rule and so the term is considered as the barcode of this product
+							'price' => empty($objProd->multiprices[$pricelevel]) ? $obj->price : $objProd->multiprices[$pricelevel],
+							'price_ttc' => empty($objProd->multiprices_ttc[$pricelevel]) ? $obj->price_ttc : $objProd->multiprices_ttc[$pricelevel],
 							'object' => 'product',
 							'img' => $ig,
 							'qty' => $qty,
@@ -219,11 +296,18 @@ if ($action == 'getProducts') {
 		}
 	}
 
-	$sql = 'SELECT p.rowid, p.ref, p.label, p.tosell, p.tobuy, p.barcode, p.price' ;
+	$sql = 'SELECT p.rowid, p.ref, p.label, p.tosell, p.tobuy, p.barcode, p.price, p.price_ttc' ;
 	if (getDolGlobalInt('TAKEPOS_PRODUCT_IN_STOCK') == 1) {
-		$sql .= ', ps.reel';
+		if (getDolGlobalInt('CASHDESK_ID_WAREHOUSE'.$_SESSION['takeposterminal'])) {
+			$sql .= ', ps.reel';
+		} else {
+			$sql .= ', SUM(ps.reel) as reel';
+		}
 	}
-
+	/* this will be possible when field archive will be supported into llx_product_price
+	if (getDolGlobalString('PRODUIT_MULTIPRICES')) {
+		$sql .= ', pp.price_level, pp.price as multiprice_ht, pp.price_ttc as multiprice_ttc';
+	}*/
 	// Add fields from hooks
 	$parameters = array();
 	$reshook = $hookmanager->executeHooks('printFieldListSelect', $parameters);
@@ -232,10 +316,18 @@ if ($action == 'getProducts') {
 	}
 
 	$sql .= ' FROM '.MAIN_DB_PREFIX.'product as p';
+	/* this will be possible when field archive will be supported into llx_product_price
+	if (getDolGlobalString('PRODUIT_MULTIPRICES')) {
+		$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."product_price as pp ON pp.fk_product = p.rowid AND pp.entity = ".((int) $conf->entity)." AND pp.price_level = ".((int) $pricelevel);
+		$sql .= " AND archive = 0";
+	}*/
 	if (getDolGlobalInt('TAKEPOS_PRODUCT_IN_STOCK') == 1) {
 		$sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'product_stock as ps';
 		$sql .= ' ON (p.rowid = ps.fk_product';
-		$sql .= " AND ps.fk_entrepot = ".((int) getDolGlobalInt("CASHDESK_ID_WAREHOUSE".$_SESSION['takeposterminal']));
+		if (getDolGlobalString('CASHDESK_ID_WAREHOUSE'.$_SESSION['takeposterminal'])) {
+			$sql .= " AND ps.fk_entrepot = ".((int) getDolGlobalInt("CASHDESK_ID_WAREHOUSE".$_SESSION['takeposterminal']));
+		}
+		$sql .= ')';
 	}
 
 	// Add tables from hooks
@@ -245,15 +337,15 @@ if ($action == 'getProducts') {
 		$sql .= $hookmanager->resPrint;
 	}
 
-	$sql .= ' WHERE entity IN ('.getEntity('product').')';
+	$sql .= ' WHERE p.entity IN ('.getEntity('product').')';
 	if ($filteroncategids) {
 		$sql .= ' AND EXISTS (SELECT cp.fk_product FROM '.MAIN_DB_PREFIX.'categorie_product as cp WHERE cp.fk_product = p.rowid AND cp.fk_categorie IN ('.$db->sanitize($filteroncategids).'))';
 	}
-	$sql .= ' AND tosell = 1';
-	if (getDolGlobalInt('TAKEPOS_PRODUCT_IN_STOCK') == 1) {
+	$sql .= ' AND p.tosell = 1';
+	if (getDolGlobalInt('TAKEPOS_PRODUCT_IN_STOCK') == 1 && getDolGlobalInt('CASHDESK_ID_WAREHOUSE'.$_SESSION['takeposterminal'])) {
 		$sql .= ' AND ps.reel > 0';
 	}
-	$sql .= natural_search(array('ref', 'label', 'barcode'), $term);
+	$sql .= natural_search(array('ref', 'label', 'barcode'), $search_term);
 	// Add where from hooks
 	$parameters = array();
 	$reshook = $hookmanager->executeHooks('printFieldListWhere', $parameters);
@@ -261,8 +353,19 @@ if ($action == 'getProducts') {
 		$sql .= $hookmanager->resPrint;
 	}
 
+	if (getDolGlobalInt('TAKEPOS_PRODUCT_IN_STOCK') == 1 && !getDolGlobalInt('CASHDESK_ID_WAREHOUSE'.$_SESSION['takeposterminal'])) {
+		$sql .= ' GROUP BY p.rowid, p.ref, p.label, p.tosell, p.tobuy, p.barcode, p.price, p.price_ttc';
+		// Add fields from hooks
+		$parameters = array();
+		$reshook = $hookmanager->executeHooks('printFieldListSelect', $parameters);
+		if ($reshook >= 0) {
+			$sql .= $hookmanager->resPrint;
+		}
+		$sql .= ' HAVING SUM(ps.reel) > 0';
+	}
+
 	// load only one page of products
-	$sql.= $db->plimit($search_limit, $search_start);
+	$sql .= $db->plimit($search_limit, $search_start);
 
 	$resql = $db->query($sql);
 	if ($resql) {
@@ -271,7 +374,7 @@ if ($action == 'getProducts') {
 		while ($obj = $db->fetch_object($resql)) {
 			$objProd = new Product($db);
 			$objProd->fetch($obj->rowid);
-			$image = $objProd->show_photos('product', $conf->product->multidir_output[$objProd->entity], 'small', 1);
+			$image = $objProd->show_photos('product', $conf->product->multidir_output[(int) $objProd->entity], 'small', 1);
 
 			$match = array();
 			preg_match('@src="([^"]+)"@', $image, $match);
@@ -294,17 +397,19 @@ if ($action == 'getProducts') {
 				'tosell' => $obj->tosell,
 				'tobuy' => $obj->tobuy,
 				'barcode' => $obj->barcode,
-				'price' => $obj->price,
+				'price' => empty($objProd->multiprices[$pricelevel]) ? $obj->price : $objProd->multiprices[$pricelevel],
+				'price_ttc' => empty($objProd->multiprices_ttc[$pricelevel]) ? $obj->price_ttc : $objProd->multiprices_ttc[$pricelevel],
 				'object' => 'product',
 				'img' => $ig,
 				'qty' => 1,
-				//'price_formated' => price(price2num($obj->price, 'MU'), 1, $langs, 1, -1, -1, $conf->currency)
+				'price_formated' => price(price2num(empty($objProd->multiprices[$pricelevel]) ? $obj->price : $objProd->multiprices[$pricelevel], 'MT'), 1, $langs, 1, -1, -1, $conf->currency),
+				'price_ttc_formated' => price(price2num(empty($objProd->multiprices_ttc[$pricelevel]) ? $obj->price_ttc : $objProd->multiprices_ttc[$pricelevel], 'MT'), 1, $langs, 1, -1, -1, $conf->currency)
 			);
 			// Add entries to row from hooks
-			$parameters=array();
+			$parameters = array();
 			$parameters['row'] = $row;
 			$parameters['obj'] = $obj;
-			$reshook = $hookmanager->executeHooks('completeAjaxReturnArray', $parameters);
+			$reshook = $hookmanager->executeHooks('takeposCompleteProductOrCategory', $parameters);
 			if ($reshook > 0) {
 				// replace
 				if (count($hookmanager->resArray)) {
@@ -312,6 +417,7 @@ if ($action == 'getProducts') {
 				} else {
 					$row = array();
 				}
+				$rows[] = $row;
 			} else {
 				// add
 				if (count($hookmanager->resArray)) {
@@ -325,27 +431,70 @@ if ($action == 'getProducts') {
 	} else {
 		echo 'Failed to search product : '.$db->lasterror();
 	}
-} elseif ($action == "opendrawer" && $term != '') {
-	require_once DOL_DOCUMENT_ROOT.'/core/class/dolreceiptprinter.class.php';
+} elseif ($action == "opendrawer" && $term != '' && $user->hasRight('takepos', 'run')) {
+	top_httphead('application/html');
+
+	require_once DOL_DOCUMENT_ROOT.'/takepos/class/dolreceiptprinter.class.php';
 	$printer = new dolReceiptPrinter($db);
+
 	// check printer for terminal
-	if ($conf->global->{'TAKEPOS_PRINTER_TO_USE'.$term} > 0) {
-		$printer->initPrinter($conf->global->{'TAKEPOS_PRINTER_TO_USE'.$term});
+	if (getDolGlobalInt('TAKEPOS_PRINTER_TO_USE'.$term) > 0) {
+		// TODO Set the profile into $this->profile (used by initPrinter). Profile not used yet.
+
+		// Init printer
+		$printer->initPrinter(getDolGlobalInt('TAKEPOS_PRINTER_TO_USE'.$term));
 		// open cashdrawer
-		$printer->pulse();
-		$printer->close();
+		if ($printer->getPrintConnector()) {
+			$printer->pulse();
+			$printer->close();
+		} else {
+			print 'Failed to init printer with ID='.getDolGlobalInt('TAKEPOS_PRINTER_TO_USE'.$term);
+		}
 	}
-} elseif ($action == "printinvoiceticket" && $term != '' && $id > 0 && !empty($user->rights->facture->lire)) {
-	require_once DOL_DOCUMENT_ROOT.'/core/class/dolreceiptprinter.class.php';
+} elseif ($action == "printinvoiceticket" && $term != '' && $id > 0 && $user->hasRight('takepos', 'run')) {
+	top_httphead('application/html');
+
+	require_once DOL_DOCUMENT_ROOT.'/takepos/class/dolreceiptprinter.class.php';
 	require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 	$printer = new dolReceiptPrinter($db);
+
 	// check printer for terminal
-	if (($conf->global->{'TAKEPOS_PRINTER_TO_USE'.$term} > 0 || $conf->global->TAKEPOS_PRINT_METHOD == "takeposconnector") && $conf->global->{'TAKEPOS_TEMPLATE_TO_USE_FOR_INVOICES'.$term} > 0) {
+	if ((getDolGlobalInt('TAKEPOS_PRINTER_TO_USE'.$term) > 0 || getDolGlobalString('TAKEPOS_PRINT_METHOD') == "takeposconnector")) {
 		$object = new Facture($db);
 		$object->fetch($id);
-		$ret = $printer->sendToPrinter($object, $conf->global->{'TAKEPOS_TEMPLATE_TO_USE_FOR_INVOICES'.$term}, $conf->global->{'TAKEPOS_PRINTER_TO_USE'.$term});
+
+		$resultinccounter = 0;
+		$templateidtouse = 0;
+
+		/*
+		$url = DOL_URL_ROOT."/blockedlog/ajax/block-add.php?id=".((int) $object->id).'&element='.urlencode($object->element)."&action=DOC_PREVIEW&token=".newToken();
+
+		$result = getURLContent($url, 'GET', '', 1, array(), array('http', 'https'), 2);
+
+		if ((string) $result['http_code'] == '200') {
+		*/
+		// Increase of counter is managed by the file that generate the ticket, so "receipt.php"
+
+		// Call trigger to log the $action 'DOC_PREVIEW' or 'DOC_DOWNLOAD'
+		$result = $object->call_trigger('DOC_PREVIEW', $user);
+
+		if ($result >= 0) {
+			$resultinccounter++;
+			$object->pos_print_counter++;	// increase counter to match the change in database
+
+			$templateidtouse = getDolGlobalInt('TAKEPOS_TEMPLATE_TO_USE_FOR_INVOICES'.$term);	// Note that this may not be ignored by the sendToPrinter()
+		}
+
+		if ($resultinccounter) {
+			// Send to printer
+			$printer->sendToPrinter($object, $templateidtouse, getDolGlobalInt('TAKEPOS_PRINTER_TO_USE'.$term));
+		} else {
+			print 'Failed to update print counter for object ID='.$object->id.' so we refuse to print.';
+		}
 	}
-} elseif ($action == 'getInvoice') {
+} elseif ($action == 'getInvoice' && $user->hasRight('takepos', 'run')) {
+	top_httphead('application/json');
+
 	require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 
 	$object = new Facture($db);
@@ -353,11 +502,20 @@ if ($action == 'getProducts') {
 		$object->fetch($id);
 	}
 
+	// Remove sensitive internal properties before serialization to avoid
+	// leaking the database connection parameters and the schema metadata.
+	unset($object->db);
+	unset($object->fields);
+
 	echo json_encode($object);
-} elseif ($action == 'thecheck') {
-	$place = GETPOST('place', 'alpha');
+} elseif ($action == 'thecheck' && $user->hasRight('takepos', 'run')) {
+	top_httphead('application/html');
+
 	require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
-	require_once DOL_DOCUMENT_ROOT.'/core/class/dolreceiptprinter.class.php';
+	require_once DOL_DOCUMENT_ROOT.'/takepos/class/dolreceiptprinter.class.php';
+
+	$object = new Facture($db);
 	$printer = new dolReceiptPrinter($db);
-	$printer->sendToPrinter($object, $conf->global->{'TAKEPOS_TEMPLATE_TO_USE_FOR_INVOICES'.$term}, $conf->global->{'TAKEPOS_PRINTER_TO_USE'.$term});
+
+	$printer->sendToPrinter($object, getDolGlobalInt('TAKEPOS_TEMPLATE_TO_USE_FOR_INVOICES'.$term), getDolGlobalInt('TAKEPOS_PRINTER_TO_USE'.$term));
 }

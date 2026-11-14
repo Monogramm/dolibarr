@@ -1,7 +1,9 @@
 <?php
-/* Copyright (C) 2003      Rodolphe Quiedeville <rodolphe@quiedeville.org>
- * Copyright (C) 2004-2011 Laurent Destailleur  <eldy@users.sourceforge.net>
- * Copyright (C) 2009      Regis Houssin        <regis.houssin@inodbox.com>
+/* Copyright (C) 2003       Rodolphe Quiedeville    <rodolphe@quiedeville.org>
+ * Copyright (C) 2004-2011  Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2009       Regis Houssin           <regis.houssin@inodbox.com>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2025  Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +24,20 @@
  *		\brief      Page to show all Dolibarr setup (config file and database constants)
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
+
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ *
+ * @var string $conffile
+ * @var string $dolibarr_main_document_root_alt
+ * @var string $dolibarr_main_url_root_alt
+ */
 
 // Load translation files required by the page
 $langs->loadLangs(array("install", "user", "admin"));
@@ -32,17 +47,18 @@ if (!$user->admin) {
 	accessforbidden();
 }
 
+$lastkeyshown = null;
+
 
 /*
  * View
  */
 
-llxHeader();
+llxHeader('', '', '', '', 0, 0, '', '', '', 'mod-admin page-system_constall');
 
 print load_fiche_titre($langs->trans("SummaryConst"), '', 'title_setup');
 
-
-print load_fiche_titre($langs->trans("ConfigurationFile").' ('.$conffiletoshowshort.')');
+print load_fiche_titre($langs->trans("ConfigurationFile").' ('.basename($conffile).')');
 // Parameters in conf.php file (when a parameter start with ?, it is shown only if defined)
 $configfileparameters = array(
 							'dolibarr_main_url_root',
@@ -72,7 +88,6 @@ $configfileparameters = array(
 							'?dolibarr_main_auth_ldap_admin_pass',
 							'?dolibarr_main_auth_ldap_debug',
 							'separator',
-							'?dolibarr_lib_ADODB_PATH',
 							'?dolibarr_lib_FPDF_PATH',
 							'?dolibarr_lib_TCPDF_PATH',
 							'?dolibarr_lib_FPDI_PATH',
@@ -89,6 +104,7 @@ $configfileparameters = array(
 							'separator',
 							'?dolibarr_mailing_limit_sendbyweb',
 							'?dolibarr_mailing_limit_sendbycli',
+							'?dolibarr_mailing_limit_sendbyday',
 							'?dolibarr_strict_mode'
 						);
 $configfilelib = array(
@@ -120,7 +136,6 @@ $configfilelib = array(
 					'dolibarr_main_auth_ldap_admin_pass',
 					'dolibarr_main_auth_ldap_debug',
 					'separator',
-					'dolibarr_lib_ADODB_PATH',
 					'dolibarr_lib_TCPDF_PATH',
 					'dolibarr_lib_FPDI_PATH',
 					'dolibarr_lib_NUSOAP_PATH',
@@ -140,57 +155,54 @@ $configfilelib = array(
 print '<table class="noborder centpercent">';
 print '<tr class="liste_titre"><td width="280">'.$langs->trans("Label").'</td>';
 print '<td>'.$langs->trans("Parameter").'</td>';
-print '<td>'.$langs->trans("Value").'</td>';
+print '<td></td>';
 print '</tr>'."\n";
 $i = 0;
 foreach ($configfileparameters as $key) {
-	$ignore = 0;
-
-	if ($key == 'dolibarr_main_url_root_alt' && empty(${$key})) {
-		$ignore = 1;
+	if ($key == 'dolibarr_main_url_root_alt' && empty($dolibarr_main_url_root_alt)) {
+		continue;
 	}
-	if ($key == 'dolibarr_main_document_root_alt' && empty(${$key})) {
-		$ignore = 1;
+	if ($key == 'dolibarr_main_document_root_alt' && empty($dolibarr_main_document_root_alt)) {
+		continue;
 	}
 
-	if (empty($ignore)) {
-		$newkey = preg_replace('/^\?/', '', $key);
+	$newkey = preg_replace('/^\?/', '', $key);
 
-		if (preg_match('/^\?/', $key) && empty(${$newkey})) {
-			$i++;
-			continue; // We discard parametes starting with ?
-		}
+	if (preg_match('/^\?/', $key) && empty(${$newkey})) {
+		$i++;
+		continue; // We discard parameters starting with ?
+	}
 
-		if ($newkey == 'separator' && $lastkeyshown == 'separator') {
-			$i++;
-			continue;
-		}
+	if ($newkey == 'separator' && $lastkeyshown == 'separator') {
+		$i++;
+		continue;
+	}
 
-		print '<tr class="oddeven">';
-		if ($newkey == 'separator') {
-			print '<td colspan="3">&nbsp;</td>';
+	print '<tr class="oddeven">';
+	if ($newkey == 'separator') {
+		print '<td colspan="3">&nbsp;</td>';
+	} else {
+		// Label
+		print "<td>".$configfilelib[$i].'</td>';
+		// Key
+		print '<td>'.$newkey.'</td>';
+		// Value
+		print "<td>";
+		if ($newkey == 'dolibarr_main_db_pass') {
+			print preg_replace('/./i', '*', ${$newkey});
+		} elseif ($newkey == 'dolibarr_main_url_root' && preg_match('/__auto__/', ${$newkey})) {
+			print ${$newkey}.' => '.constant('DOL_MAIN_URL_ROOT');
 		} else {
-			// Label
-			print "<td>".$configfilelib[$i].'</td>';
-			// Key
-			print '<td>'.$newkey.'</td>';
-			// Value
-			print "<td>";
-			if ($newkey == 'dolibarr_main_db_pass') {
-				print preg_replace('/./i', '*', ${$newkey});
-			} elseif ($newkey == 'dolibarr_main_url_root' && preg_match('/__auto__/', ${$newkey})) {
-				print ${$newkey}.' => '.constant('DOL_MAIN_URL_ROOT');
-			} else {
-				print ${$newkey};
-			}
-			if ($newkey == 'dolibarr_main_url_root' && ${$newkey} != DOL_MAIN_URL_ROOT) {
-				print ' (currently overwritten by autodetected value: '.DOL_MAIN_URL_ROOT.')';
-			}
-			print "</td>";
+			print ${$newkey};
 		}
-		print "</tr>\n";
-		$lastkeyshown = $newkey;
+		if ($newkey == 'dolibarr_main_url_root' && ${$newkey} != DOL_MAIN_URL_ROOT) {
+			print ' (currently overwritten by autodetected value: '.DOL_MAIN_URL_ROOT.')';
+		}
+		print "</td>";
 	}
+	print "</tr>\n";
+	$lastkeyshown = $newkey;
+
 	$i++;
 }
 print '</table>';
@@ -203,8 +215,8 @@ print load_fiche_titre($langs->trans("Database"));
 print '<table class="noborder">';
 print '<tr class="liste_titre">';
 print '<td>'.$langs->trans("Parameter").'</td>';
-print '<td>'.$langs->trans("Value").'</td>';
-if (empty($conf->multicompany->enabled) || !$user->entity) {
+print '<td></td>';
+if (!isModEnabled('multicompany') || !$user->entity) {
 	print '<td>'.$langs->trans("Entity").'</td>'; // If superadmin or multicompany disabled
 }
 print "</tr>\n";
@@ -217,13 +229,13 @@ $sql .= ", type";
 $sql .= ", note";
 $sql .= ", entity";
 $sql .= " FROM ".MAIN_DB_PREFIX."const";
-if (empty($conf->multicompany->enabled)) {
+if (!isModEnabled('multicompany')) {
 	// If no multicompany mode, admins can see global and their constantes
-	$sql .= " WHERE entity IN (0,".$conf->entity.")";
+	$sql .= " WHERE entity IN (0,".((int) $conf->entity).")";
 } else {
 	// If multicompany mode, superadmin (user->entity=0) can see everything, admin are limited to their entities.
 	if ($user->entity) {
-		$sql .= " WHERE entity IN (".$db->sanitize($user->entity.",".$conf->entity).")";
+		$sql .= " WHERE entity IN (".$db->sanitize($user->entity.",".((int) $conf->entity)).")";
 	}
 }
 $sql .= " ORDER BY entity, name ASC";
@@ -238,7 +250,7 @@ if ($resql) {
 		print '<tr class="oddeven">';
 		print '<td>'.$obj->name.'</td>'."\n";
 		print '<td>'.$obj->value.'</td>'."\n";
-		if (empty($conf->multicompany->enabled) || !$user->entity) {
+		if (!isModEnabled('multicompany') || !$user->entity) {
 			print '<td>'.$obj->entity.'</td>'."\n"; // If superadmin or multicompany disabled
 		}
 		print "</tr>\n";

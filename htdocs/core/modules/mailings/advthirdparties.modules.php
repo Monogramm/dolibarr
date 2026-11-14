@@ -1,6 +1,8 @@
 <?php
-/* Copyright (C) 2005-2010 Laurent Destailleur <eldy@users.sourceforge.net>
- * Copyright (C) 2005-2009 Regis Houssin       <regis.houssin@inodbox.com>
+/* Copyright (C) 2005-2010  Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2005-2009  Regis Houssin           <regis.houssin@inodbox.com>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
 *
 * This file is an example to follow to add your own email selector inside
 * the Dolibarr email tool.
@@ -25,12 +27,25 @@ include_once DOL_DOCUMENT_ROOT.'/contact/class/contact.class.php';
  */
 class mailing_advthirdparties extends MailingTargets
 {
+	/**
+	 * @var string name of mailing module
+	 */
 	public $name = 'ThirdPartyAdvancedTargeting';
-	// This label is used if no translation is found for key XXX neither MailingModuleDescXXX where XXX=name is found
+
+	/**
+	 * @var string This label is used if no translation is found for key XXX neither MailingModuleDescXXX where XXX=name is found
+	 */
 	public $desc = "Third parties";
+
+	/**
+	 * @var int<0,1>
+	 */
 	public $require_admin = 0;
 
-	public $require_module = array("none"); // This module should not be displayed as Selector in mailling
+	/**
+	 * @var string[]
+	 */
+	public $require_module = array("none"); // This module should not be displayed as Selector in mailing
 
 	/**
 	 * @var string String with name of icon for myobject. Must be the part after the 'object_' into object_myobject.png
@@ -38,11 +53,9 @@ class mailing_advthirdparties extends MailingTargets
 	public $picto = 'company';
 
 	/**
-	 * @var DoliDB Database handler.
+	 * @var string condition to enable module
 	 */
-	public $db;
-
-	public $enabled = '$conf->societe->enabled';
+	public $enabled = 'isModEnabled("societe")';
 
 
 	/**
@@ -61,17 +74,15 @@ class mailing_advthirdparties extends MailingTargets
 	 *    This is the main function that returns the array of emails
 	 *
 	 *    @param	int		$mailing_id    	Id of mailing. No need to use it.
-	 *    @param	array	$socid  		Array of id soc to add
+	 *    @param	int[]	$socid  		Array of id soc to add
 	 *    @param	int		$type_of_target	Defined in advtargetemailing.class.php
-	 *    @param	array	$contactid 		Array of contact id to add
-	 *    @return   int 					<0 if error, number of emails added if ok
+	 *    @param	int[]	$contactid 		Array of contact id to add
+	 *    @return   int 					Return integer <0 if error, number of emails added if ok
 	 */
 	public function add_to_target_spec($mailing_id, $socid, $type_of_target, $contactid)
 	{
 		// phpcs:enable
-		global $conf, $langs;
-
-		dol_syslog(get_class($this)."::add_to_target_spec socid=".var_export($socid, true).' contactid='.var_export($contactid, true));
+		dol_syslog(get_class($this)."::add_to_target_spec socid=".formatLogObject($socid).' contactid='.formatLogObject($contactid));
 
 		$cibles = array();
 
@@ -79,9 +90,10 @@ class mailing_advthirdparties extends MailingTargets
 			// Select the third parties from category
 			if (count($socid) > 0) {
 				$sql = "SELECT s.rowid as id, s.email as email, s.nom as name, null as fk_contact";
-				$sql .= " FROM ".MAIN_DB_PREFIX."societe as s LEFT OUTER JOIN ".MAIN_DB_PREFIX."societe_extrafields se ON se.fk_object=s.rowid";
+				$sql .= " FROM ".MAIN_DB_PREFIX."societe as s LEFT JOIN ".MAIN_DB_PREFIX."societe_extrafields se ON se.fk_object=s.rowid";
 				$sql .= " WHERE s.entity IN (".getEntity('societe').")";
 				$sql .= " AND s.rowid IN (".$this->db->sanitize(implode(',', $socid)).")";
+				$sql .= $this->getSqlToExcludeUnsubscribed('s.email');
 				$sql .= " ORDER BY email";
 
 				// Stock recipients emails into targets table
@@ -99,12 +111,12 @@ class mailing_advthirdparties extends MailingTargets
 							if (!array_key_exists($obj->email, $cibles)) {
 								$cibles[$obj->email] = array(
 									'email' => $obj->email,
-									'fk_contact' => $obj->fk_contact,
+									'fk_contact' => (int) $obj->fk_contact,
 									'name' => $obj->name,
 									'firstname' => $obj->firstname,
 									'other' => '',
 									'source_url' => $this->url($obj->id, 'thirdparty'),
-									'source_id' => $obj->id,
+									'source_id' => (int) $obj->id,
 									'source_type' => 'thirdparty'
 								);
 							}
@@ -132,6 +144,7 @@ class mailing_advthirdparties extends MailingTargets
 				if (count($socid) > 0) {
 					$sql .= " AND socp.fk_soc IN (".$this->db->sanitize(implode(',', $socid)).")";
 				}
+				$sql .= $this->getSqlToExcludeUnsubscribed('socp.email');
 				$sql .= " ORDER BY email";
 
 				// Stock recipients emails into targets table
@@ -149,12 +162,12 @@ class mailing_advthirdparties extends MailingTargets
 							if (!array_key_exists($obj->email, $cibles)) {
 								$cibles[$obj->email] = array(
 									'email' => $obj->email,
-									'fk_contact' =>$obj->id,
+									'fk_contact' => (int) $obj->id,
 									'lastname' => $obj->lastname,
 									'firstname' => $obj->firstname,
 									'other' => '',
 									'source_url' => $this->url($obj->id, 'contact'),
-									'source_id' => $obj->id,
+									'source_id' => (int) $obj->id,
 									'source_type' => 'contact'
 								);
 							}
@@ -170,8 +183,7 @@ class mailing_advthirdparties extends MailingTargets
 			}
 		}
 
-
-		dol_syslog(get_class($this)."::add_to_target_spec mailing cibles=".var_export($cibles, true), LOG_DEBUG);
+		dol_syslog(get_class($this)."::add_to_target_spec mailing cibles=".formatLogObject($cibles), LOG_DEBUG);
 
 		return parent::addTargetsToDatabase($mailing_id, $cibles);
 	}
@@ -183,11 +195,11 @@ class mailing_advthirdparties extends MailingTargets
 	 *	array of SQL request that returns two field:
 	 *	One called "label", One called "nb".
 	 *
-	 *	@return		array		Array with SQL requests
+	 *	@return		string[]		Array with SQL requests
 	 */
 	public function getSqlArrayForStats()
 	{
-		// CHANGE THIS: Optionnal
+		// CHANGE THIS: Optional
 
 		//var $statssql=array();
 		//$this->statssql[0]="SELECT field1 as label, count(distinct(email)) as nb FROM mytable WHERE email IS NOT NULL";
@@ -205,14 +217,13 @@ class mailing_advthirdparties extends MailingTargets
 	 */
 	public function getNbOfRecipients($sql = '')
 	{
-		global $conf;
-
 		$sql = "SELECT count(distinct(s.email)) as nb";
 		$sql .= " FROM ".MAIN_DB_PREFIX."societe as s";
 		$sql .= " WHERE s.email != ''";
 		$sql .= " AND s.entity IN (".getEntity('societe').")";
+		$sql .= $this->getSqlToExcludeUnsubscribed('s.email');
 
-		// La requete doit retourner un champ "nb" pour etre comprise par parent::getNbOfRecipients
+		// The query must return a field "nb" to be understood by parent::getNbOfRecipients
 		return parent::getNbOfRecipients($sql);
 	}
 
@@ -236,7 +247,7 @@ class mailing_advthirdparties extends MailingTargets
 		$sql .= " FROM ".MAIN_DB_PREFIX."categorie";
 		$sql .= " WHERE type in (1,2)"; // We keep only categories for suppliers and customers/prospects
 		// $sql.= " AND visible > 0";	// We ignore the property visible because third party's categories does not use this property (only products categories use it).
-		$sql .= " AND entity = ".$conf->entity;
+		$sql .= " AND entity = ".((int) $conf->entity);
 		$sql .= " ORDER BY label";
 
 		//print $sql;
@@ -244,7 +255,7 @@ class mailing_advthirdparties extends MailingTargets
 		if ($resql) {
 			$num = $this->db->num_rows($resql);
 
-			if (empty($conf->categorie->enabled)) {
+			if (!isModEnabled("category")) {
 				$num = 0; // Force empty list if category module is not enabled
 			}
 
@@ -285,19 +296,28 @@ class mailing_advthirdparties extends MailingTargets
 	 *  Can include an URL link on each record provided by selector shown on target page.
 	 *
 	 *  @param	int		$id		ID
-	 *  @param	string		$type	type
+	 *  @param	string	$type	type
 	 *  @return string      	Url link
 	 */
 	public function url($id, $type)
 	{
+		$s = "";
 		if ($type == 'thirdparty') {
 			$companystatic = new Societe($this->db);
 			$companystatic->fetch($id);
-			return $companystatic->getNomUrl(0, '', 0, 1);
+			$s = $companystatic->getNomUrl(0, 'nolink', 32, 1, 0);
 		} elseif ($type == 'contact') {
 			$contactstatic = new Contact($this->db);
 			$contactstatic->fetch($id);
-			return $contactstatic->getNomUrl(0, '', 0, '', -1, 1);
+			$s = $contactstatic->getNomUrl(0, 'nolink', 1, '', 0, 32);
 		}
+
+		// When link is too long (for example because of hook in getNomUrl that complete the url), we return empty string.
+		// Link is still possible with new source_id and source_type in db llx_mailing_cibles.
+		if (strlen($s) > 255) {
+			$s = "";
+		}
+
+		return $s;
 	}
 }

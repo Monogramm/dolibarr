@@ -1,6 +1,7 @@
 <?php
 /* Copyright (C) 2014-2015 Laurent Destailleur  <eldy@users.sourceforge.net>
- * Copyright (C) 2015      Frederic France      <frederic.france@free.fr>
+ * Copyright (C) 2015-2025  Frédéric France      <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW					<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,7 +35,6 @@ include_once DOL_DOCUMENT_ROOT.'/core/modules/DolibarrModules.class.php';
  */
 class modOauth extends DolibarrModules
 {
-
 	/**
 	 *  Constructor
 	 *
@@ -51,7 +51,7 @@ class modOauth extends DolibarrModules
 		// Module label (no space allowed), used if translation string 'ModuleXXXName' not found (where XXX is value of numeric property 'numero' of module)
 		$this->name = preg_replace('/^mod/i', '', get_class($this));
 		// Module description, used if translation string 'ModuleXXXDesc' not found (where XXX is value of numeric property 'numero' of module)
-		$this->description = "Enable OAuth authentication";
+		$this->description = "Enable OAuth2 authentication";
 		// Possible values for version are: 'development', 'experimental', 'dolibarr' or 'dolibarr_deprecated' or version
 		$this->version = 'dolibarr';
 		$this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
@@ -71,7 +71,7 @@ class modOauth extends DolibarrModules
 		$this->depends = array(); // List of module class names as string that must be enabled if this module is enabled
 		$this->requiredby = array(); // List of module ids to disable if this one is disabled
 		$this->conflictwith = array(); // List of module class names as string this module is in conflict with
-		$this->phpmin = array(5, 6); // Minimum version of PHP required by module                    // Minimum version of PHP required by module
+		$this->phpmin = array(7, 0); // Minimum version of PHP required by module                    // Minimum version of PHP required by module
 		$this->need_dolibarr_version = array(3, 7, -2); // Minimum version of Dolibarr required by module
 		$this->conflictwith = array();
 		$this->langfiles = array("oauth");
@@ -82,17 +82,17 @@ class modOauth extends DolibarrModules
 		// Boxes
 		$this->boxes = array();
 
-		// Permissions
+		// Rights
 		$this->rights = array();
 		$this->rights_class = 'oauth';
 
 		$r = 0;
-		// $this->rights[$r][0]     Id permission (unique tous modules confondus)
-		// $this->rights[$r][1]     Libelle par defaut si traduction de cle "PermissionXXX" non trouvee (XXX = Id permission)
-		// $this->rights[$r][2]     Non utilise
-		// $this->rights[$r][3]     1=Permis par defaut, 0=Non permis par defaut
-		// $this->rights[$r][4]     Niveau 1 pour nommer permission dans code
-		// $this->rights[$r][5]     Niveau 2 pour nommer permission dans code
+		// $this->rights[$r][0]     Id for right (unique across all modules)
+		// $this->rights[$r][1]     Default label if the translation key "PermissionXXX" is not found (XXX = Id for right)
+		// $this->rights[$r][2]     Not used
+		// $this->rights[$r][3]     1=Authorised by default, 0=Denied by default
+		// $this->rights[$r][4]     Level 1 to name right in the code
+		// $this->rights[$r][5]     Level 2 to name right in the code
 
 		/*$r++;
 		$this->rights[$r][0] = 66000;
@@ -102,7 +102,7 @@ class modOauth extends DolibarrModules
 		$this->rights[$r][4] = 'read';*/
 
 		// Main menu entries
-		$this->menus = array(); // List of menus to add
+		$this->menu = array(); // List of menus to add
 		$r = 0;
 
 		// This is to declare the Top Menu entry:
@@ -114,7 +114,7 @@ class modOauth extends DolibarrModules
 		//                        'langs'=>'oauth',            // Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
 		//                        'position'=>300,
 		//                        'enabled'=>'$conf->oauth->enabled && preg_match(\'/^(admintools|all)/\',$leftmenu)',
-		//                        'perms'=>'$user->rights->oauth->read',    // Use 'perms'=>'1' if you want your menu with no permission rules
+		//                        'perms'=>'$user->hasRight("oauth", "read")',    // Use 'perms'=>'1' if you want your menu with no permission rules
 		//                        'target'=>'',
 		//                        'user'=>0);                     // 0=Menu for internal users, 1=external users, 2=both
 
@@ -132,8 +132,6 @@ class modOauth extends DolibarrModules
 	 */
 	public function init($options = '')
 	{
-		global $conf;
-
 		// Clean before activation
 		$this->remove($options);
 

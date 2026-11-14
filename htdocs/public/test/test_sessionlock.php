@@ -1,4 +1,5 @@
 <?php
+
 if (!defined('NOREQUIREUSER')) {
 	define('NOREQUIREUSER', '1');
 }
@@ -13,12 +14,6 @@ if (!defined('NOREQUIRETRAN')) {
 }
 if (!defined('NOSTYLECHECK')) {
 	define('NOSTYLECHECK', '1'); // Do not check style html tag into posted data
-}
-if (!defined('NOCSRFCHECK')) {
-	define('NOCSRFCHECK', '1'); // Do not check anti CSRF attack test
-}
-if (!defined('NOTOKENRENEWAL')) {
-	define('NOTOKENRENEWAL', '1'); // Do not check anti POST attack test
 }
 if (!defined('NOREQUIREMENU')) {
 	define('NOREQUIREMENU', '1'); // If there is no need to load and show top and left menu
@@ -41,6 +36,17 @@ if (!defined("NOSESSION")) {
 	define("NOSESSION", '1');
 }
 
+
+// Special
+// We add header and output some content before the include of main.inc.php !!
+// Because we need to So we can make
+header("Content-type: text/html; charset=UTF8");
+
+// Security options
+header("X-Content-Type-Options: nosniff"); // With the nosniff option, if the server says the content is text/html, the browser will render it as text/html (note that most browsers now force this option to on)
+header("X-Frame-Options: SAMEORIGIN"); // Frames allowed only if on same domain (stop some XSS attacks)
+
+
 print "Legend:<br>\n";
 print 'PHP_SESSION_DISABLED='.PHP_SESSION_DISABLED."<br>\n";
 print 'PHP_SESSION_NONE='.PHP_SESSION_NONE."<br>\n";
@@ -50,11 +56,20 @@ print '<br>';
 print 'session_status='.session_status().' (before main.inc.php)';
 print '<br>';
 
-require '../../main.inc.php';
+// Load Dolibarr environment
+@include '../../main.inc.php';
+/**
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ *
+ * @var string $dolibarr_main_prod
+ * @var string $dolibarr_main_test
+ */
 
 // Security
-if ($dolibarr_main_prod) {
-	accessforbidden();
+if (!empty($dolibarr_main_prod) || empty($dolibarr_main_test)) {
+	accessforbidden('Access forbidden when $dolibarr_main_prod is set to 1 or $dolibarr_main_test is NOT set to 1 into conf.php');
 }
 
 

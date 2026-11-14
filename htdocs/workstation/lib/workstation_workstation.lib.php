@@ -1,5 +1,7 @@
 <?php
 /* Copyright (C) 2020 Gauthier VERDOL <gauthier.verdol@atm-consulting.fr>
+ * Copyright (C) 2024-2026  Frédéric France             <frederic.france@free.fr>
+ * Copyright (C) 2024		MDW							<mdeweerd@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,7 +18,7 @@
  */
 
 /**
- * \file    lib/workstation_workstation.lib.php
+ * \file    htdocs/workstation/lib/workstation_workstation.lib.php
  * \ingroup workstation
  * \brief   Library files with common functions for Workstation
  */
@@ -25,7 +27,7 @@
  * Prepare array of tabs for Workstation
  *
  * @param	Workstation	$object		Workstation
- * @return 	array					Array of tabs
+ * @return	array<array{0:string,1:string,2:string}>	Array of tabs to show
  */
 function workstationPrepareHead($object)
 {
@@ -36,7 +38,7 @@ function workstationPrepareHead($object)
 	$h = 0;
 	$head = array();
 
-	$head[$h][0] = dol_buildpath("/workstation/workstation_card.php", 1).'?id='.$object->id;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT."/workstation/workstation_card.php", ['id' => $object->id]);
 	$head[$h][1] = $langs->trans("Card");
 	$head[$h][2] = 'card';
 	$h++;
@@ -49,10 +51,10 @@ function workstationPrepareHead($object)
 		if (!empty($object->note_public)) {
 			$nbNote++;
 		}
-		$head[$h][0] = dol_buildpath('/workstation/workstation_note.php', 1).'?id='.$object->id;
+		$head[$h][0] = dolBuildUrl(DOL_URL_ROOT.'/core/note.php', ['element' => 'workstation', 'id' => $object->id]);
 		$head[$h][1] = $langs->trans('Notes');
 		if ($nbNote > 0) {
-			$head[$h][1] .= (empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER) ? '<span class="badge marginleftonlyshort">'.$nbNote.'</span>' : '');
+			$head[$h][1] .= (!getDolGlobalString('MAIN_OPTIMIZEFORTEXTBROWSER') ? '<span class="badge marginleftonlyshort">'.$nbNote.'</span>' : '');
 		}
 		$head[$h][2] = 'note';
 		$h++;
@@ -63,7 +65,7 @@ function workstationPrepareHead($object)
 	$upload_dir = $conf->workstation->dir_output."/workstation/".dol_sanitizeFileName($object->ref);
 	$nbFiles = count(dol_dir_list($upload_dir, 'files', 0, '', '(\.meta|_preview.*\.png)$'));
 	$nbLinks = Link::count($db, $object->element, $object->id);
-	$head[$h][0] = dol_buildpath("/workstation/workstation_document.php", 1).'?id='.$object->id;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT."/workstation/workstation_document.php", ['id' => $object->id]);
 	$head[$h][1] = $langs->trans('Documents');
 	if (($nbFiles + $nbLinks) > 0) {
 		$head[$h][1] .= '<span class="badge marginleftonlyshort">'.($nbFiles + $nbLinks).'</span>';
@@ -71,7 +73,7 @@ function workstationPrepareHead($object)
 	$head[$h][2] = 'document';
 	$h++;
 
-	$head[$h][0] = dol_buildpath("/workstation/workstation_agenda.php", 1).'?id='.$object->id;
+	$head[$h][0] = dolBuildUrl(DOL_URL_ROOT."/workstation/workstation_agenda.php", ['id' => $object->id]);
 	$head[$h][1] = $langs->trans("Events");
 	$head[$h][2] = 'agenda';
 	$h++;

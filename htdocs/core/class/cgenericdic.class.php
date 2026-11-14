@@ -1,8 +1,10 @@
 <?php
-/* Copyright (C) 2007-2012  Laurent Destailleur <eldy@users.sourceforge.net>
- * Copyright (C) 2014-2016  Juanjo Menent       <jmenent@2byte.es>
- * Copyright (C) 2016       Florian Henry       <florian.henry@atm-consulting.fr>
- * Copyright (C) 2015       Raphaël Doursenaud  <rdoursenaud@gpcsolutions.fr>
+/* Copyright (C) 2007-2012  Laurent Destailleur     <eldy@users.sourceforge.net>
+ * Copyright (C) 2014-2016  Juanjo Menent           <jmenent@2byte.es>
+ * Copyright (C) 2016       Florian Henry           <florian.henry@atm-consulting.fr>
+ * Copyright (C) 2015       Raphaël Doursenaud      <rdoursenaud@gpcsolutions.fr>
+ * Copyright (C) 2024-2025  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,15 +22,16 @@
 
 /**
  * \file    htdocs/core/class/cgenericdic.class.php
- * \ingroup resource
+ * \ingroup core
  */
+
+// Put here all includes required by your class file
+require_once DOL_DOCUMENT_ROOT.'/core/class/commondict.class.php';
 
 /**
  * Class CGenericDic
- *
- * @see CommonObject
  */
-class CGenericDic
+class CGenericDic extends CommonDict
 {
 	/**
 	 * @var string Id to identify managed objects
@@ -41,24 +44,24 @@ class CGenericDic
 	public $table_element = 'undefined';	// Will be defined into constructor
 
 	/**
-	 * @var CtyperesourceLine[] Lines
+	 * @var CGenericDic[] Lines
 	 */
 	public $lines = array();
 
+	/**
+	 * @var ?string
+	 */
 	public $code;
 
 	/**
-	 * @var string Type resource label
+	 * @var ?string Label
 	 */
 	public $label;
-
-	public $active;
-
 
 	/**
 	 * Constructor
 	 *
-	 * @param DoliDb $db Database handler
+	 * @param DoliDB $db Database handler
 	 */
 	public function __construct(DoliDB $db)
 	{
@@ -70,18 +73,21 @@ class CGenericDic
 	/**
 	 * Create object into database
 	 *
-	 * @param  User $user      User that creates
-	 * @param  bool $notrigger false=launch triggers after, true=disable triggers
-	 *
-	 * @return int <0 if KO, Id of created object if OK
+	 * @param  User $user      	User that creates
+	 * @param  int 	$notrigger 	0=launch triggers after, 1=disable triggers
+	 * @return int 				Return integer <0 if KO, Id of created object if OK
 	 */
-	public function create(User $user, $notrigger = false)
+	public function create(User $user, $notrigger = 0)
 	{
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
+		$fieldrowid = 'rowid';
 		$fieldlabel = 'label';
 		if ($this->table_element == 'c_stcomm') {
+			$fieldrowid = 'id';
 			$fieldlabel = 'libelle';
+		} elseif ($this->table_element == 'c_type_fees') {
+			$fieldrowid = 'id';
 		}
 
 		$error = 0;
@@ -89,24 +95,30 @@ class CGenericDic
 		// Clean parameters
 
 		if (isset($this->code)) {
-			 $this->code = trim($this->code);
+			$this->code = trim($this->code);
 		}
 		if (isset($this->label)) {
-			 $this->label = trim($this->label);
+			$this->label = trim($this->label);
 		}
 		if (isset($this->active)) {
-			 $this->active = trim($this->active);
+			$this->active = (int) $this->active;
 		}
 
 		// Insert request
 		$sql = 'INSERT INTO '.$this->db->prefix().$this->table_element.'(';
+		if (!empty($this->id)) {
+			$sql .= $this->db->sanitize($fieldrowid).',';	// Some dictionaries have no auto incremented id (c_stcomm)
+		}
 		$sql .= 'code,';
-		$sql .= $fieldlabel;
+		$sql .= $this->db->sanitize($fieldlabel).',';
 		$sql .= 'active';
 		$sql .= ') VALUES (';
+		if (!empty($this->id)) {
+			$sql .= ((int) $this->id).',';
+		}
 		$sql .= ' '.(!isset($this->code) ? 'NULL' : "'".$this->db->escape($this->code)."'").',';
 		$sql .= ' '.(!isset($this->label) ? 'NULL' : "'".$this->db->escape($this->label)."'").',';
-		$sql .= ' '.(!isset($this->active) ? 'NULL' : $this->active);
+		$sql .= ' '.(!isset($this->active) ? 'NULL' : ((int) $this->active));
 		$sql .= ')';
 
 		$this->db->begin();
@@ -118,9 +130,10 @@ class CGenericDic
 			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
 		}
 
+		if (!$error && empty($this->id)) {
+			$this->id = $this->db->last_insert_id($this->db->prefix().$this->table_element, $fieldrowid);
+		}
 		if (!$error) {
-			$this->id = $this->db->last_insert_id($this->db->prefix().$this->table_element);
-
 			// Uncomment this and change CTYPERESOURCE to your own tag if you
 			// want this action to call a trigger.
 			//if (!$notrigger) {
@@ -145,13 +158,31 @@ class CGenericDic
 	}
 
 	/**
+	 * Return if the dictionary table has a column 'entity'
+	 * (hard coded list: no DDL request, the fetch may run inside a transaction)
+	 *
+	 * @return bool
+	 */
+	private function tableHasEntityColumn()
+	{
+		return in_array($this->table_element, array(
+			'c_accounting_category', 'c_accounting_report', 'c_asset_disposal_type', 'c_barcode_type',
+			'c_email_senderprofile', 'c_email_templates', 'c_exp_tax_cat', 'c_exp_tax_range', 'c_field_list',
+			'c_holiday_types', 'c_hrm_public_holiday', 'c_invoice_subtype', 'c_paiement', 'c_partnership_type',
+			'c_payment_term', 'c_productbatch_qcstatus', 'c_shipment_mode', 'c_shipment_package_type',
+			'c_socialnetworks', 'c_ticket_category', 'c_ticket_resolution', 'c_ticket_severity', 'c_ticket_type',
+			'c_transport_mode', 'c_tva', 'c_type_container'
+		));
+	}
+
+	/**
 	 * Load object in memory from the database
 	 *
 	 * @param int    $id  Id object
 	 * @param string $code code
 	 * @param string $label Label
 	 *
-	 * @return int <0 if KO, 0 if not found, >0 if OK
+	 * @return int Return integer <0 if KO, 0 if not found, >0 if OK
 	 */
 	public function fetch($id, $code = '', $label = '')
 	{
@@ -162,20 +193,26 @@ class CGenericDic
 		if ($this->table_element == 'c_stcomm') {
 			$fieldrowid = 'id';
 			$fieldlabel = 'libelle';
+		} elseif ($this->table_element == 'c_type_fees') {
+			$fieldrowid = 'id';
 		}
 
 		$sql = "SELECT";
-		$sql .= " t.".$fieldrowid.",";
+		$sql .= " ".$this->db->sanitize("t.".$fieldrowid).",";
 		$sql .= " t.code,";
-		$sql .= " t.".$fieldlabel." as label,";
+		$sql .= " ".$this->db->sanitize("t.".$fieldlabel)." as label,";
 		$sql .= " t.active";
 		$sql .= " FROM ".$this->db->prefix().$this->table_element." as t";
 		if ($id) {
-			$sql .= " WHERE t.".$fieldrowid." = ".((int) $id);
+			$sql .= " WHERE ".$this->db->sanitize("t.".$fieldrowid)." = ".((int) $id);
 		} elseif ($code) {
 			$sql .= " WHERE t.code = '".$this->db->escape($code)."'";
 		} elseif ($label) {
-			$sql .= " WHERE t.label = '".$this->db->escape($label)."'";
+			$sql .= " WHERE ".$this->db->sanitize("t.".$fieldlabel)." = '".$this->db->escape($label)."'";
+		}
+		// The same code or label may exist in several entities: search only in the allowed ones
+		if (!$id && ($code || $label) && $this->tableHasEntityColumn()) {
+			$sql .= " AND t.entity IN (".getEntity($this->table_element).")";
 		}
 
 		$resql = $this->db->query($sql);
@@ -215,16 +252,15 @@ class CGenericDic
 	/**
 	 * Load object in memory from the database
 	 *
-	 * @param string $sortorder Sort Order
-	 * @param string $sortfield Sort field
-	 * @param int    $limit     offset limit
-	 * @param int    $offset    offset limit
-	 * @param array  $filter    filter array
-	 * @param string $filtermode filter mode (AND or OR)
-	 *
-	 * @return int <0 if KO, >0 if OK
+	 * @param string 		$sortorder 		Sort Order
+	 * @param string 		$sortfield 		Sort field
+	 * @param int    		$limit     		Limit
+	 * @param int    		$offset    		offset limit
+	 * @param string|string[] $filter    	filter USF
+	 * @param string 		$filtermode 	filter mode (AND or OR)
+	 * @return int 							Return integer <0 if KO, >0 if OK
 	 */
-	public function fetchAll($sortorder = '', $sortfield = '', $limit = 0, $offset = 0, array $filter = array(), $filtermode = 'AND')
+	public function fetchAll($sortorder = '', $sortfield = '', $limit = 0, $offset = 0, $filter = '', $filtermode = 'AND')
 	{
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
@@ -233,26 +269,41 @@ class CGenericDic
 		if ($this->table_element == 'c_stcomm') {
 			$fieldrowid = 'id';
 			$fieldlabel = 'libelle';
+		} elseif ($this->table_element == 'c_type_fees') {
+			$fieldrowid = 'id';
 		}
 
 		$sql = "SELECT";
-		$sql .= " t.".$fieldrowid.",";
+		$sql .= " t.".$this->db->sanitize($fieldrowid).",";
 		$sql .= " t.code,";
-		$sql .= " t.".$fieldlabel." as label,";
+		$sql .= " t.".$this->db->sanitize($fieldlabel)." as label,";
 		$sql .= " t.active";
 		$sql .= " FROM ".$this->db->prefix().$this->table_element." as t";
 
 		// Manage filter
-		$sqlwhere = array();
-		if (count($filter) > 0) {
-			foreach ($filter as $key => $value) {
-				$sqlwhere[] = $key." LIKE '%".$this->db->escape($value)."%'";
+		if (is_array($filter)) {
+			$sqlwhere = array();
+			if (count($filter) > 0) {
+				foreach ($filter as $key => $value) {
+					$sqlwhere[] = $this->db->sanitize($key)." LIKE '%".$this->db->escape($value)."%'";
+				}
 			}
+			if (count($sqlwhere) > 0) {
+				$sql .= " WHERE ".implode(' '.$this->db->sanitize($filtermode).' ', $sqlwhere);
+			}
+
+			$filter = '';
 		}
 
-		if (count($sqlwhere) > 0) {
-			$sql .= " WHERE ".implode(' '.$this->db->escape($filtermode).' ', $sqlwhere);
+		// Manage filter
+		$errormessage = '';
+		$sql .= forgeSQLFromUniversalSearchCriteria($filter, $errormessage);
+		if ($errormessage) {
+			$this->errors[] = $errormessage;
+			dol_syslog(__METHOD__.' '.implode(',', $this->errors), LOG_ERR);
+			return -1;
 		}
+
 		if (!empty($sortfield)) {
 			$sql .= $this->db->order($sortfield, $sortorder);
 		}
@@ -264,6 +315,7 @@ class CGenericDic
 		if ($resql) {
 			$num = $this->db->num_rows($resql);
 
+			$this->lines = array();
 			while ($obj = $this->db->fetch_object($resql)) {
 				$line = new self($this->db);
 
@@ -272,6 +324,8 @@ class CGenericDic
 				$line->code = $obj->code;
 				$line->label = $obj->label;
 				$line->active = $obj->active;
+
+				$this->lines[] = $line;
 			}
 			$this->db->free($resql);
 
@@ -287,12 +341,11 @@ class CGenericDic
 	/**
 	 * Update object into database
 	 *
-	 * @param  User $user      User that modifies
-	 * @param  bool $notrigger false=launch triggers after, true=disable triggers
-	 *
-	 * @return int <0 if KO, >0 if OK
+	 * @param  User $user      	User that modifies
+	 * @param  int 	$notrigger 	0=launch triggers after, 1=disable triggers
+	 * @return int 				Return integer <0 if KO, >0 if OK
 	 */
-	public function update(User $user, $notrigger = false)
+	public function update(User $user, $notrigger = 0)
 	{
 		$error = 0;
 
@@ -303,18 +356,20 @@ class CGenericDic
 		if ($this->table_element == 'c_stcomm') {
 			$fieldrowid = 'id';
 			$fieldlabel = 'libelle';
+		} elseif ($this->table_element == 'c_type_fees') {
+			$fieldrowid = 'id';
 		}
 
 		// Clean parameters
 
 		if (isset($this->code)) {
-			 $this->code = trim($this->code);
+			$this->code = trim($this->code);
 		}
 		if (isset($this->label)) {
-			 $this->label = trim($this->label);
+			$this->label = trim($this->label);
 		}
 		if (isset($this->active)) {
-			 $this->active = trim($this->active);
+			$this->active = (int) $this->active;
 		}
 
 		// Check parameters
@@ -323,9 +378,9 @@ class CGenericDic
 		// Update request
 		$sql = "UPDATE ".$this->db->prefix().$this->table_element.' SET';
 		$sql .= " code = ".(isset($this->code) ? "'".$this->db->escape($this->code)."'" : "null").',';
-		$sql .= " ".$fieldlabel." = ".(isset($this->label) ? "'".$this->db->escape($this->label)."'" : "null").',';
-		$sql .= " active = ".(isset($this->active) ? $this->active : "null");
-		$sql .= " WHERE ".$fieldrowid." = ".((int) $this->id);
+		$sql .= " ".$this->db->sanitize($fieldlabel)." = ".(isset($this->label) ? "'".$this->db->escape($this->label)."'" : "null").',';
+		$sql .= " active = ".(isset($this->active) ? ((int) $this->active) : "null");
+		$sql .= " WHERE ".$this->db->sanitize($fieldrowid)." = ".((int) $this->id);
 
 		$this->db->begin();
 
@@ -361,16 +416,18 @@ class CGenericDic
 	/**
 	 * Delete object in database
 	 *
-	 * @param User $user      User that deletes
-	 * @param bool $notrigger false=launch triggers after, true=disable triggers
-	 *
-	 * @return int <0 if KO, >0 if OK
+	 * @param User 	$user      	User that deletes
+	 * @param int 	$notrigger 	0=launch triggers after, 1=disable triggers
+	 * @return int 				Return integer <0 if KO, >0 if OK
 	 */
-	public function delete(User $user, $notrigger = false)
+	public function delete(User $user, $notrigger = 0)
 	{
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
 		$fieldrowid = 'rowid';
+		if ($this->table_element == 'c_stcomm' || $this->table_element == 'c_type_fees') {
+			$fieldrowid = 'id';
+		}
 
 		$error = 0;
 
@@ -390,7 +447,7 @@ class CGenericDic
 
 		if (!$error) {
 			$sql = "DELETE FROM ".$this->db->prefix().$this->table_element;
-			$sql .= " WHERE ".$fieldrowid." = ".((int) $this->id);
+			$sql .= " WHERE ".$this->db->sanitize($fieldrowid)." = ".((int) $this->id);
 
 			$resql = $this->db->query($sql);
 			if (!$resql) {
@@ -424,7 +481,7 @@ class CGenericDic
 		dol_syslog(__METHOD__, LOG_DEBUG);
 
 		$error = 0;
-		$object = new Ctyperesource($this->db);
+		$object = new CGenericDic($this->db);
 
 		$this->db->begin();
 
@@ -465,7 +522,7 @@ class CGenericDic
 	 * Initialise object with example values
 	 * Id must be 0 if object instance is a specimen
 	 *
-	 * @return void
+	 * @return int
 	 */
 	public function initAsSpecimen()
 	{
@@ -474,5 +531,7 @@ class CGenericDic
 		$this->code = 'CODE';
 		$this->label = 'Label';
 		$this->active = 1;
+
+		return 1;
 	}
 }

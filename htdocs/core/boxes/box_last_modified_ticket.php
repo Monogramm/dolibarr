@@ -1,8 +1,9 @@
 <?php
 /* Module descriptor for ticket system
  * Copyright (C) 2013-2016  Jean-François FERRY     <hello@librethic.io>
- *               2016       Christophe Battarel     <christophe@altairis.fr>
- * Copyright (C) 2019-2021  Frédéric France         <frederic.france@netlogic.fr>
+ * Copyright (C) 2016       Christophe Battarel     <christophe@altairis.fr>
+ * Copyright (C) 2019-2025  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2024-2026	MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,31 +27,24 @@
 require_once DOL_DOCUMENT_ROOT."/core/boxes/modules_boxes.php";
 
 /**
- * Class to manage the box
+ * Class to manage the box to show last modified tickets
  */
 class box_last_modified_ticket extends ModeleBoxes
 {
-
 	public $boxcode = "box_last_modified_ticket";
-	public $boximg = "ticket";
+	public $boximg  = "ticket";
+	/**
+	 * @var string
+	 */
 	public $boxlabel;
 	public $depends = array("ticket");
-
-	/**
-	 * @var DoliDB Database handler.
-	 */
-	public $db;
-
-	public $param;
-	public $info_box_head = array();
-	public $info_box_contents = array();
 
 	/**
 	 * Constructor
 	 *  @param  DoliDB  $db         Database handler
 	 *  @param  string  $param      More parameters
 	 */
-	public function __construct($db, $param = '')
+	public function __construct($db, $param = '')  // @phpstan-ignore constructor.unusedParameter
 	{
 		global $langs;
 		$langs->load("boxes");
@@ -67,7 +61,7 @@ class box_last_modified_ticket extends ModeleBoxes
 	 */
 	public function loadBox($max = 5)
 	{
-		global $conf, $user, $langs;
+		global $user, $langs;
 
 		$this->max = $max;
 
@@ -75,23 +69,21 @@ class box_last_modified_ticket extends ModeleBoxes
 
 		$text = $langs->trans("BoxLastModifiedTicketDescription", $max);
 		$this->info_box_head = array(
-			'text' => $text,
+			'text' => $text.'<a class="paddingleft" href="'.DOL_URL_ROOT.'/ticket/list.php?sortfield=t.tms&sortorder=DESC"><span class="badge">...</span></a>',
 			'limit' => dol_strlen($text)
 		);
 
-		$this->info_box_contents[0][0] = array(
-			'td' => 'class="left"',
-			'text' => $langs->trans("BoxLastModifiedTicketContent"),
-		);
 
-		if ($user->rights->ticket->read) {
-			$sql = "SELECT t.rowid as id, t.ref, t.track_id, t.fk_soc, t.fk_user_create, t.fk_user_assign, t.subject, t.message, t.fk_statut, t.type_code, t.category_code, t.severity_code, t.datec, t.date_read, t.date_close, t.origin_email ";
+		if ($user->hasRight('ticket', 'read')) {
+			$sql = "SELECT t.rowid as id, t.ref, t.track_id, t.fk_soc, t.fk_user_create, t.fk_user_assign, t.subject, t.message, t.fk_statut as status";
+			$sql .= ", t.type_code, t.category_code, t.severity_code, t.datec, GREATEST(t.tms, tef.tms) as datem, t.date_read, t.date_close, t.origin_email ";
 			$sql .= ", type.label as type_label, category.label as category_label, severity.label as severity_label";
 			$sql .= ", s.nom as company_name, s.email as socemail, s.client, s.fournisseur";
 			$sql .= " FROM ".MAIN_DB_PREFIX."ticket as t";
-			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."c_ticket_type as type ON type.code=t.type_code";
-			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."c_ticket_category as category ON category.code=t.category_code";
-			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."c_ticket_severity as severity ON severity.code=t.severity_code";
+			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."ticket_extrafields as tef ON tef.fk_object = t.rowid";
+			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."c_ticket_type as type ON type.code = t.type_code AND type.entity = t.entity";
+			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."c_ticket_category as category ON category.code = t.category_code AND category.entity = t.entity";
+			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."c_ticket_severity as severity ON severity.code = t.severity_code AND severity.entity = t.entity";
 			$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe as s ON s.rowid=t.fk_soc";
 
 			$sql .= " WHERE t.entity IN (".getEntity('ticket').')';
@@ -101,7 +93,7 @@ class box_last_modified_ticket extends ModeleBoxes
 				$sql .= " AND t.fk_soc = ".((int) $user->socid);
 			}
 
-			$sql .= " ORDER BY t.tms DESC, t.rowid DESC";
+			$sql .= " ORDER BY datem DESC, t.rowid DESC";
 			$sql .= $this->db->plimit($max, 0);
 
 			$resql = $this->db->query($sql);
@@ -113,13 +105,17 @@ class box_last_modified_ticket extends ModeleBoxes
 				while ($i < $num) {
 					$objp = $this->db->fetch_object($resql);
 					$datec = $this->db->jdate($objp->datec);
+					$datem = $this->db->jdate($objp->datem);
 
 					$ticket = new Ticket($this->db);
 					$ticket->id = $objp->id;
 					$ticket->track_id = $objp->track_id;
 					$ticket->ref = $objp->ref;
-					$ticket->fk_statut = $objp->fk_statut;
 					$ticket->subject = $objp->subject;
+					$ticket->date_creation = $datec;
+					$ticket->date_modification = $datem;
+					$ticket->status = $objp->status;
+					$ticket->statut = $objp->status;
 					if ($objp->fk_soc > 0) {
 						$thirdparty = new Societe($this->db);
 						$thirdparty->id = $objp->fk_soc;
@@ -161,8 +157,8 @@ class box_last_modified_ticket extends ModeleBoxes
 
 					// Date creation
 					$this->info_box_contents[$i][$r] = array(
-						'td' => 'class="right"',
-						'text' => dol_print_date($datec, 'dayhour', 'tzuserrel')
+						'td' => 'class="center nowraponall" title="'.dol_escape_htmltag($langs->trans("DateModification").': '.dol_print_date($datem, 'dayhour', 'tzuserrel')).'"',
+						'text' => dol_print_date($datem, 'dayhour', 'tzuserrel')
 					);
 					$r++;
 
@@ -177,7 +173,10 @@ class box_last_modified_ticket extends ModeleBoxes
 				}
 
 				if ($num == 0) {
-					$this->info_box_contents[$i][0] = array('td' => '', 'text'=>'<span class="opacitymedium">'.$langs->trans("BoxLastModifiedTicketNoRecordedTickets").'</span>');
+					$this->info_box_contents[$i][0] = array(
+						'td' => '',
+						'text' => '<span class="opacitymedium">'.$langs->trans("BoxLastModifiedTicketNoRecordedTickets").'</span>'
+					);
 				}
 			} else {
 				dol_print_error($this->db);
@@ -190,13 +189,15 @@ class box_last_modified_ticket extends ModeleBoxes
 		}
 	}
 
+
+
 	/**
-	 *     Method to show box
+	 *	Method to show box.  Called when the box needs to be displayed.
 	 *
-	 *     @param  array $head     Array with properties of box title
-	 *     @param  array $contents Array with properties of box lines
-	 *     @param  int   $nooutput No print, only return string
-	 *     @return string
+	 *	@param	?array<array{text?:string,sublink?:string,subtext?:string,subpicto?:?string,picto?:string,nbcol?:int,limit?:int,subclass?:string,graph?:int<0,1>,target?:string}>   $head       Array with properties of box title
+	 *	@param	?array<array{tr?:string,td?:string,target?:string,text?:string,text2?:string,textnoformat?:string,tooltip?:string,logo?:string,url?:string,maxlength?:int,asis?:int<0,1>}>   $contents   Array with properties of box lines
+	 *	@param	int<0,1>	$nooutput	No print, only return string
+	 *	@return	string
 	 */
 	public function showBox($head = null, $contents = null, $nooutput = 0)
 	{

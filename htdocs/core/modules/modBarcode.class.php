@@ -3,6 +3,7 @@
  * Copyright (C) 2005-2008 Laurent Destailleur  <eldy@users.sourceforge.net>
  * Copyright (C) 2005-2009 Regis Houssin        <regis.houssin@inodbox.com>
  * Copyright (C) 2015      Juanjo Menent        <jmenent@2byte.es>
+ * Copyright (C) 2026       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,13 +64,12 @@ class modBarcode extends DolibarrModules
 		$this->config_page_url = array("barcode.php");
 
 		// Constants
-		// Example: $this->const=array(0=>array('MYMODULE_MYNEWCONST1','chaine','myvalue','This is a constant to add',0),
-		//							  1=>array('MYMODULE_MYNEWCONST2','chaine','myvalue','This is another constant to add',0) );
-		$this->const = array();
-		//$this->const[0] = array('BARCODE_LABEL_LEFT_TEXT','chaine','%BARCODE%','Print barcode on left side of label',1);
-		//$this->const[1] = array('BARCODE_LABEL_RIGHT_TEXT','chaine','%LOGO%','Print Company logo on right side',1);
-		//$this->const[2] = array('BARCODE_LABEL_HEADER_TEXT','chaine','My header','Print header text on label',1);
-		//$this->const[3] = array('BARCODE_LABEL_FOOTER_TEXT','chaine','My footer','Print footer text on label',1);
+		// List of particular constants to add when module is enabled (key, 'chaine', value, desc, visible, 'current' or 'allentities', deleteonunactive)
+		// Example: $this->const=array(1 => array('MYMODULE_MYNEWCONST1', 'chaine', 'myvalue', 'This is a constant to add', 1),
+		//                             2 => array('MYMODULE_MYNEWCONST2', 'chaine', 'myvalue', 'This is another constant to add', 0, 'current', 1)
+		$this->const = array(
+			0 => array('BARCODE_USE_ON_PRODUCT', 'chaine', '1', 'Constant to activate barcode for products', 0)
+		);
 
 		// Boxes
 		$this->boxes = array();
@@ -77,18 +77,28 @@ class modBarcode extends DolibarrModules
 		// Permissions
 		$this->rights = array();
 		$this->rights_class = 'barcode';
+		$r = 0;
 
-		$this->rights[1][0] = 301; // id de la permission
-		$this->rights[1][1] = 'Read barcodes'; // libelle de la permission
-		$this->rights[1][2] = 'r'; // type de la permission (deprecie a ce jour)
-		$this->rights[1][3] = 1; // La permission est-elle une permission par defaut
-		$this->rights[1][4] = 'lire_advance';
+		$this->rights[$r][0] = 301; // Permission id (must not be already used)
+		$this->rights[$r][1] = 'Generate PDF sheets of barcodes'; // Permission label
+		$this->rights[$r][2] = 'r'; // Permission type (deprecated)
+		$this->rights[$r][3] = 0; // Permission by default for new user (0/1)
+		$this->rights[$r][4] = 'read';
+		$r++;
 
-		$this->rights[2][0] = 302; // id de la permission
-		$this->rights[2][1] = 'Create/modify barcodes'; // libelle de la permission
-		$this->rights[2][2] = 'w'; // type de la permission (deprecie a ce jour)
-		$this->rights[2][3] = 0; // La permission est-elle une permission par defaut
-		$this->rights[2][4] = 'creer_advance';
+		$this->rights[$r][0] = 304; // Permission id (must not be already used)
+		$this->rights[$r][1] = 'Read barcodes'; // Permission label
+		$this->rights[$r][2] = 'r'; // Permission type (deprecated)
+		$this->rights[$r][3] = 0; // Permission by default for new user (0/1)
+		$this->rights[$r][4] = 'lire_advance';
+		$r++;
+
+		$this->rights[$r][0] = 305; // Permission id (must not be already used)
+		$this->rights[$r][1] = 'Create/modify barcodes'; // Permission label
+		$this->rights[$r][2] = 'w'; // Permission type (deprecated)
+		$this->rights[$r][3] = 0; // Permission by default for new user (0/1)
+		$this->rights[$r][4] = 'creer_advance';
+		$r++;
 
 		// Main menu entries
 		$r = 0;
@@ -104,8 +114,8 @@ class modBarcode extends DolibarrModules
 			'url'=>'/barcode/printsheet.php?mainmenu=tools&leftmenu=barcodeprint',
 			'langs'=>'products', // Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
 			'position'=>200,
-			'enabled'=>'$conf->barcode->enabled', // Define condition to show or hide menu entry. Use '$conf->mymodule->enabled' if entry must be visible if module is enabled. Use '$leftmenu==\'system\'' to show if leftmenu system is selected.
-			'perms'=>'($conf->global->MAIN_USE_ADVANCED_PERMS && $user->rights->barcode->lire_advance) || (! $conf->global->MAIN_USE_ADVANCED_PERMS)', // Use 'perms'=>'$user->rights->mymodule->level1->level2' if you want your menu with a permission rules
+			'enabled'=>'isModEnabled("barcode")', // Define condition to show or hide menu entry. Use '$conf->mymodule->enabled' if entry must be visible if module is enabled. Use '$leftmenu==\'system\'' to show if leftmenu system is selected.
+			'perms'=>'$user->hasRight("barcode", "read")',
 			'target'=>'',
 			'user'=>0, // 0=Menu for internal users, 1=external users, 2=both
 		);
@@ -119,8 +129,8 @@ class modBarcode extends DolibarrModules
 			'url'=>'/barcode/codeinit.php?mainmenu=home&leftmenu=admintools',
 			'langs'=>'products', // Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
 			'position'=>300,
-			'enabled'=>'$conf->barcode->enabled && preg_match(\'/^(admintools|all)/\',$leftmenu)', // Define condition to show or hide menu entry. Use '$conf->mymodule->enabled' if entry must be visible if module is enabled. Use '$leftmenu==\'system\'' to show if leftmenu system is selected.
-			'perms'=>'($conf->global->MAIN_USE_ADVANCED_PERMS && $user->rights->barcode->creer_advance) || (! $conf->global->MAIN_USE_ADVANCED_PERMS)', // Use 'perms'=>'$user->rights->mymodule->level1->level2' if you want your menu with a permission rules
+			'enabled'=>'isModEnabled("barcode") && preg_match(\'/^(admintools|all)/\', $leftmenu)', // Define condition to show or hide menu entry. Use '$conf->mymodule->enabled' if entry must be visible if module is enabled. Use '$leftmenu==\'system\'' to show if leftmenu system is selected.
+			'perms'=>'$user->admin',
 			'target'=>'',
 			'user'=>0, // 0=Menu for internal users, 1=external users, 2=both
 		);

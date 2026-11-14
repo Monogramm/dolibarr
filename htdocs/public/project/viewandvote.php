@@ -1,5 +1,7 @@
 <?php
 /* Copyright (C) 2021		Dorian Vabre			<dorian.vabre@gmail.com>
+ * Copyright (C) 2024-2025  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2025		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,11 +38,13 @@ if (!defined('NOBROWSERNOTIF')) {
 
 // For MultiCompany module.
 // Do not use GETPOST here, function is not defined and get of entity must be done before including main.inc.php
+// Because 2 entities can have the same ref.
 $entity = (!empty($_GET['entity']) ? (int) $_GET['entity'] : (!empty($_POST['entity']) ? (int) $_POST['entity'] : (!empty($_GET['e']) ? (int) $_GET['e'] : (!empty($_POST['e']) ? (int) $_POST['e'] : 1))));
 if (is_numeric($entity)) {
 	define("DOLENTITY", $entity);
 }
 
+// Load Dolibarr environment
 require '../../main.inc.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/payments.lib.php';
@@ -50,26 +54,39 @@ require_once DOL_DOCUMENT_ROOT.'/societe/class/societeaccount.class.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 require_once DOL_DOCUMENT_ROOT.'/projet/class/project.class.php';
 require_once DOL_DOCUMENT_ROOT . '/comm/action/class/actioncomm.class.php';
+
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Societe $mysoc
+ * @var Translate $langs
+ * @var User $user
+ */
+
 // Hook to be used by external payment modules (ie Payzen, ...)
-include_once DOL_DOCUMENT_ROOT.'/core/class/hookmanager.class.php';
 $hookmanager = new HookManager($db);
+
 $hookmanager->initHooks(array('newpayment'));
 
 // For encryption
 global $dolibarr_main_url_root;
 
 // Load translation files
-$langs->loadLangs(array("main", "other", "dict", "bills", "companies", "errors", "paybox", "paypal", "stripe")); // File with generic data
+$langs->loadLangs(array("main", "other", "dict", "bills", "companies", "paypal", "stripe")); // File with generic data
 
 // Security check
 // No check on module enabled. Done later according to $validpaymentmethod
 
+$errmsg = '';
+$error = 0;
 $action = GETPOST('action', 'aZ09');
 $id = GETPOST('id');
+$suffix = GETPOST("suffix", 'aZ09');
 $securekeyreceived = GETPOST("securekey");
-$securekeytocompare = dol_hash($conf->global->EVENTORGANIZATION_SECUREKEY.'conferenceorbooth'.$id, 'md5');
+$securekeytocompare = dol_hash(getDolGlobalString('EVENTORGANIZATION_SECUREKEY') . 'conferenceorbooth'.((int) $id), 'md5');
 
-if ($securekeytocompare != $securekeyreceived) {
+if (!hash_equals($securekeytocompare, (string) $securekeyreceived)) {
 	print $langs->trans('MissingOrBadSecureKey');
 	exit;
 }
@@ -83,15 +100,19 @@ $listofvotes = explode(',', $_SESSION["savevotes"]);
 $urlwithroot = DOL_MAIN_URL_ROOT; // This is to use same domain name than current. For Paypal payment, we can use internal URL like localhost.
 
 $project = new Project($db);
-$resultproject = $project->fetch($id);
+$resultproject = $project->fetch((int) $id);
 if ($resultproject < 0) {
 	$error++;
 	$errmsg .= $project->error;
 }
+// The secure key is only valid for an existing project of the current entity
+if ($resultproject <= 0 || !in_array((int) $project->entity, array_map('intval', explode(',', getEntity('project'))))) {
+	httponly_accessforbidden('Project not found');
+}
 
 // Security check
-if (empty($conf->eventorganization->enabled)) {
-	accessforbidden('', 0, 0, 1);
+if (!isModEnabled('eventorganization')) {
+	httponly_accessforbidden('Module Event organization not enabled');
 }
 
 
@@ -108,8 +129,10 @@ $listOfConferences .= '<td>'.$langs->trans('Note').'</td></tr>';
 
 $sql = "SELECT a.id, a.fk_action, a.datep, a.datep2, a.label, a.fk_soc, a.note, ca.libelle as label
 		FROM ".MAIN_DB_PREFIX."actioncomm as a
-		INNER JOIN ".MAIN_DB_PREFIX."c_actioncomm as ca ON (a.fk_action=ca.id)
-		WHERE a.status<2";
+		INNER JOIN ".MAIN_DB_PREFIX."c_actioncomm as ca ON (a.fk_action = ca.id)
+		WHERE a.status < 2
+		AND a.fk_project = ".((int) $project->id)."
+		AND a.entity IN (".getEntity('agenda').")";
 
 $sqlforconf = $sql." AND ca.module='conference@eventorganization'";
 //$sqlforbooth = $sql." AND ca.module='booth@eventorganization'";
@@ -159,10 +182,14 @@ while ($i < $db->num_rows($result)) {
 */
 
 // Get vote result
-$idvote = GETPOST("vote");
-$hashedvote = dol_hash($conf->global->EVENTORGANIZATION_SECUREKEY.'vote'.$idvote);
+$idvote = GETPOSTINT("vote");
+// A simple hashed value saved into session (in $_SESSION["savevotes"]) to know if current user has already voted for this conference or booth.
+// This var is used for both reading votes already saved and to flag in session a new vote done.
+$hashedvote = dol_hash(getDolGlobalString('EVENTORGANIZATION_SECUREKEY').'vote'.$idvote, 'md5');
 
-if (strlen($idvote)) {
+
+if ($idvote > 0) {
+	$votestatus = 'err';
 	if (in_array($hashedvote, $listofvotes)) {
 		// Has already voted
 		$votestatus = 'ko';
@@ -170,9 +197,12 @@ if (strlen($idvote)) {
 		// Has not already voted
 		$conforbooth = new ActionComm($db);
 		$resultconforbooth = $conforbooth->fetch($idvote);
-		if ($resultconforbooth<=0) {
+		if ($resultconforbooth <= 0) {
 			$error++;
 			$errmsg .= $conforbooth->error;
+		} elseif ((int) $conforbooth->fk_project != (int) $project->id) {
+			// The vote must be for a conference or booth of the project of the secure key
+			$votestatus = 'err';
 		} else {
 			// Process to vote
 			$conforbooth->num_vote++;
@@ -186,11 +216,11 @@ if (strlen($idvote)) {
 			}
 		}
 	}
-	if ($votestatus=="ok") {
+	if ($votestatus == "ok") {
 		setEventMessage($langs->trans("VoteOk"), 'mesgs');
-	} elseif ($votestatus=="ko") {
+	} elseif ($votestatus == "ko") {
 		setEventMessage($langs->trans("AlreadyVoted"), 'warnings');
-	} elseif ($votestatus=="err") {
+	} elseif ($votestatus == "err") {
 		setEventMessage($langs->trans("VoteError"), 'warnings');
 	}
 	header("Refresh:0;url=".dol_buildpath('/public/project/viewandvote.php?id='.$id.'&securekey=', 1).$securekeyreceived);
@@ -203,8 +233,8 @@ if (strlen($idvote)) {
  */
 
 $head = '';
-if (!empty($conf->global->ONLINE_PAYMENT_CSS_URL)) {
-	$head = '<link rel="stylesheet" type="text/css" href="'.$conf->global->ONLINE_PAYMENT_CSS_URL.'?lang='.$langs->defaultlang.'">'."\n";
+if (getDolGlobalString('ONLINE_PAYMENT_CSS_URL')) {
+	$head = '<link rel="stylesheet" type="text/css" href="' . getDolGlobalString('ONLINE_PAYMENT_CSS_URL').'?lang='.$langs->defaultlang.'">'."\n";
 }
 
 $conf->dol_hide_topmenu = 1;
@@ -223,7 +253,7 @@ print '<input type="hidden" name="tag" value="'.GETPOST("tag", 'alpha').'">'."\n
 print '<input type="hidden" name="id" value="'.dol_escape_htmltag($id).'">'."\n";
 print '<input type="hidden" name="securekey" value="'.dol_escape_htmltag($securekeyreceived).'">'."\n";
 print '<input type="hidden" name="e" value="'.$entity.'" />';
-print '<input type="hidden" name="forcesandbox" value="'.GETPOST('forcesandbox', 'int').'" />';
+//print '<input type="hidden" name="forcesandbox" value="'.GETPOSTINT('forcesandbox').'" />';
 print "\n";
 
 
@@ -232,10 +262,10 @@ print "\n";
 $logosmall = $mysoc->logo_small;
 $logo = $mysoc->logo;
 $paramlogo = 'ONLINE_PAYMENT_LOGO_'.$suffix;
-if (!empty($conf->global->$paramlogo)) {
-	$logosmall = $conf->global->$paramlogo;
-} elseif (!empty($conf->global->ONLINE_PAYMENT_LOGO)) {
-	$logosmall = $conf->global->ONLINE_PAYMENT_LOGO;
+if (getDolGlobalString($paramlogo)) {
+	$logosmall = getDolGlobalString($paramlogo);
+} elseif (getDolGlobalString('ONLINE_PAYMENT_LOGO')) {
+	$logosmall = getDolGlobalString('ONLINE_PAYMENT_LOGO');
 }
 //print '<!-- Show logo (logosmall='.$logosmall.' logo='.$logo.') -->'."\n";
 // Define urllogo
@@ -256,22 +286,22 @@ if ($urllogo) {
 	print '<img id="dolpaymentlogo" src="'.$urllogo.'"';
 	print '>';
 	print '</div>';
-	if (empty($conf->global->MAIN_HIDE_POWERED_BY)) {
+	if (!getDolGlobalString('MAIN_HIDE_POWERED_BY')) {
 		print '<div class="poweredbypublicpayment opacitymedium right"><a class="poweredbyhref" href="https://www.dolibarr.org?utm_medium=website&utm_source=poweredby" target="dolibarr" rel="noopener">'.$langs->trans("PoweredBy").'<br><img class="poweredbyimg" src="'.DOL_URL_ROOT.'/theme/dolibarr_logo.svg" width="80px"></a></div>';
 	}
 	print '</div>';
 }
 
-if (!empty($conf->global->PROJECT_IMAGE_PUBLIC_SUGGEST_BOOTH)) {
+if (getDolGlobalString('PROJECT_IMAGE_PUBLIC_SUGGEST_BOOTH')) {
 	print '<div class="backimagepublicsuggestbooth">';
-	print '<img id="idPROJECT_IMAGE_PUBLIC_SUGGEST_BOOTH" src="'.$conf->global->PROJECT_IMAGE_PUBLIC_SUGGEST_BOOTH.'">';
+	print '<img id="idPROJECT_IMAGE_PUBLIC_SUGGEST_BOOTH" src="' . getDolGlobalString('PROJECT_IMAGE_PUBLIC_SUGGEST_BOOTH').'">';
 	print '</div>';
 }
 
 print '<table id="welcome" class="center">'."\n";
 $text  = '<tr><td class="textpublicpayment"><br><strong>'.$langs->trans("EvntOrgRegistrationWelcomeMessage").'</strong></td></tr>'."\n";
-$text .= '<tr><td class="textpublicpayment">'.$langs->trans("EvntOrgVoteHelpMessage").' : "'.$project->title.'".<br><br></td></tr>'."\n";
-$text .= '<tr><td class="textpublicpayment">'.$project->note_public.'</td></tr>'."\n";
+$text .= '<tr><td class="textpublicpayment">'.$langs->trans("EvntOrgVoteHelpMessage").' : "'.dol_escape_htmltag($project->title).'".<br><br></td></tr>'."\n";
+$text .= '<tr><td class="textpublicpayment">'.dol_htmlentitiesbr($project->note_public).'</td></tr>'."\n";
 print $text;
 print '</table>'."\n";
 
@@ -292,7 +322,7 @@ print '</table>'."\n";
 
 $object = null;
 
-htmlPrintOnlinePaymentFooter($mysoc, $langs, 1, $suffix, $object);
+htmlPrintOnlineFooter($mysoc, $langs, 1, $suffix, $object);
 
 llxFooter('', 'public');
 

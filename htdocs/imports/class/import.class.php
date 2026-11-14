@@ -2,7 +2,9 @@
 /* Copyright (C) 2011       Laurent Destailleur <eldy@users.sourceforge.net>
  * Copyright (C) 2016       Raphaël Doursenaud  <rdoursenaud@gpcsolutions.fr>
  * Copyright (C) 2020		Ahmad Jamaly Rabib	<rabib@metroworks.co.jp>
- * Copyright (C) 2021		Frédéric France		<frederic.france@netlogic.fr>
+ * Copyright (C) 2021-2025  Frédéric France		<frederic.france@free.fr>
+ * Copyright (C) 2024-2025	MDW					<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2026		Alexandre Spangaro	<alexandre@inovea-conseil.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,21 +31,10 @@
  */
 class Import
 {
-	public $array_import_module;
-	public $array_import_perms;
-	public $array_import_icon;
-	public $array_import_code;
-	public $array_import_label;
-	public $array_import_tables;
-	public $array_import_tables_creator;
-	public $array_import_fields;
-	public $array_import_fieldshidden;
-	public $array_import_entities;
-	public $array_import_regex;
-	public $array_import_updatekeys;
-	public $array_import_examplevalues;
-	public $array_import_convertvalue;
-	public $array_import_run_sql_after;
+	/**
+	 * @var DoliDB Database handler.
+	 */
+	public $db;
 
 	/**
 	 * @var string Error code (or message)
@@ -55,10 +46,118 @@ class Import
 	 */
 	public $errors = array();
 
+	/**
+	 * @var string DB Error number
+	 */
+	public $errno;
+
+	/**
+	 * @var array<array{position_of_profile:string,module:DolibarrModules}>
+	 */
+	public $array_import_module;
+
+	/**
+	 * @var array<array<string,string>>
+	 */
+	public $array_import_types;
+
+	/**
+	 * @var bool[]
+	 */
+	public $array_import_perms;
+
+	/**
+	 * @var string[]
+	 */
+	public $array_import_icon;
+
+	/**
+	 * @var string[]
+	 */
+	public $array_import_code;
+
+	/**
+	 * @var string[]
+	 */
+	public $array_import_label;
+
+	/**
+	 * @var array<string[]>
+	 */
+	public $array_import_tables;
+
+	/**
+	 * @var array<''|array<string,string>>
+	 */
+	public $array_import_tables_creator;
+
+	/**
+	 * @var array<array<string,string>>
+	 */
+	public $array_import_fields;
+
+	/**
+	 * @var array<''|array<string,string>>
+	 */
+	public $array_import_fieldshidden;
+
+	/**
+	 * @var array<''|array<string,string>>
+	 */
+	public $array_import_entities;
+
+	/**
+	 * @var array<''|array<string,string>>
+	 */
+	public $array_import_regex;
+
+	/**
+	 * @var array<''|array<string,string>>
+	 */
+	public $array_import_updatekeys;
+
+	/**
+	 * @var array<int,string[]>	Update keys preselected on the screen, as field aliases
+	 */
+	public $array_import_preselected_updatekeys;
+
+	/**
+	 * @var array<''|array<string,string>>
+	 */
+	public $array_import_examplevalues;
+
+	/**
+	 * @var array<''|array<array{rule:string,file:string,class:string,method:string}>>
+	 */
+	public $array_import_convertvalue;
+
+	/**
+	 * @var array<''|array<string,string>>
+	 */
+	public $array_import_run_sql_after;
+
 	// To store import templates
+	/**
+	 * @var int
+	 */
+	public $id;
+	/**
+	 * @var string
+	 */
 	public $hexa; // List of fields in the export profile
+	/**
+	 * @var string
+	 */
 	public $datatoimport;
-	public $model_name; // Name of export profile
+
+	/**
+	 * @var string Name of export profile
+	 */
+	public $model_name;
+
+	/**
+	 * @var int ID
+	 */
 	public $fk_user;
 
 
@@ -79,7 +178,7 @@ class Import
 	 *
 	 *  @param		User	$user      	Object user making import
 	 *  @param  	string	$filter		Load a particular dataset only. Index will start to 0.
-	 *  @return		int					<0 if KO, >0 if OK
+	 *  @return		int					Return integer <0 if KO, >0 if OK
 	 */
 	public function load_arrays($user, $filter = '')
 	{
@@ -102,6 +201,11 @@ class Import
 
 			// Search module files
 			while (($file = readdir($handle)) !== false) {
+				// Ignore Module Builder backup files (*.php.back)
+				if (preg_match('/\.back$/i', $file)) {
+					continue;
+				}
+
 				if (!preg_match("/^(mod.*)\.class\.php/i", $file, $reg)) {
 					continue;
 				}
@@ -128,9 +232,10 @@ class Import
 				$classname = $modulename;
 				require_once $file;
 				$module = new $classname($this->db);
+				'@phan-var-force DolibarrModules $module';
 
 				if (isset($module->import_code) && is_array($module->import_code)) {
-					foreach ($module->import_code as $r => $value) {
+					foreach ($module->import_code as $r => $value) {  // @phan-suppress-current-line PhanTypeMismatchForeach
 						if ($filter && ($filter != $module->import_code[$r])) {
 							continue;
 						}
@@ -158,36 +263,60 @@ class Import
 							}
 						}
 
+						// Test permissions specific to the dataset (if defined). A permission on 'user' with no sub-level means admin only.
+						$bool = true;
+						if (isset($module->import_permission[$r]) && is_array($module->import_permission[$r])) {
+							foreach ($module->import_permission[$r] as $perm) {
+								if (!empty($perm[2])) {
+									$bool = $user->hasRight($perm[0], $perm[1], $perm[2]);
+								} elseif (!empty($perm[1])) {
+									$bool = $user->hasRight($perm[0], $perm[1]);
+								} else {
+									$bool = false;
+								}
+								if ($perm[0] == 'user' && $user->admin) {
+									$bool = true;
+								}
+								if (!$bool) {
+									break;
+								}
+							}
+						}
+
 						// Permission
-						$this->array_import_perms[$i] = $user->rights->import->run;
+						$this->array_import_perms[$i] = ($user->hasRight('import', 'run') && $bool);
 						// Icon
 						$this->array_import_icon[$i] = (isset($module->import_icon[$r]) ? $module->import_icon[$r] : $module->picto);
-						// Code du dataset export
+						// Code of dataset export
 						$this->array_import_code[$i] = $module->import_code[$r];
-						// Libelle du dataset export
+						// Label of dataset export
 						$this->array_import_label[$i] = $module->getImportDatasetLabel($r);
 						// Array of tables to import (key=alias, value=tablename)
 						$this->array_import_tables[$i] = $module->import_tables_array[$r];
 						// Array of tables creator field to import (key=alias, value=creator field name)
 						$this->array_import_tables_creator[$i] = (isset($module->import_tables_creator_array[$r]) ? $module->import_tables_creator_array[$r] : '');
 						// Array of fields to import (key=field, value=label)
-						$this->array_import_fields[$i] = $module->import_fields_array[$r];
+						$this->array_import_fields[$i] = (isset($module->import_fields_array[$r]) ? $module->import_fields_array[$r] : []);
 						// Array of hidden fields to import (key=field, value=label)
 						$this->array_import_fieldshidden[$i] = (isset($module->import_fieldshidden_array[$r]) ? $module->import_fieldshidden_array[$r] : '');
-						// Tableau des entites a exporter (cle=champ, valeur=entite)
-						$this->array_import_entities[$i] = $module->import_entities_array[$r];
-						// Tableau des alias a exporter (cle=champ, valeur=alias)
+						// Array of entities to export (key=field, value=entity)
+						$this->array_import_entities[$i] = (isset($module->import_entities_array[$r]) ? $module->import_entities_array[$r] : '');
+						// Array of aliases to export (key=field, value=alias)
 						$this->array_import_regex[$i] = (isset($module->import_regex_array[$r]) ? $module->import_regex_array[$r] : '');
 						// Array of columns allowed as UPDATE options
 						$this->array_import_updatekeys[$i] = (isset($module->import_updatekeys_array[$r]) ? $module->import_updatekeys_array[$r] : '');
+						// Array of columns preselected as UPDATE options
+						$this->array_import_preselected_updatekeys[$i] = (isset($module->import_preselected_updatekeys_array[$r]) ? $module->import_preselected_updatekeys_array[$r] : array());
 						// Array of examples
 						$this->array_import_examplevalues[$i] = (isset($module->import_examplevalues_array[$r]) ? $module->import_examplevalues_array[$r] : '');
-						// Tableau des regles de conversion d'une valeur depuis une autre source (cle=champ, valeur=tableau des regles)
+						// Table of conversion rules for a value from another source (key=field, value=array of rules)
 						$this->array_import_convertvalue[$i] = (isset($module->import_convertvalue_array[$r]) ? $module->import_convertvalue_array[$r] : '');
 						// Sql request to run after import
 						$this->array_import_run_sql_after[$i] = (isset($module->import_run_sql_after_array[$r]) ? $module->import_run_sql_after_array[$r] : '');
 						// Module
-						$this->array_import_module[$i] = array('position_of_profile'=>($module->module_position.'-'.$module->import_code[$r]), 'module'=>$module);
+						$this->array_import_module[$i] = array('position_of_profile' => ($module->module_position.'-'.$module->import_code[$r]), 'module' => $module);
+						// Type
+						$this->array_import_types[$i] = (isset($module->import_TypeFields_array[$r]) ? $module->import_TypeFields_array[$r] : array());
 
 						dol_syslog("Import loaded for module ".$modulename." with index ".$i.", dataset=".$module->import_code[$r].", nb of fields=".count($module->import_fields_array[$r]));
 						$i++;
@@ -206,11 +335,11 @@ class Import
 	 *  Build an import example file.
 	 *  Arrays this->array_export_xxx are already loaded for required datatoexport
 	 *
-	 *  @param      string	$model              Name of import engine ('csv', ...)
-	 *  @param      string	$headerlinefields   Array of values for first line of example file
-	 *  @param      string	$contentlinevalues	Array of values for content line of example file
-	 *  @param		string	$datatoimport		Dataset to import
-	 *  @return		string						<0 if KO, >0 if OK
+	 *  @param      string		$model              Name of import engine ('csv', ...)
+	 *  @param      string[]	$headerlinefields   Array of values for first line of example file
+	 *  @param      string[]	$contentlinevalues	Array of values for content line of example file
+	 *  @param		string		$datatoimport		Dataset to import
+	 *  @return		string							Return integer <0 if KO, >0 if OK
 	 */
 	public function build_example_file($model, $headerlinefields, $contentlinevalues, $datatoimport)
 	{
@@ -221,52 +350,54 @@ class Import
 
 		dol_syslog(get_class($this)."::build_example_file ".$model);
 
-		// Creation de la classe d'import du model Import_XXX
+		// Create the import class for the model Import_XXX
 		$dir = DOL_DOCUMENT_ROOT."/core/modules/import/";
 		$file = "import_".$model.".modules.php";
 		$classname = "Import".$model;
 		require_once $dir.$file;
 		$objmodel = new $classname($this->db, $datatoimport);
+		'@phan-var-force ModeleImports $objmodel';
 
 		$outputlangs = $langs; // Lang for output
 		$s = '';
 
-		// Genere en-tete
+		// Generate header
 		$s .= $objmodel->write_header_example($outputlangs);
 
-		// Genere ligne de titre
+		// Generate title line
 		$s .= $objmodel->write_title_example($outputlangs, $headerlinefields);
 
-		// Genere ligne de titre
+		// Generate record line
 		$s .= $objmodel->write_record_example($outputlangs, $contentlinevalues);
 
-		// Genere pied de page
+		// Generate footer
 		$s .= $objmodel->write_footer_example($outputlangs);
 
 		return $s;
 	}
 
 	/**
-	 *  Save an export model in database
+	 *  Save an import model in database
 	 *
 	 *  @param		User	$user 	Object user that save
-	 *  @return		int				<0 if KO, >0 if OK
+	 *  @return		int				Return integer <0 if KO, >0 if OK
 	 */
 	public function create($user)
 	{
-		global $conf;
-
 		dol_syslog("Import.class.php::create");
 
 		// Check parameters
 		if (empty($this->model_name)) {
-			$this->error = 'ErrorWrongParameters'; return -1;
+			$this->error = 'ErrorWrongParameters';
+			return -1;
 		}
 		if (empty($this->datatoimport)) {
-			$this->error = 'ErrorWrongParameters'; return -1;
+			$this->error = 'ErrorWrongParameters';
+			return -1;
 		}
 		if (empty($this->hexa)) {
-			$this->error = 'ErrorWrongParameters'; return -1;
+			$this->error = 'ErrorWrongParameters';
+			return -1;
 		}
 
 		$this->db->begin();
@@ -300,7 +431,7 @@ class Import
 	 *  Load an import profil from database
 	 *
 	 *  @param		int		$id		Id of profil to load
-	 *  @return		int				<0 if KO, >0 if OK
+	 *  @return		int				Return integer <0 if KO, >0 if OK
 	 */
 	public function fetch($id)
 	{
@@ -332,13 +463,12 @@ class Import
 	/**
 	 *	Delete object in database
 	 *
-	 *	@param      User	$user        	User that delete
-	 *  @param      int		$notrigger	    0=launch triggers after, 1=disable triggers
-	 *	@return		int						<0 if KO, >0 if OK
+	 *	@param      User		$user        	User that delete
+	 *  @param      int<0,1>	$notrigger	    0=launch triggers after, 1=disable triggers
+	 *	@return		int						Return integer <0 if KO, >0 if OK
 	 */
 	public function delete($user, $notrigger = 0)
 	{
-		global $conf, $langs;
 		$error = 0;
 
 		$sql = "DELETE FROM ".MAIN_DB_PREFIX."import_model";
@@ -349,19 +479,19 @@ class Import
 		dol_syslog(get_class($this)."::delete", LOG_DEBUG);
 		$resql = $this->db->query($sql);
 		if (!$resql) {
-			$error++; $this->errors[] = "Error ".$this->db->lasterror();
+			$error++;
+			$this->errors[] = "Error ".$this->db->lasterror();
 		}
 
+		/* Not used. This is not a business object. To convert it we must herit from CommonObject
 		if (!$error) {
-			if (!$notrigger) {
-				/* Not used. This is not a business object. To convert it we must herit from CommonObject
 				// Call trigger
 				$result=$this->call_trigger('IMPORT_DELETE',$user);
 				if ($result < 0) $error++;
 				// End call triggers
-				 */
 			}
 		}
+		*/
 
 		// Commit or rollback
 		if ($error) {

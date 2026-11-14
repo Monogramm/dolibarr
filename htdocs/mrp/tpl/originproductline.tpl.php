@@ -1,6 +1,8 @@
 <?php
-/* Copyright (C) 2010-2012	Regis Houssin	<regis.houssin@inodbox.com>
- * Copyright (C) 2017		Charlie Benke	<charlie@patas-monkey.com>
+/* Copyright (C) 2010-2012	Regis Houssin		<regis.houssin@inodbox.com>
+ * Copyright (C) 2017		Charlie Benke		<charlie@patas-monkey.com>
+ * Copyright (C) 2024-2025	MDW					<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France     <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,34 +18,54 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @var DoliDB $db
+ * @var Mo $this
+ * @var Conf $conf
+ * @var Form $form
+ * @var MoLine $line
+ * @var Translate $langs
+ */
+
+'
+@phan-var-force MoLine $line
+@phan-var-force Mo $this
+';
+
 // Protection to avoid direct call of template
 if (empty($conf) || !is_object($conf)) {
 	print "Error, template page can't be called as URL";
-	exit;
+	exit(1);
 }
 
-global $db;
+global $db, $langs;
 
-if (!empty($form) && !is_object($form)) {
+if (empty($form) || !is_object($form)) {
 	$form = new Form($db);
 }
 
-$qtytoconsumeforline = $this->tpl['qty'] / ( ! empty($this->tpl['efficiency']) ? $this->tpl['efficiency'] : 1 );
+$qtytoconsumeforline = $this->tpl['qty'] / (!empty($this->tpl['efficiency']) ? $this->tpl['efficiency'] : 1);
 /*if ((empty($this->tpl['qty_frozen']) && $this->tpl['qty_bom'] > 1)) {
 	$qtytoconsumeforline = $qtytoconsumeforline / $this->tpl['qty_bom'];
 }*/
 $qtytoconsumeforline = price2num($qtytoconsumeforline, 'MS');
 
 $tmpproduct = new Product($db);
-$tmpproduct->fetch($line->fk_product);
+if ($line->fk_product > 0) {
+	$tmpproduct->fetch($line->fk_product);
+}
 $tmpbom = new BOM($db);
-$res = $tmpbom->fetch($line->fk_bom_child);
+$res = 0;
+if ((int) $line->fk_bom_child > 0) {
+	$res = $tmpbom->fetch((int) $line->fk_bom_child);
+}
 
 ?>
 
 <!-- BEGIN PHP TEMPLATE originproductline.tpl.php -->
 <?php
 print '<tr class="oddeven'.(empty($this->tpl['strike']) ? '' : ' strikefordisabled').'">';
+// Ref or label
 print '<td>';
 if ($res) {
 	print $tmpproduct->getNomUrl(1);
@@ -51,23 +73,32 @@ if ($res) {
 		print ' ' . $langs->trans("or") . ' ';
 		print $tmpbom->getNomUrl(1);
 		print ' <a class="collapse_bom" id="collapse-' . $line->id . '" href="#">';
-		print (empty($conf->global->BOM_SHOW_ALL_BOM_BY_DEFAULT) ? img_picto('', 'folder') : img_picto('', 'folder-open'));
+		print(!getDolGlobalString('BOM_SHOW_ALL_BOM_BY_DEFAULT') ? img_picto('', 'folder') : img_picto('', 'folder-open'));
 	}
 	print '</a>';
 } else {
 	print $this->tpl['label'];
 }
 print '</td>';
-//print '<td>'.$this->tpl['label'].'</td>';
-print '<td class="right">'.$this->tpl['qty'].(($this->tpl['efficiency'] > 0 && $this->tpl['efficiency'] < 1) ? ' / '.$form->textwithpicto($this->tpl['efficiency'], $langs->trans("ValueOfMeansLoss")).' = '.$qtytoconsumeforline : '').'</td>';
-print '<td class="center">'.(empty($this->tpl['stock']) ? 0 : price2num($this->tpl['stock'], 'MS'));
-if ($this->tpl['seuil_stock_alerte'] != '' && ($this->tpl['stock'] < $this->tpl['seuil_stock_alerte'])) {
-	print ' '.img_warning($langs->trans("StockLowerThanLimit", $this->tpl['seuil_stock_alerte']));
+// Qty
+print '<td class="right">'.$this->tpl['qty'].((isset($this->tpl['efficiency']) && $this->tpl['efficiency'] > 0 && $this->tpl['efficiency'] < 1) ? (' / '.$form->textwithpicto((string) $this->tpl['efficiency'], $langs->trans("ValueOfMeansLoss")).' = '.$qtytoconsumeforline) : '').'</td>';
+// Unit
+print '<td class="right">'.measuringUnitString($this->tpl['fk_unit'], '', null, 1).'</td>';
+// Stock
+print '<td class="center">';
+if ($tmpproduct->isStockManaged()) {
+	print(empty($this->tpl['stock']) ? 0 : price2num($this->tpl['stock'], 'MS'));
+	if (isset($this->tpl['seuil_stock_alerte']) && $this->tpl['seuil_stock_alerte'] != '' && ($this->tpl['stock'] < $this->tpl['seuil_stock_alerte'])) {
+		print ' '.img_warning($langs->trans("StockLowerThanLimit", $this->tpl['seuil_stock_alerte']));
+	}
 }
 print '</td>';
-print '<td class="center">'.((empty($this->tpl['virtual_stock']) ? 0 : price2num($this->tpl['virtual_stock'], 'MS')));
-if ($this->tpl['seuil_stock_alerte'] != '' && ($this->tpl['virtual_stock'] < $this->tpl['seuil_stock_alerte'])) {
-	print ' '.img_warning($langs->trans("StockLowerThanLimit", $this->tpl['seuil_stock_alerte']));
+print '<td class="center">';
+if ($tmpproduct->isStockManaged()) {
+	print((empty($this->tpl['virtual_stock']) ? 0 : price2num($this->tpl['virtual_stock'], 'MS')));
+	if (isset($this->tpl['seuil_stock_alerte']) && $this->tpl['seuil_stock_alerte'] != '' && ($this->tpl['virtual_stock'] < $this->tpl['seuil_stock_alerte'])) {
+		print ' '.img_warning($langs->trans("StockLowerThanLimit", $this->tpl['seuil_stock_alerte']));
+	}
 }
 print '</td>';
 print '<td class="center">'.($this->tpl['qty_frozen'] ? yn($this->tpl['qty_frozen']) : '').'</td>';
@@ -78,23 +109,24 @@ $selected = 1;
 if (!empty($selectedLines) && !in_array($this->tpl['id'], $selectedLines)) {
 	$selected = 0;
 }
-print '<td class="center">';
-//print '<input id="cb'.$this->tpl['id'].'" class="flat checkforselect" type="checkbox" name="toselect[]" value="'.$this->tpl['id'].'"'.($selected?' checked="checked"':'').'>';
-print '</td>';
 
-if ($tmpbom->id) {
+if ($tmpbom->id > 0) {
 	print '<td class="center">';
 	print '<input type="checkbox" name="bomlineid[]" value="' . $line->id . '">';
 	print '</td>';
 } else {
-	print '<td class="center">&nbsp;</td>';
+	print '<td class="center"></td>';
 }
+
+//print '<td class="center">';
+//print '<input id="cb'.$this->tpl['id'].'" class="flat checkforselect" type="checkbox" name="toselect[]" value="'.$this->tpl['id'].'"'.($selected?' checked="checked"':'').'>';
+//print '</td>';
 
 print '</tr>'."\n";
 
 // Select of all the sub-BOM lines
 $sql = 'SELECT rowid, fk_bom_child, fk_product, qty FROM '.MAIN_DB_PREFIX.'bom_bomline AS bl';
-$sql.= ' WHERE fk_bom ='. (int) $tmpbom->id;
+$sql .= ' WHERE fk_bom ='. (int) $tmpbom->id;
 $resql = $db->query($sql);
 
 if ($resql) {
@@ -110,8 +142,8 @@ if ($resql) {
 		$sub_bom_line = new BOMLine($db);
 		$sub_bom_line->fetch($obj->rowid);
 
-		//If hidden conf is set, we show directly all the sub-BOM lines
-		if (empty($conf->global->BOM_SHOW_ALL_BOM_BY_DEFAULT)) {
+		// If hidden conf is set, we show directly all the sub-BOM lines
+		if (!getDolGlobalString('BOM_SHOW_ALL_BOM_BY_DEFAULT')) {
 			print '<tr style="display:none" class="sub_bom_lines" parentid="'.$line->id.'">';
 		} else {
 			print '<tr class="sub_bom_lines" parentid="'.$line->id.'">';
@@ -132,17 +164,20 @@ if ($resql) {
 		if ($sub_bom_line->qty_frozen > 0) {
 			print '<td class="linecolqty nowrap right" id="sub_bom_qty_'.$sub_bom_line->id.'">'.price($sub_bom_line->qty, 0, '', 0, 0).'</td>';
 		} else {
-			print '<td class="linecolqty nowrap right" id="sub_bom_qty_'.$sub_bom_line->id.'">'.price($sub_bom_line->qty * $line->qty, 0, '', 0, 0).'</td>';
+			print '<td class="linecolqty nowrap right" id="sub_bom_qty_'.$sub_bom_line->id.'">'.price($sub_bom_line->qty * (float) $line->qty, 0, '', 0, 0).'</td>';
 		}
 
-		// Stock réel
+		// Unit
+		print '<td class="linecolunit nowrap right" id="sub_bom_unit_'.$sub_bom_line->id.'">'.measuringUnitString($sub_bom_line->fk_unit, '', null, 1).'</td>';
+
+		// Physical Stock
 		if ($sub_bom_product->stock_reel > 0) {
 			print '<td class="linecolstockreel nowrap center" id="sub_bom_stock_reel_'.$sub_bom_product->stock_reel.'">'.$sub_bom_product->stock_reel.'</td>';
 		} else {
 			print '<td class="linecolstockreel nowrap center" id="sub_bom_stock_reel_'.$sub_bom_product->stock_reel.'">&nbsp;</td>';
 		}
 
-		// Stock virtuel
+		// Virtual stock
 		if ($sub_bom_product->stock_theorique > 0) {
 			print '<td class="linecolstocktheorique nowrap center" id="sub_bom_stock_theorique_'.$sub_bom_product->stock_theorique.'">'.$sub_bom_product->stock_theorique.'</td>';
 		} else {

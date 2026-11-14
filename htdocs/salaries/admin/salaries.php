@@ -1,5 +1,7 @@
 <?php
 /* Copyright (C) 2014-2019  Alexandre Spangaro	<aspangaro@open-dsi.fr>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
+ * Copyright (C) 2025		MDW						<mdeweerd@users.noreply.github.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,12 +24,18 @@
  * \brief		Setup page to configure salaries module
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
-
-// Class
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ */
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/salaries.lib.php';
-if (!empty($conf->accounting->enabled)) {
+if (isModEnabled('accounting')) {
 	require_once DOL_DOCUMENT_ROOT.'/core/class/html.formaccounting.class.php';
 }
 
@@ -40,6 +48,11 @@ if (!$user->admin) {
 }
 
 $action = GETPOST('action', 'aZ09');
+$value = GETPOST('value', 'alpha');
+$label = GETPOST('label', 'alpha');
+$scandir = GETPOST('scan_dir', 'alpha');
+$modulepart = GETPOST('modulepart', 'aZ09');	// Used by actions_setmoduleoptions.inc.php
+$type = 'salary';
 
 // Other parameters SALARIES_*
 $list = array(
@@ -49,6 +62,30 @@ $list = array(
 /*
  * Actions
  */
+
+include DOL_DOCUMENT_ROOT.'/core/actions_setmoduleoptions.inc.php';
+
+if ($action == 'set') {
+	// Activate a model
+	addDocumentModel($value, $type, $label, $scandir);
+} elseif ($action == 'del') {
+	// Deactivate a model
+	$ret = delDocumentModel($value, $type);
+	if ($ret > 0 && getDolGlobalString('SALARY_ADDON_PDF') == "$value") {
+		dolibarr_del_const($db, 'SALARY_ADDON_PDF', $conf->entity);
+	}
+} elseif ($action == 'setdoc') {
+	// Set the default model
+	if (dolibarr_set_const($db, "SALARY_ADDON_PDF", $value, 'chaine', 0, '', $conf->entity)) {
+		// The constant was read before the new set, so we go through a variable to get a consistent display
+		$conf->global->SALARY_ADDON_PDF = $value;
+	}
+
+	$ret = delDocumentModel($value, $type);
+	if ($ret > 0) {
+		addDocumentModel($value, $type, $label, $scandir);
+	}
+}
 
 if ($action == 'update') {
 	$error = 0;
@@ -83,11 +120,12 @@ if (preg_match('/^(set|del)_?([A-Z_]+)$/', $action, $reg)) {
 llxHeader('', $langs->trans('SalariesSetup'));
 
 $form = new Form($db);
-if (!empty($conf->accounting->enabled)) {
+$formaccounting = null;
+if (isModEnabled('accounting')) {
 	$formaccounting = new FormAccounting($db);
 }
 
-$linkback = '<a href="'.DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1">'.$langs->trans("BackToModuleList").'</a>';
+$linkback = '<a href="'.dolBuildUrl(DOL_URL_ROOT.'/admin/modules.php', ['restore_lastsearch_values' => 1]).'">'.img_picto($langs->trans("BackToModuleList"), 'back', 'class="pictofixedwidth"').'<span class="hideonsmartphone">'.$langs->trans("BackToModuleList").'</span></a>';
 print load_fiche_titre($langs->trans('SalariesSetup'), $linkback, 'title_setup');
 
 $head = salaries_admin_prepare_head();
@@ -119,10 +157,10 @@ foreach ($list as $key) {
 
 	// Value
 	print '<td>';
-	if (!empty($conf->accounting->enabled)) {
-		print $formaccounting->select_account(getDolGlobalString($key), $key, 1, '', 1, 1);
+	if ($formaccounting instanceof FormAccounting) {
+		print $formaccounting->select_account(getDolGlobalString($key), $key, 1, array(), 1, 1);
 	} else {
-		print '<input type="text" size="20" id="'.$key.'" name="'.$key.'" value="'.$conf->global->$key.'">';
+		print '<input type="text" size="20" id="'.$key.'" name="'.$key.'" value="'.getDolGlobalString($key).'">';
 	}
 	print '</td></tr>';
 }
@@ -137,6 +175,8 @@ print '<div class="center"><input type="submit" class="button button-edit" name=
 
 print '</form><br>';
 
+print '<br>';
+
 echo '<div>';
 echo '<table class="noborder centpercent">';
 echo '<thead>';
@@ -150,6 +190,18 @@ echo '<tr><td>', $langs->trans($key), '</td><td>', ajax_constantonoff($key), '</
 echo '</tbody>';
 echo '</table>';
 echo '</div>';
+
+print '<br>';
+
+
+/*
+ *  Documents models for Salaries
+ */
+
+printDocumentModelList($type, 'salaries', 'SALARY_ADDON_PDF', $langs->trans("TemplatePDFSalaries"), array(
+	'Logo' => 'option_logo',
+	'MultiLanguage' => 'option_multilang',
+));
 
 // End of page
 llxFooter();

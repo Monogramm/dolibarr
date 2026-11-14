@@ -3,6 +3,7 @@
  * Copyright (C) 2006-2015	Laurent Destailleur		<eldy@users.sourceforge.net>
  * Copyright (C) 2006-2012	Regis Houssin			<regis.houssin@inodbox.com>
  * Copyright (C) 2011		Juanjo Menent			<jmenent@2byte.es>
+ * Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,7 +25,17 @@
  *		\brief      File of main public page for partnership module
  */
 
+// Load Dolibarr environment
 require '../../main.inc.php';
+/**
+ * @var Conf $conf
+ * @var DoliDB $db
+ * @var HookManager $hookmanager
+ * @var Translate $langs
+ * @var User $user
+ *
+ * @var string $dolibarr_main_url_root
+ */
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/member.lib.php';
@@ -36,11 +47,11 @@ $langs->loadLangs(array("admin", "partnership"));
 
 $action = GETPOST('action', 'aZ09');
 
+$error = 0;
+
 if (!$user->admin) {
 	accessforbidden();
 }
-
-$error = 0;
 
 
 /*
@@ -81,14 +92,13 @@ $form = new Form($db);
 $title = $langs->trans('PartnershipSetup');
 $help_url = '';
 //$help_url = 'EN:Module_Partnership|FR:Module_Adh&eacute;rents|ES:M&oacute;dulo_Miembros';
-llxHeader('', $title, $help_url);
+llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-partnership page-admin-website');
 
 
-$linkback = '<a href="'.DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1">'.$langs->trans("BackToModuleList").'</a>';
+$linkback = '<a href="'.dolBuildUrl(DOL_URL_ROOT.'/admin/modules.php', ['restore_lastsearch_values' => 1]).'">'.img_picto($langs->trans("BackToModuleList"), 'back', 'class="pictofixedwidth"').'<span class="hideonsmartphone">'.$langs->trans("BackToModuleList").'</span></a>';
 print load_fiche_titre($title, $linkback, 'title_setup');
 
 $head = partnershipAdminPrepareHead();
-
 
 
 print '<form action="'.$_SERVER["PHP_SELF"].'" method="post">';
@@ -98,7 +108,7 @@ print '<input type="hidden" name="token" value="'.newToken().'">';
 print dol_get_fiche_head($head, 'website', $langs->trans("Partnerships"), -1, 'partnership');
 
 if ($conf->use_javascript_ajax) {
-	print "\n".'<script type="text/javascript" language="javascript">';
+	print "\n".'<script type="text/javascript">';
 	print 'jQuery(document).ready(function () {
                 function initemail()
                 {
@@ -132,12 +142,12 @@ if ($conf->use_javascript_ajax) {
 }
 
 
-print '<span class="opacitymedium">'.$langs->trans("PublicFormRegistrationPartnerDesc").'</span><br><br>';
+print '<div class="info">'.$langs->trans("PublicFormRegistrationPartnerDesc").'</div>';
 
 $param = '';
 
 $enabledisablehtml = $langs->trans("EnablePublicSubscriptionForm").' ';
-if (empty($conf->global->PARTNERSHIP_ENABLE_PUBLIC)) {
+if (!getDolGlobalString('PARTNERSHIP_ENABLE_PUBLIC')) {
 	// Button off, click to enable
 	$enabledisablehtml .= '<a class="reposition valignmiddle" href="'.$_SERVER["PHP_SELF"].'?action=setPARTNERSHIP_ENABLE_PUBLIC&token='.newToken().'&value=1'.$param.'">';
 	$enabledisablehtml .= img_picto($langs->trans("Disabled"), 'switch_off');
@@ -148,15 +158,14 @@ if (empty($conf->global->PARTNERSHIP_ENABLE_PUBLIC)) {
 	$enabledisablehtml .= img_picto($langs->trans("Activated"), 'switch_on');
 	$enabledisablehtml .= '</a>';
 }
+
+print '<div class="neutral">';
 print $enabledisablehtml;
-print '<input type="hidden" id="PARTNERSHIP_ENABLE_PUBLIC" name="PARTNERSHIP_ENABLE_PUBLIC" value="'.(empty($conf->global->PARTNERSHIP_ENABLE_PUBLIC) ? 0 : 1).'">';
-
-
-print '<br>';
-
+print '<input type="hidden" id="PARTNERSHIP_ENABLE_PUBLIC" name="PARTNERSHIP_ENABLE_PUBLIC" value="'.(!getDolGlobalString('PARTNERSHIP_ENABLE_PUBLIC') ? 0 : 1).'">';
+print '</div>';
 
 /*
-if (!empty($conf->global->PARTNERSHIP_ENABLE_PUBLIC)) {
+if (getDolGlobalString('PARTNERSHIP_ENABLE_PUBLIC')) {
 	print '<br>';
 
 	print '<div class="div-table-responsive-no-min">';
@@ -174,13 +183,6 @@ if (!empty($conf->global->PARTNERSHIP_ENABLE_PUBLIC)) {
 	print '<input type="text" class="right width75" id="PARTNERSHIP_NEWFORM_AMOUNT" name="PARTNERSHIP_NEWFORM_AMOUNT" value="'.(!empty($conf->global->PARTNERSHIP_NEWFORM_AMOUNT) ? $conf->global->PARTNERSHIP_NEWFORM_AMOUNT : '').'">';
 	print "</td></tr>\n";
 
-	// Can edit
-	print '<tr class="oddeven" id="tredit"><td>';
-	print $langs->trans("CanEditAmount");
-	print '</td><td class="right">';
-	print $form->selectyesno("PARTNERSHIP_NEWFORM_EDITAMOUNT", (!empty($conf->global->PARTNERSHIP_NEWFORM_EDITAMOUNT) ? $conf->global->PARTNERSHIP_NEWFORM_EDITAMOUNT : 0), 1);
-	print "</td></tr>\n";
-
 	// Jump to an online payment page
 	print '<tr class="oddeven" id="trpayment"><td>';
 	print $langs->trans("PARTNERSHIP_NEWFORM_PAYONLINE");
@@ -188,13 +190,10 @@ if (!empty($conf->global->PARTNERSHIP_ENABLE_PUBLIC)) {
 	$listofval = array();
 	$listofval['-1'] = $langs->trans('No');
 	$listofval['all'] = $langs->trans('Yes').' ('.$langs->trans("VisitorCanChooseItsPaymentMode").')';
-	if (!empty($conf->paybox->enabled)) {
-		$listofval['paybox'] = 'Paybox';
-	}
-	if (!empty($conf->paypal->enabled)) {
+	if (isModEnabled('paypal')) {
 		$listofval['paypal'] = 'PayPal';
 	}
-	if (!empty($conf->stripe->enabled)) {
+	if (isModEnabled('stripe')) {
 		$listofval['stripe'] = 'Stripe';
 	}
 	print $form->selectarray("PARTNERSHIP_NEWFORM_PAYONLINE", $listofval, (!empty($conf->global->PARTNERSHIP_NEWFORM_PAYONLINE) ? $conf->global->PARTNERSHIP_NEWFORM_PAYONLINE : ''), 0);
@@ -216,11 +215,11 @@ print dol_get_fiche_end();
 print '</form>';
 
 
-if (!empty($conf->global->PARTNERSHIP_ENABLE_PUBLIC)) {
+if (getDolGlobalString('PARTNERSHIP_ENABLE_PUBLIC')) {
 	print '<br>';
 	//print $langs->trans('FollowingLinksArePublic').'<br>';
 	print img_picto('', 'globe').' <span class="opacitymedium">'.$langs->trans('BlankSubscriptionForm').'</span><br>';
-	if (!empty($conf->multicompany->enabled)) {
+	if (isModEnabled('multicompany')) {
 		$entity_qr = '?entity='.$conf->entity;
 	} else {
 		$entity_qr = '';

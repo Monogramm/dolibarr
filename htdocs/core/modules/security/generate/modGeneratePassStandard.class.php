@@ -1,5 +1,6 @@
 <?php
 /* Copyright (C) 2006-2011 Laurent Destailleur <eldy@users.sourceforge.net>
+ * Copyright (C) 2024		Frédéric France			<frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,33 +32,16 @@ require_once DOL_DOCUMENT_ROOT.'/core/modules/security/generate/modules_genpassw
 class modGeneratePassStandard extends ModeleGenPassword
 {
 	/**
-	 * @var int ID
+	 * @var int		Position
+	 */
+	public $position = 50;
+
+	/**
+	 * @var string ID
 	 */
 	public $id;
 
-	/**
-	 * Minimum length (text visible by end user)
-	 *
-	 * @var string
-	 */
-	public $length;
-
-	/**
-	 * Minimum length in number of characters
-	 *
-	 * @var integer
-	 */
-	public $length2;
-
-	/**
-	 * @var DoliDB Database handler.
-	 */
-	public $db;
-
-	public $conf;
-	public $lang;
-	public $user;
-
+	public $picto = 'fa-shield-alt';
 
 	/**
 	 *	Constructor
@@ -65,12 +49,12 @@ class modGeneratePassStandard extends ModeleGenPassword
 	 *  @param		DoliDB		$db			Database handler
 	 *	@param		Conf		$conf		Handler de conf
 	 *	@param		Translate	$langs		Handler de langue
-	 *	@param		User		$user		Handler du user connecte
+	 *	@param		User		$user		Handler du user connected
 	 */
 	public function __construct($db, $conf, $langs, $user)
 	{
 		$this->id = "standard";
-		$this->length = 12;
+		$this->length = '12';
 		$this->length2 = 12;
 
 		$this->db = $db;
@@ -119,11 +103,7 @@ class modGeneratePassStandard extends ModeleGenPassword
 		// add random characters to $password until $length is reached
 		while ($i < $this->length) {
 			// pick a random character from the possible ones
-			if (function_exists('random_int')) {	// Cryptographic random
-				$char = substr($possible, random_int(0, dol_strlen($possible) - 1), 1);
-			} else {
-				$char = substr($possible, mt_rand(0, dol_strlen($possible) - 1), 1);
-			}
+			$char = substr($possible, random_int(0, dol_strlen($possible) - 1), 1);	// Cryptographic random
 
 			if (substr_count($password, $char) <= 6) {	// we don't want this character if it's already 5 times in the password
 				$password .= $char;
@@ -145,6 +125,8 @@ class modGeneratePassStandard extends ModeleGenPassword
 	public function validatePassword($password)
 	{
 		global $langs;
+
+		dol_syslog("modGeneratePassStandard::validatePassword");
 
 		if (dol_strlen($password) < $this->length2) {
 			$langs->load("other");

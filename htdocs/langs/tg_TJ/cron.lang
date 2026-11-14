@@ -1,10 +1,4 @@
 # Dolibarr language file - Source file is en_US - cron
-# About page
-# Right
-Permission23101 = Кори банақшагирифтаро хонед
-Permission23102 = Эҷод/навсозии кори ба нақша гирифташуда
-Permission23103 = Кори банақшагирифтаро нест кунед
-Permission23104 = Кори банақшагирифтаро иҷро кунед
 # Admin
 CronSetup=Танзими идоракунии кор ба нақша гирифта шудааст
 URLToLaunchCronJobs=URL барои тафтиш ва оғози ҷойҳои кории тахассусии cron аз браузер
@@ -14,8 +8,8 @@ FileToLaunchCronJobs=Хати фармон барои тафтиш ва оғоз
 CronExplainHowToRunUnix=Дар муҳити Unix шумо бояд вуруди зерини crontab -ро барои иҷрои сатри фармон дар ҳар 5 дақиқа истифода баред
 CronExplainHowToRunWin=Дар муҳити Windows (tm) Windows шумо метавонед асбобҳои ба нақша гирифташудаи вазифаро барои ҳар 5 дақиқа иҷро кардани сатри фармон истифода баред
 CronMethodDoesNotExists=Синфи %s ягон усулро дар бар намегирад %s
-CronMethodNotAllowed=Усули %s синфи %s дар рӯйхати сиёҳи усулҳои мамнӯъ аст
-CronJobDefDesc=Профилҳои кори Cron дар файли тавсифкунандаи модул муайян карда шудаанд. Вақте ки модул фаъол карда мешавад, онҳо бор карда мешаванд ва дастрасанд, то шумо метавонед корҳоро аз менюи асбобҳои администратор %s идора кунед.
+CronMethodNotAllowed=Усули %s аз синфи %s дар рӯйхати блокҳои усулҳои мамнӯъ ҷойгир аст
+CronJobDefDesc=Cron job profiles are defined in the module descriptor file. When module is activated, they are loaded and available so you can administer the jobs from the admin tools menu %s.
 CronJobProfiles=Рӯйхати профилҳои пешакии кор cron
 # Menu
 EnabledAndDisabled=Фаъол ва ғайрифаъол
@@ -26,11 +20,12 @@ CronCommand=Фармон
 CronList=Корҳои ба нақша гирифташуда
 CronDelete=Корҳои ба нақша гирифташударо нест кунед
 CronConfirmDelete=Шумо мутмаин ҳастед, ки мехоҳед ин корҳои ба нақша гирифташударо нест кунед?
-CronExecute=Оғози кори ба нақша гирифташуда
+CronExecute=Ҳоло оғоз кунед
 CronConfirmExecute=Шумо мутмаин ҳастед, ки мехоҳед ин корҳои таъиншударо ҳозир иҷро кунед?
-CronInfo=Модули кории ба нақша гирифташуда имкон медиҳад, ки ҷойҳои корӣ ба таври худкор иҷро карда шаванд. Корҳоро инчунин дастӣ оғоз кардан мумкин аст.
+CronInfo=Scheduled job module allows you to schedule jobs to execute them automatically. Jobs can also be started manually.
 CronTask=Айюб
-CronNone=Ҳеҷ
+CronNone=Давраи навбатии вазифаи ба нақша гирифташуда
+CronNotYetRan=Ҳеҷ гоҳ иҷро нашудааст
 CronDtStart=На пеш
 CronDtEnd=На пас аз
 CronDtNextLaunch=Иҷрои навбатӣ
@@ -49,7 +44,7 @@ CronEach=Ҳар
 JobFinished=Айюб оғоз ва анҷом ёфт
 Scheduled=Ба нақша гирифта шудааст
 #Page card
-CronAdd= Иловаи ҷойҳои корӣ
+CronAdd=Иловаи ҷойҳои корӣ
 CronEvery=Ҳар як корро иҷро кунед
 CronObject=Мисол/Объект барои сохтан
 CronArgs=Параметрҳо
@@ -58,7 +53,7 @@ CronNote=Шарҳ
 CronFieldMandatory=Майдонҳои %s ҳатмӣ мебошанд
 CronErrEndDateStartDt=Санаи анҷом наметавонад пеш аз санаи оғоз бошад
 StatusAtInstall=Ҳолати насби модул
-CronStatusActiveBtn=Ҷадвал
+CronStatusActiveBtn=Банақшагириро фаъол созед
 CronStatusInactiveBtn=Хомӯш кардан
 CronTaskInactive=Ин кор ғайрифаъол аст (ба нақша гирифта нашудааст)
 CronId=Id
@@ -67,7 +62,7 @@ CronModuleHelp=Номи феҳристи модули Dolibarr (инчунин �
 CronClassFileHelp=Роҳи нисбӣ ва номи файл барои бор кардан (роҳ нисбат ба феҳристи решаи сервери веб аст). <BR> Масалан, барои даъват кардани усули гирифтани объекти Dolibarr Маҳсулот htdocs/product/class/<u> product.class.php </u>, арзиши файли синф a0342fccfda19bz8011
 CronObjectHelp=Номи объект барои бор кардан. <BR> Масалан, барои даъват кардани усули гирифтани объекти Dolibarr Product /htdocs/product/class/product.class.php, арзиши номи файли синф <br> <i> Маҳсулот </i> аст
 CronMethodHelp=Усули объекти оғоз. <BR> Масалан, барои даъват кардани усули гирифтани объекти Dolibarr Product /htdocs/product/class/product.class.php, арзиши усул <br> <i> гирифтани </i> аст
-CronArgsHelp=Далелҳои метод. <BR> Масалан, барои занг задан ба усули кашидани объекти Dolibarr Product /htdocs/product/class/product.class.php, арзиши параметрҳо метавонад <br> <i> 0, ProductRef a0ae064758 бошад
+CronArgsHelp=Усули далелҳо. <BR> Масалан, барои даъват кардани усули дарёфти объекти Маҳсулоти Dolibarr /htdocs/product/class/product.class.php, арзиши параметрҳо метавонад<br><i>0, ProductRef</i>
 CronCommandHelp=Хати фармони система барои иҷро.
 CronCreateJob=Эҷоди кори нави ба нақша гирифташуда
 CronFrom=Аз
@@ -77,15 +72,26 @@ CronType=Навъи кор
 CronType_method=Усули занги синфи PHP
 CronType_command=Фармони Shell
 CronCannotLoadClass=Файли синфи %s бор карда намешавад (барои истифодаи синфи %s)
+CronModuleNotEnabledInThisEntity=Модули Cron дар ин объект фаъол нест (барои истифода бурдани усули %s объекти %s)
 CronCannotLoadObject=Файли синфи %s бор карда шуд, аммо объекти %s дар он ёфт нашуд
-UseMenuModuleToolsToAddCronJobs=Ба менюи "<a href="%s"> Home - Воситаҳои маъмурӣ - Ҷойҳои ба нақша гирифташуда </a>" ворид шавед, то ҷойҳои кориро бубинед ва таҳрир кунед.
+UseMenuModuleToolsToAddCronJobs=Go to menu "<a href="%s">Home - Admin tools - Scheduled jobs</a>" to see and edit scheduled jobs.
 JobDisabled=Кор хомӯш карда шудааст
 MakeLocalDatabaseDumpShort=Захираи пойгоҳи додаҳои маҳаллӣ
 MakeLocalDatabaseDump=Як партовгоҳи пойгоҳи додаҳои маҳаллиро эҷод кунед. Параметрҳо инҳоянд: фишурдасозӣ ('gz' ё 'bz' ё 'ҳеҷ'), навъи нусхабардорӣ ('mysql', 'pgsql', 'auto'), 1, 'auto' ё номи файл барои сохтан, шумораи файлҳои захиравӣ барои нигоҳ доштан
+MakeSendLocalDatabaseDumpShort=Нусхаи захиравии пойгоҳи додаҳои маҳаллиро фиристед
+MakeSendLocalDatabaseDump=Нусхаи захиравии пойгоҳи додаҳои маҳаллиро тавассути почтаи электронӣ фиристед. Параметрҳо инҳоянд: ба, аз, мавзӯъ, паём, номи файл (Номи файли фиристодашуда), филтр ('sql' танҳо барои нусхабардории пойгоҳи додаҳо)
+BackupIsTooLargeSend=Бубахшед, файли охирини эҳтиётӣ хеле калон аст, ки тавассути почтаи электронӣ фиристода шавад
+CleanUnfinishedCronjobShort=Cronjob нотамомро тоза кунед
+CleanUnfinishedCronjob=Вақте ки ин раванд дигар иҷро намешавад, cronjob тоза дар коркард часпидааст
 WarningCronDelayed=Диққат, бо мақсади иҷроиш, кадом санаи навбатии иҷрои корҳои имконпазир бошад, ҷойҳои кории шумо то ҳадди аксар %s ба таъхир гузошта мешаванд.
 DATAPOLICYJob=Тозакунандаи маълумот ва анонимайзер
 JobXMustBeEnabled=Job %s бояд фаъол карда шавад
+EmailIfError=Почтаи электронӣ барои огоҳӣ дар бораи хато
+JobNotFound=Кори %s дар рӯйхати ҷойҳои корӣ ёфт нашуд (кӯшиш кунед, ки модулро ғайрифаъол/фаъол кунед)
+ErrorInBatch=Хатогӣ ҳангоми иҷро кардани кори %s
+
 # Cron Boxes
 LastExecutedScheduledJob=Охирин кори ба нақша гирифташуда
 NextScheduledJobExecute=Кори навбатии ба нақша гирифташуда барои иҷро
 NumberScheduledJobError=Шумораи ҷойҳои кории ба нақша гирифташуда
+NumberScheduledJobNeverFinished=Миқдори корҳои пешбинишуда ҳеҷ гоҳ ба анҷом нарасидааст

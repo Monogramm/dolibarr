@@ -1,5 +1,7 @@
 <?php
 /* Copyright (C) 2010 Laurent Destailleur  <eldy@users.sourceforge.net>
+ * Copyright (C) 2023 Alexandre Janniaux   <alexandre.janniaux@gmail.com>
+ * Copyright (C) 2024-2025  Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,18 +25,18 @@
  *      \remarks    To run this script as CLI:  phpunit filename.php
  */
 
-global $conf,$user,$langs,$db;
+global $conf,$user,$langs,$db,$mysoc;
 //define('TEST_DB_FORCE_TYPE','mysql');	// This is to force using mysql driver
 //require_once 'PHPUnit/Autoload.php';
-require_once dirname(__FILE__).'/../../htdocs/master.inc.php';
+require_once dirname(__FILE__).'/CommonClassTest.class.php';
 require_once dirname(__FILE__).'/../../htdocs/expensereport/class/expensereport.class.php';
 
 if (empty($user->id)) {
 	print "Load permissions for admin user nb 1\n";
 	$user->fetch(1);
-	$user->getrights();
+	$user->loadRights();
 }
-$conf->global->MAIN_DISABLE_ALL_MAILS=1;
+$conf->global->MAIN_DISABLE_ALL_MAILS = 1;
 
 
 
@@ -45,87 +47,8 @@ $conf->global->MAIN_DISABLE_ALL_MAILS=1;
  * @backupStaticAttributes enabled
  * @remarks	backupGlobals must be disabled to have db,conf,user and lang not erased.
  */
-class ExpenseReportTest extends PHPUnit\Framework\TestCase
+class ExpenseReportTest extends CommonClassTest
 {
-	protected $savconf;
-	protected $savuser;
-	protected $savlangs;
-	protected $savdb;
-
-	/**
-	 * Constructor
-	 * We save global variables into local variables
-	 *
-	 * @return ExpenseReportTest
-	 */
-	public function __construct()
-	{
-		parent::__construct();
-
-		//$this->sharedFixture
-		global $conf,$user,$langs,$db;
-		$this->savconf=$conf;
-		$this->savuser=$user;
-		$this->savlangs=$langs;
-		$this->savdb=$db;
-
-		print __METHOD__." db->type=".$db->type." user->id=".$user->id;
-		//print " - db ".$db->db;
-		print "\n";
-	}
-
-	/**
-	 * setUpBeforeClass
-	 *
-	 * @return void
-	 */
-	public static function setUpBeforeClass()
-	{
-		global $conf,$user,$langs,$db;
-		$db->begin(); // This is to have all actions inside a transaction even if test launched without suite.
-
-		print __METHOD__."\n";
-	}
-
-	/**
-	 * tearDownAfterClass
-	 *
-	 * @return	void
-	 */
-	public static function tearDownAfterClass()
-	{
-		global $conf,$user,$langs,$db;
-		$db->rollback();
-
-		print __METHOD__."\n";
-	}
-
-	/**
-	 * Init phpunit tests
-	 *
-	 * @return  void
-	 */
-	protected function setUp()
-	{
-		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
-
-		print __METHOD__."\n";
-		//print $db->getVersion()."\n";
-	}
-	/**
-	 * End phpunit tests
-	 *
-	 * @return	void
-	 */
-	protected function tearDown()
-	{
-		print __METHOD__."\n";
-	}
-
 	/**
 	 * testExpenseReportCreate
 	 *
@@ -134,32 +57,32 @@ class ExpenseReportTest extends PHPUnit\Framework\TestCase
 	public function testExpenseReportCreate()
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		// Create supplier order with a too low quantity
-		$localobject=new ExpenseReport($db);
+		// Create expense report
+		$localobject = new ExpenseReport($db);
 		$localobject->initAsSpecimen();         // Init a specimen with lines
 		$localobject->status = 0;
 		$localobject->fk_statut = 0;
 		$localobject->date_fin = null;  // Force bad value
 
-		$result=$localobject->create($user);
+		$result = $localobject->create($user);
 		print __METHOD__." result=".$result."\n";
 		$this->assertEquals(-1, $result, "Error on test ExpenseReport create 1 : ".$localobject->error);       // must be -1 because of missing mandatory fields
 
-		$sql="DELETE FROM ".MAIN_DB_PREFIX."expensereport where ref=''";
+		$sql = "DELETE FROM ".MAIN_DB_PREFIX."expensereport where ref=''";
 		$db->query($sql);
 
-		// Create supplier order
-		$localobject2=new ExpenseReport($db);
+		// Create expense report
+		$localobject2 = new ExpenseReport($db);
 		$localobject2->initAsSpecimen();        // Init a specimen with lines
 		$localobject2->status = 0;
 		$localobject2->fk_statut = 0;
 
-		$result=$localobject2->create($user);
+		$result = $localobject2->create($user);
 		print __METHOD__." result=".$result."\n";
 		$this->assertGreaterThanOrEqual(0, $result, "Error on test ExpenseReport create 2 : ".$localobject2->error);
 
@@ -170,7 +93,7 @@ class ExpenseReportTest extends PHPUnit\Framework\TestCase
 	/**
 	 * testExpenseReportFetch
 	 *
-	 * @param   int $id     Id of supplier order
+	 * @param   int $id     Id of expense report
 	 * @return  void
 	 *
 	 * @depends testExpenseReportCreate
@@ -179,13 +102,13 @@ class ExpenseReportTest extends PHPUnit\Framework\TestCase
 	public function testExpenseReportFetch($id)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$localobject=new ExpenseReport($this->savdb);
-		$result=$localobject->fetch($id);
+		$localobject = new ExpenseReport($db);
+		$result = $localobject->fetch($id);
 
 		print __METHOD__." id=".$id." result=".$result."\n";
 		$this->assertLessThan($result, 0);
@@ -204,12 +127,12 @@ class ExpenseReportTest extends PHPUnit\Framework\TestCase
 	public function testExpenseReportValid($localobject)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$result=$localobject->setValidate($user);
+		$result = $localobject->setValidate($user);
 
 		print __METHOD__." id=".$localobject->id." result=".$result."\n";
 		$this->assertLessThan($result, 0);
@@ -228,12 +151,12 @@ class ExpenseReportTest extends PHPUnit\Framework\TestCase
 	public function testExpenseReportApprove($localobject)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$result=$localobject->setApproved($user);
+		$result = $localobject->setApproved($user);
 
 		print __METHOD__." id=".$localobject->id." result=".$result."\n";
 		$this->assertLessThan($result, 0);
@@ -252,12 +175,12 @@ class ExpenseReportTest extends PHPUnit\Framework\TestCase
 	public function testExpenseReportCancel($localobject)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$result=$localobject->set_cancel($user, 'Because...');
+		$result = $localobject->set_cancel($user, 'Because...');
 
 		print __METHOD__." id=".$localobject->id." result=".$result."\n";
 		$this->assertLessThan($result, 0);
@@ -276,12 +199,12 @@ class ExpenseReportTest extends PHPUnit\Framework\TestCase
 	public function testExpenseReportOther($localobject)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$result=$localobject->getSumPayments();
+		$result = $localobject->getSumPayments();
 		print __METHOD__." id=".$localobject->id." result=".$result."\n";
 		$this->assertGreaterThanOrEqual(0, $result);
 
@@ -300,17 +223,53 @@ class ExpenseReportTest extends PHPUnit\Framework\TestCase
 	public function testExpenseReportDelete($id)
 	{
 		global $conf,$user,$langs,$db;
-		$conf=$this->savconf;
-		$user=$this->savuser;
-		$langs=$this->savlangs;
-		$db=$this->savdb;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
 
-		$localobject=new ExpenseReport($this->savdb);
-		$result=$localobject->fetch($id);
-		$result=$localobject->delete($user);
+		$localobject = new ExpenseReport($db);
+		$result = $localobject->fetch($id);
+		$result = $localobject->delete($user);
 
 		print __METHOD__." id=".$id." result=".$result."\n";
 		$this->assertGreaterThan(0, $result);
 		return $result;
+	}
+
+	/**
+	 * testExpenseReportLineFetch
+	 *
+	 * @return	void
+	 */
+	public function testExpenseReportLineFetch()
+	{
+		global $conf,$user,$langs,$db;
+		$conf = $this->savconf;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$db = $this->savdb;
+
+		$expensereport = new ExpenseReport($db);
+		$expensereport->initAsSpecimen();
+		$expensereport->status = 0;
+		$expensereport->fk_statut = 0;
+		$createresult = $expensereport->create($user);
+		$this->assertGreaterThan(0, $createresult, "Setup failed, cannot create expense report: ".$expensereport->error);
+
+		$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."expensereport_det WHERE fk_expensereport = ".((int) $expensereport->id)." ORDER BY rowid ASC";
+		$resql = $db->query($sql);
+		$lineobj = ($resql ? $db->fetch_object($resql) : null);
+		$this->assertNotNull($lineobj, "Setup failed, no line created for the expense report");
+		$lineid = (int) $lineobj->rowid;
+
+		$line = new ExpenseReportLine($db);
+		$fetchresult = $line->fetch($lineid);
+		print __METHOD__." lineid=".$lineid." result=".$fetchresult."\n";
+
+		$this->assertGreaterThan(0, $fetchresult, "ExpenseReportLine::fetch() must succeed for an existing line");
+		$this->assertEquals($lineid, $line->id, "Fetched line id does not match the requested one");
+
+		$expensereport->delete($user);
 	}
 }

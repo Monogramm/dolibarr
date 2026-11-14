@@ -1,6 +1,6 @@
 -- ===================================================================
 -- Copyright (C) 2014		Alexandre Spangaro   <aspangaro@open-dsi.fr>
--- Copyright (C) 2015       Frederic France      <frederic.france@free.fr>
+-- Copyright (C) 2015       Frédéric France      <frederic.france@free.fr>
 --
 -- This program is free software; you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ create table llx_loan_schedule
   fk_loan			integer,
   datec				datetime,         -- creation date
   tms				timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  datep				datetime,         -- payment date
+  datep				datetime,         -- payment date expected
   amount_capital	double(24,8) DEFAULT 0,
   amount_insurance	double(24,8) DEFAULT 0,
   amount_interest	double(24,8) DEFAULT 0,

@@ -5,6 +5,8 @@
  * Copyright (C) 2006      Andre Cianfarani     <acianfa@free.fr>
  * Copyright (C) 2005-2009 Regis Houssin        <regis.houssin@inodbox.com>
  * Copyright (C) 2015      Raphaël Doursenaud   <rdoursenaud@gpcsolutions.fr>
+ * Copyright (C) 2024-2026	MDW					<mdeweerd@users.noreply.github.com>
+ * Copyright (C) 2024-2026  Frédéric France         <frederic.france@free.fr>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,6 +46,11 @@ class DoliDBSqlite3 extends DoliDB
 	 */
 	private $_results;
 
+	/**
+	 * @var string					Last query string
+	 */
+	private $queryString;
+
 	const WEEK_MONDAY_FIRST = 1;
 	const WEEK_YEAR = 2;
 	const WEEK_FIRST_WEEKDAY = 4;
@@ -51,16 +58,17 @@ class DoliDBSqlite3 extends DoliDB
 
 	/**
 	 *  Constructor.
-	 *  This create an opened connexion to a database server and eventually to a database
+	 *  This create an opened connection to a database server and eventually to a database
 	 *
-	 *  @param      string	$type		Type of database (mysql, pgsql...)
+	 *  @param      string	$type		Type of database (mysql, pgsql...). Not used.
 	 *  @param	    string	$host		Address of database server
-	 *  @param	    string	$user		Nom de l'utilisateur autorise
-	 *  @param	    string	$pass		Mot de passe
+	 *  @param	    string	$user		Name of the authorized user
+	 *  @param	    string	$pass		Password
 	 *  @param	    string	$name		Nom de la database
 	 *  @param	    int		$port		Port of database server
+	 *  @param	    bool	$forcenew	Not used by this driver: sqlite3 always opens a genuinely new connection. Kept for signature parity with the Database interface.
 	 */
-	public function __construct($type, $host, $user, $pass, $name = '', $port = 0)
+	public function __construct($type, $host, $user, $pass, $name = '', $port = 0, $forcenew = false)  // @phpstan-ignore constructor.unusedParameter, constructor.unusedParameter
 	{
 		global $conf;
 
@@ -86,7 +94,7 @@ class DoliDBSqlite3 extends DoliDB
 			$this->ok = false;
 			$this->error="Sqlite PHP functions for using Sqlite driver are not available in this version of PHP. Try to use another driver.";
 			dol_syslog(get_class($this)."::DoliDBSqlite3 : Sqlite PHP functions for using Sqlite driver are not available in this version of PHP. Try to use another driver.",LOG_ERR);
-			return $this->ok;
+			return;
 		}*/
 
 		/*if (! $host)
@@ -95,11 +103,11 @@ class DoliDBSqlite3 extends DoliDB
 			$this->ok = false;
 			$this->error=$langs->trans("ErrorWrongHostParameter");
 			dol_syslog(get_class($this)."::DoliDBSqlite3 : Erreur Connect, wrong host parameters",LOG_ERR);
-			return $this->ok;
+			return;
 		}*/
 
-		// Essai connexion serveur
-		// We do not try to connect to database, only to server. Connect to database is done later in constrcutor
+		// Essai connection serveur
+		// We do not try to connect to database, only to server. Connect to database is done later in constructor
 		$this->db = $this->connect($host, $user, $pass, $name, $port);
 
 		if ($this->db) {
@@ -126,8 +134,6 @@ class DoliDBSqlite3 extends DoliDB
 			//$this->error=sqlite_connect_error();
 			dol_syslog(get_class($this)."::DoliDBSqlite3 : Error Connect ".$this->error, LOG_ERR);
 		}
-
-		return $this->ok;
 	}
 
 
@@ -138,7 +144,7 @@ class DoliDBSqlite3 extends DoliDB
 	 *  @param     string	$type	Type of SQL order ('ddl' for insert, update, select, delete or 'dml' for create, alter...)
 	 *  @return    string   		SQL request line converted
 	 */
-	public static function convertSQLFromMysql($line, $type = 'ddl')
+	public function convertSQLFromMysql($line, $type = 'ddl')
 	{
 		// Removed empty line if this is a comment line for SVN tagging
 		if (preg_match('/^--\s\$Id/i', $line)) {
@@ -162,7 +168,7 @@ class DoliDBSqlite3 extends DoliDB
 			if ($type == 'dml') {
 				$line = preg_replace('/\s/', ' ', $line); // Replace tabulation with space
 
-				// we are inside create table statement so lets process datatypes
+				// we are inside create table statement so let's process datatypes
 				if (preg_match('/(ISAM|innodb)/i', $line)) { // end of create table sequence
 					$line = preg_replace('/\)[\s\t]*type[\s\t]*=[\s\t]*(MyISAM|innodb);/i', ');', $line);
 					$line = preg_replace('/\)[\s\t]*engine[\s\t]*=[\s\t]*(MyISAM|innodb);/i', ');', $line);
@@ -255,13 +261,13 @@ class DoliDBSqlite3 extends DoliDB
 					$line .= "CREATE ".(preg_match('/UNIQUE/', $reg[2]) ? 'UNIQUE ' : '')."INDEX ".$idxname." ON ".$tablename." (".$fieldlist.")";
 				}
 				if (preg_match('/ALTER\s+TABLE\s*(.*)\s*ADD\s+CONSTRAINT\s+(.*)\s*FOREIGN\s+KEY\s*\(([\w,\s]+)\)\s*REFERENCES\s+(\w+)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
-					// Pour l'instant les contraintes ne sont pas créées
+					// Constraints are not yet created
 					dol_syslog(get_class().'::query line emptied');
 					$line = 'SELECT 0;';
 				}
 
 				//if (preg_match('/rowid\s+.*\s+PRIMARY\s+KEY,/i', $line)) {
-					//preg_replace('/(rowid\s+.*\s+PRIMARY\s+KEY\s*,)/i', '/* \\1 */', $line);
+				//preg_replace('/(rowid\s+.*\s+PRIMARY\s+KEY\s*,)/i', '/* \\1 */', $line);
 				//}
 			}
 
@@ -309,17 +315,18 @@ class DoliDBSqlite3 extends DoliDB
 
 
 	/**
-	 *	Connexion to server
+	 *	Connection to server
 	 *
-	 *	@param	    string	$host		database server host
-	 *	@param	    string	$login		login
-	 *	@param	    string	$passwd		password
-	 *	@param		string	$name		name of database (not used for mysql, used for pgsql)
-	 *	@param		integer	$port		Port of database server
-	 *	@return		SQLite3				Database access handler
+	 *	@param	    string			$host		database server host
+	 *	@param	    string			$login		login
+	 *	@param	    string			$passwd		password
+	 *	@param		string			$name		name of database (not used for mysql, used for pgsql)
+	 *	@param		integer			$port		Port of database server
+	 *	@param		bool			$forcenew	Not used by this driver: sqlite3 always opens a genuinely new connection. Kept for signature parity with the Database interface.
+	 *	@return		SQLite3|false				Database access handler
 	 *	@see		close()
 	 */
-	public function connect($host, $login, $passwd, $name, $port = 0)
+	public function connect($host, $login, $passwd, $name, $port = 0, $forcenew = false)
 	{
 		global $main_data_dir;
 
@@ -337,12 +344,12 @@ class DoliDBSqlite3 extends DoliDB
 			//$this->db = new PDO("sqlite:".$dir.'/database_'.$name.'.sdb');
 			$this->db = new SQLite3($database_name);
 			//$this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-		} catch (Exception $e) {
+		} catch (Throwable $e) {
 			$this->error = self::LABEL.' '.$e->getMessage().' current dir='.$database_name;
-			return '';
+			return false;
 		}
 
-		//print "Resultat fonction connect: ".$this->db;
+		//print "Result of connect function: ".$this->db;
 		return $this->db;
 	}
 
@@ -370,9 +377,9 @@ class DoliDBSqlite3 extends DoliDB
 
 
 	/**
-	 *  Close database connexion
+	 *  Close database connection
 	 *
-	 *  @return     bool     True if disconnect successfull, false otherwise
+	 *  @return     bool     True if disconnect successful, false otherwise
 	 *  @see        connect()
 	 */
 	public function close()
@@ -390,20 +397,20 @@ class DoliDBSqlite3 extends DoliDB
 	}
 
 	/**
-	 *  Execute a SQL request and return the resultset
+	 *	Execute a SQL request and return the resultset
 	 *
-	 * 	@param	string	$query			SQL query string
-	 * 	@param	int		$usesavepoint	0=Default mode, 1=Run a savepoint before and a rollbock to savepoint if error (this allow to have some request with errors inside global transactions).
+	 *	@param	string	$query			SQL query string
+	 *	@param	int		$usesavepoint	0=Default mode, 1=Run a savepoint before and a rollbock to savepoint if error (this allow to have some request with errors inside global transactions).
 	 * 									Note that with Mysql, this parameter is not used as Myssql can already commit a transaction even if one request is in error, without using savepoints.
-	 *  @param  string	$type           Type of SQL order ('ddl' for insert, update, select, delete or 'dml' for create, alter...)
-	 * @param	int		$result_mode	Result mode (not used with sqlite)
-	 *	@return	bool|SQLite3Result		Resultset of answer
+	 *	@param  string	$type           Type of SQL order ('ddl' for insert, update, select, delete or 'dml' for create, alter...)
+	 *	@param	int		$result_mode	Result mode (not used with sqlite)
+	 *	@return	false|SQLite3Result		Resultset of answer
 	 */
 	public function query($query, $usesavepoint = 0, $type = 'auto', $result_mode = 0)
 	{
 		global $conf, $dolibarr_main_db_readonly;
 
-		$ret = null;
+		$ret = false;
 
 		$query = trim($query);
 
@@ -412,9 +419,9 @@ class DoliDBSqlite3 extends DoliDB
 		// Convert MySQL syntax to SQLite syntax
 		$reg = array();
 		if (preg_match('/ALTER\s+TABLE\s*(.*)\s*ADD\s+CONSTRAINT\s+(.*)\s*FOREIGN\s+KEY\s*\(([\w,\s]+)\)\s*REFERENCES\s+(\w+)\s*\(([\w,\s]+)\)/i', $query, $reg)) {
-			// Ajout d'une clef étrangère à la table
-			// procédure de remplacement de la table pour ajouter la contrainte
-			// Exemple : ALTER TABLE llx_adherent ADD CONSTRAINT adherent_fk_soc FOREIGN KEY (fk_soc) REFERENCES llx_societe (rowid)
+			// Adding a foreign key to the table
+			// table replacement procedure to add the constraint
+			// Example : ALTER TABLE llx_adherent ADD CONSTRAINT adherent_fk_soc FOREIGN KEY (fk_soc) REFERENCES llx_societe (rowid)
 			// -> CREATE TABLE ( ... ,CONSTRAINT adherent_fk_soc FOREIGN KEY (fk_soc) REFERENCES llx_societe (rowid))
 			$foreignFields = $reg[5];
 			$foreignTable = $reg[4];
@@ -424,25 +431,25 @@ class DoliDBSqlite3 extends DoliDB
 
 			$descTable = $this->db->querySingle("SELECT sql FROM sqlite_master WHERE name='".$this->escape($tablename)."'");
 
-			// 1- Renommer la table avec un nom temporaire
+			// 1- Rename the table to a temporary name
 			$this->query("ALTER TABLE ".$tablename." RENAME TO tmp_".$tablename);
 
-			// 2- Recréer la table avec la contrainte ajoutée
+			// 2- Recreate the table with the new constraint
 
-			// on bricole la requete pour ajouter la contrainte
+			// Adjust the SQL request to add the constraint
 			$descTable = substr($descTable, 0, strlen($descTable) - 1);
 			$descTable .= ", CONSTRAINT ".$constraintname." FOREIGN KEY (".$localfields.") REFERENCES ".$foreignTable."(".$foreignFields.")";
 
-			// fermeture de l'instruction
+			// Add closing parenthesis for SQL query
 			$descTable .= ')';
 
-			// Création proprement dite de la table
+			// Perform query to create the table
 			$this->query($descTable);
 
-			// 3- Transférer les données
+			// 3- Copy the data from the temporary table (before adding constraint)
 			$this->query("INSERT INTO ".$tablename." SELECT * FROM tmp_".$tablename);
 
-			// 4- Supprimer la table temporaire
+			// 4- Delete the original (now temporary) table
 			$this->query("DROP TABLE tmp_".$tablename);
 
 			// dummy statement
@@ -469,19 +476,19 @@ class DoliDBSqlite3 extends DoliDB
 			}
 		}
 
-		// Ordre SQL ne necessitant pas de connexion a une base (exemple: CREATE DATABASE)
+		// SQL statement that does not require a connection to a database (example: CREATE DATABASE)
 		try {
 			//$ret = $this->db->exec($query);
 			$ret = $this->db->query($query); // $ret is a Sqlite3Result
 			if ($ret) {
-				$ret->queryString = $query;
+				$this->queryString = $query;
 			}
-		} catch (Exception $e) {
+		} catch (Throwable $e) {
 			$this->error = $this->db->lastErrorMsg();
 		}
 
 		if (!preg_match("/^COMMIT/i", $query) && !preg_match("/^ROLLBACK/i", $query)) {
-			// Si requete utilisateur, on la sauvegarde ainsi que son resultset
+			// If it is a user query, save it along with its resultset
 			if (!is_object($ret) || $this->error) {
 				$this->lastqueryerror = $query;
 				$this->lasterror = $this->error();
@@ -495,7 +502,7 @@ class DoliDBSqlite3 extends DoliDB
 					$errormsg .= ' ('.$this->lasterrno.')';
 				}
 
-				if ($conf->global->SYSLOG_LEVEL < LOG_DEBUG) {
+				if (getDolGlobalString('SYSLOG_LEVEL') < LOG_DEBUG) {
 					dol_syslog(get_class($this)."::query SQL Error query: ".$query, LOG_ERR); // Log of request was not yet done previously
 				}
 				dol_syslog(get_class($this)."::query SQL Error message: ".$errormsg, LOG_ERR);
@@ -511,13 +518,13 @@ class DoliDBSqlite3 extends DoliDB
 	/**
 	 * 	Returns the current line (as an object) for the resultset cursor
 	 *
-	 *	@param	SQLite3Result	$resultset  Curseur de la requete voulue
+	 *	@param	SQLite3Result	$resultset  Cursor of the desired query
 	 *	@return	false|object				Object result line or false if KO or end of cursor
 	 */
 	public function fetch_object($resultset)
 	{
 		// phpcs:enable
-		// Si le resultset n'est pas fourni, on prend le dernier utilise sur cette connexion
+		// If the resultset is not provided, use the last one used on this connection
 		if (!is_object($resultset)) {
 			$resultset = $this->_results;
 		}
@@ -535,12 +542,12 @@ class DoliDBSqlite3 extends DoliDB
 	 *	Return datas as an array
 	 *
 	 *	@param	SQLite3Result	$resultset  Resultset of request
-	 *	@return	false|array					Array or false if KO or end of cursor
+	 *	@return	array<int|string,mixed>|null|false	Array or null if KO or end of cursor
 	 */
 	public function fetch_array($resultset)
 	{
 		// phpcs:enable
-		// If resultset not provided, we take the last used by connexion
+		// If resultset not provided, we take the last used by connection
 		if (!is_object($resultset)) {
 			$resultset = $this->_results;
 		}
@@ -554,20 +561,20 @@ class DoliDBSqlite3 extends DoliDB
 	 *	Return datas as an array
 	 *
 	 *	@param	SQLite3Result	$resultset  Resultset of request
-	 *	@return	false|array					Array or false if KO or end of cursor
+	 *	@return	array<int,mixed>|null|int<0,0>  Array or null if KO or end of cursor or 0 if resultset is bool
 	 */
 	public function fetch_row($resultset)
 	{
 		// phpcs:enable
-		// If resultset not provided, we take the last used by connexion
+		// If resultset not provided, we take the last used by connection
 		if (!is_bool($resultset)) {
 			if (!is_object($resultset)) {
 				$resultset = $this->_results;
 			}
 			return $resultset->fetchArray(SQLITE3_NUM);
 		} else {
-			// si le curseur est un booleen on retourne la valeur 0
-			return false;
+			// If the cursor is a boolean, return 0
+			return 0;
 		}
 	}
 
@@ -582,13 +589,14 @@ class DoliDBSqlite3 extends DoliDB
 	public function num_rows($resultset)
 	{
 		// phpcs:enable
-		// FIXME: SQLite3Result does not have a queryString member
 
-		// If resultset not provided, we take the last used by connexion
+		// If resultset not provided, we take the last used by connection
 		if (!is_object($resultset)) {
 			$resultset = $this->_results;
 		}
+		// Ignore Phan - queryString is added as dynamic property @phan-suppress-next-line PhanUndeclaredProperty
 		if (preg_match("/^SELECT/i", $resultset->queryString)) {
+			// Ignore Phan - queryString is added as dynamic property @phan-suppress-next-line PhanUndeclaredProperty
 			return $this->db->querySingle("SELECT count(*) FROM (".$resultset->queryString.") q");
 		}
 		return 0;
@@ -605,17 +613,15 @@ class DoliDBSqlite3 extends DoliDB
 	public function affected_rows($resultset)
 	{
 		// phpcs:enable
-		// FIXME: SQLite3Result does not have a queryString member
 
-		// If resultset not provided, we take the last used by connexion
+		// If resultset not provided, we take the last used by connection
 		if (!is_object($resultset)) {
 			$resultset = $this->_results;
 		}
-		if (preg_match("/^SELECT/i", $resultset->queryString)) {
+		if (preg_match("/^SELECT/i", $this->queryString)) {
 			return $this->num_rows($resultset);
 		}
-		// mysql necessite un link de base pour cette fonction contrairement
-		// a pqsql qui prend un resultset
+		// mysql requires a base link for this function, unlike pgsql which takes a resultset
 		return $this->db->changes();
 	}
 
@@ -623,16 +629,16 @@ class DoliDBSqlite3 extends DoliDB
 	/**
 	 *	Free last resultset used.
 	 *
-	 *	@param  SQLite3Result	$resultset   Curseur de la requete voulue
+	 *	@param  SQLite3Result|null	$resultset		Result set of request
 	 *	@return	void
 	 */
 	public function free($resultset = null)
 	{
-		// If resultset not provided, we take the last used by connexion
+		// If resultset not provided, we take the last used by connection
 		if (!is_object($resultset)) {
 			$resultset = $this->_results;
 		}
-		// Si resultset en est un, on libere la memoire
+		// If resultset is one, free the memory
 		if ($resultset && is_object($resultset)) {
 			$resultset->finalize();
 		}
@@ -646,29 +652,29 @@ class DoliDBSqlite3 extends DoliDB
 	 */
 	public function escape($stringtoencode)
 	{
-		return Sqlite3::escapeString($stringtoencode);
+		return SQLite3::escapeString((string) $stringtoencode);
 	}
 
 	/**
-	 *	Escape a string to insert data
+	 *	Escape a string to insert data into a like
 	 *
 	 *	@param	string	$stringtoencode		String to escape
 	 *	@return	string						String escaped
 	 */
-	public function escapeunderscore($stringtoencode)
+	public function escapeforlike($stringtoencode)
 	{
-		return str_replace('_', '\_', $stringtoencode);
+		return str_replace(array('\\', '_', '%'), array('\\\\', '\_', '\%'), (string) $stringtoencode);
 	}
 
 	/**
 	 *	Renvoie le code erreur generique de l'operation precedente.
 	 *
-	 *	@return	string		Error code (Exemples: DB_ERROR_TABLE_ALREADY_EXISTS, DB_ERROR_RECORD_ALREADY_EXISTS...)
+	 *	@return	string		Error code (Examples: DB_ERROR_TABLE_ALREADY_EXISTS, DB_ERROR_RECORD_ALREADY_EXISTS...)
 	 */
 	public function errno()
 	{
 		if (!$this->connected) {
-			// Si il y a eu echec de connexion, $this->db n'est pas valide.
+			// If the connection failed, $this->db is not valid.
 			return 'DB_ERROR_FAILED_TO_CONNECT';
 		} else {
 			// Constants to convert error code to a generic Dolibarr error code
@@ -722,7 +728,7 @@ class DoliDBSqlite3 extends DoliDB
 				}
 			}
 			if ($errno > 1) {
-				// TODO Voir la liste des messages d'erreur
+				// TODO See the list of error messages
 			}
 
 			return ($errno ? 'DB_ERROR_'.$errno : '0');
@@ -737,7 +743,7 @@ class DoliDBSqlite3 extends DoliDB
 	public function error()
 	{
 		if (!$this->connected) {
-			// Si il y a eu echec de connexion, $this->db n'est pas valide pour sqlite_error.
+			// If the connection failed, $this->db is not valid for sqlite_error.
 			return 'Not connected. Check setup parameters in conf/conf.php file and your sqlite version';
 		} else {
 			return $this->error;
@@ -748,7 +754,7 @@ class DoliDBSqlite3 extends DoliDB
 	/**
 	 * Get last ID after an insert INSERT
 	 *
-	 * @param   string	$tab    	Table name concerned by insert. Ne sert pas sous MySql mais requis pour compatibilite avec Postgresql
+	 * @param   string	$tab    	Table name concerned by insert. Not used for mysql, but required for Postgresql
 	 * @param	string	$fieldid	Field name
 	 * @return  int     			Id of row
 	 */
@@ -762,9 +768,9 @@ class DoliDBSqlite3 extends DoliDB
 	 * Encrypt sensitive data in database
 	 * Warning: This function includes the escape and add the SQL simple quotes on strings.
 	 *
-	 * @param	string	$fieldorvalue	Field name or value to encrypt
-	 * @param	int		$withQuotes		Return string including the SQL simple quotes. This param must always be 1 (Value 0 is bugged and deprecated).
-	 * @return	string					XXX(field) or XXX('value') or field or 'value'
+	 * @param	string		$fieldorvalue	Field name or value to encrypt
+	 * @param	int<1,1>	$withQuotes		Return string including the SQL simple quotes. This param must always be 1 (Value 0 is bugged and deprecated).
+	 * @return	string						XXX(field) or XXX('value') or field or 'value'
 	 */
 	public function encrypt($fieldorvalue, $withQuotes = 1)
 	{
@@ -821,9 +827,9 @@ class DoliDBSqlite3 extends DoliDB
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
 	/**
-	 * Return connexion ID
+	 * Return connection ID
 	 *
-	 * @return	        string      Id connexion
+	 * @return	        string      Id connection
 	 */
 	public function DDLGetConnectId()
 	{
@@ -842,7 +848,7 @@ class DoliDBSqlite3 extends DoliDB
 	 * 	@param	string	$charset		Charset used to store data
 	 * 	@param	string	$collation		Charset used to sort data
 	 * 	@param	string	$owner			Username of database owner
-	 * 	@return	SQLite3Result   		resource defined if OK, null if KO
+	 * 	@return	false|SQLite3Result   		Resource defined if OK, null if KO
 	 */
 	public function DDLCreateDb($database, $charset = '', $collation = '', $owner = '')
 	{
@@ -855,8 +861,8 @@ class DoliDBSqlite3 extends DoliDB
 		}
 
 		// ALTER DATABASE dolibarr_db DEFAULT CHARACTER SET latin DEFAULT COLLATE latin1_swedish_ci
-		$sql = "CREATE DATABASE ".$this->escape($database);
-		$sql .= " DEFAULT CHARACTER SET ".$this->escape($charset)." DEFAULT COLLATE ".$this->escape($collation);
+		$sql = "CREATE DATABASE ".$this->sanitize($database);
+		$sql .= " DEFAULT CHARACTER SET ".$this->sanitize($charset)." DEFAULT COLLATE ".$this->sanitize($collation);
 
 		dol_syslog($sql, LOG_DEBUG);
 		$ret = $this->query($sql);
@@ -870,22 +876,22 @@ class DoliDBSqlite3 extends DoliDB
 	 *
 	 *  @param	string		$database	Name of database
 	 *  @param	string		$table		Name of table filter ('xxx%')
-	 *  @return	array					List of tables in an array
+	 *  @return	string[]				List of tables in an array
 	 */
 	public function DDLListTables($database, $table = '')
 	{
 		// phpcs:enable
 		$listtables = array();
 
-		$like = '';
+		$sanitizedlike = '';
 		if ($table) {
 			$tmptable = preg_replace('/[^a-z0-9\.\-\_%]/i', '', $table);
 
-			$like = "LIKE '".$this->escape($tmptable)."'";
+			$sanitizedlike = "LIKE '".$this->escape($tmptable)."'";
 		}
-		$tmpdatabase = preg_replace('/[^a-z0-9\.\-\_]/i', '', $database);
+		$sanitizedtmpdatabase = preg_replace('/[^a-z0-9\.\-\_]/i', '', $database);  // @phan-suppress-current-line SqlInjection
 
-		$sql = "SHOW TABLES FROM ".$tmpdatabase." ".$like.";";
+		$sql = "SHOW TABLES FROM ".$sanitizedtmpdatabase." ".$sanitizedlike.";";
 		//print $sql;
 		$result = $this->query($sql);
 		if ($result) {
@@ -898,10 +904,43 @@ class DoliDBSqlite3 extends DoliDB
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
 	/**
+	 *  List tables into a database with table type
+	 *
+	 *  @param	string		$database	Name of database
+	 *  @param	string		$table		Name of table filter ('xxx%')
+	 *  @return	array<array{0:string,1:string}>		List of tables in an array
+	 */
+	public function DDLListTablesFull($database, $table = '')
+	{
+		// phpcs:enable
+		$listtables = array();
+
+		$sanitizedlike = '';
+		if ($table) {
+			$tmptable = preg_replace('/[^a-z0-9\.\-\_%]/i', '', $table);
+
+			$sanitizedlike = "LIKE '".$this->escape($tmptable)."'";
+		}
+		$sanitizedtmpdatabase = preg_replace('/[^a-z0-9\.\-\_]/i', '', $database);  // @phan-suppress-current-line SqlInjection
+
+		$sql = "SHOW FULL TABLES FROM ".$sanitizedtmpdatabase." ".$sanitizedlike.";";
+		//print $sql;
+		$result = $this->query($sql);
+		if ($result) {
+			while ($row = $this->fetch_row($result)) {
+				$listtables[] = $row;
+			}
+		}
+		return $listtables;
+	}
+
+	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
+	/**
 	 *  List information of columns into a table.
 	 *
 	 *	@param	string	$table		Name of table
-	 *	@return	array				Tableau des informations des champs de la table
+	 *	@return	array<array<mixed>>	Table with information of columns in the table
+	 *
 	 *	TODO modify for sqlite
 	 */
 	public function DDLInfoTable($table)
@@ -909,9 +948,9 @@ class DoliDBSqlite3 extends DoliDB
 		// phpcs:enable
 		$infotables = array();
 
-		$tmptable = preg_replace('/[^a-z0-9\.\-\_]/i', '', $table);
+		$sanitizedtmptable = preg_replace('/[^a-z0-9\.\-\_]/i', '', $table);
 
-		$sql = "SHOW FULL COLUMNS FROM ".$tmptable.";";
+		$sql = "SHOW FULL COLUMNS FROM ".$sanitizedtmptable.";";
 
 		dol_syslog($sql, LOG_DEBUG);
 		$result = $this->query($sql);
@@ -928,78 +967,97 @@ class DoliDBSqlite3 extends DoliDB
 	 *	Create a table into database
 	 *
 	 *	@param	    string	$table 			Nom de la table
-	 *	@param	    array	$fields 		Tableau associatif [nom champ][tableau des descriptions]
+	 *	@param	    array<string,array{type:string,label?:string,enabled?:int<0,2>|string,position?:int,notnull?:int,visible?:int<-2,5>|string,alwayseditable?:int<0,1>,noteditable?:int<0,1>,default?:string,index?:int,foreignkey?:string,searchall?:int<0,1>,isameasure?:int<0,1>,css?:string,csslist?:string,help?:string,showoncombobox?:int<0,2>,disabled?:int<0,1>,arrayofkeyval?:array<int|string,string>,autofocusoncreate?:int<0,1>,comment?:string,copytoclipboard?:int<1,2>,validate?:int<0,1>,value?:string,attribute?:string,null?:string,extra?:string}>	$fields 		Tableau associatif [nom champ][tableau des descriptions]
 	 *	@param	    string	$primary_key 	Nom du champ qui sera la clef primaire
 	 *	@param	    string	$type 			Type de la table
-	 *	@param	    array	$unique_keys 	Tableau associatifs Nom de champs qui seront clef unique => valeur
-	 *	@param	    array	$fulltext_keys	Tableau des Nom de champs qui seront indexes en fulltext
-	 *	@param	    array	$keys 			Tableau des champs cles noms => valeur
-	 *	@return	    int						<0 if KO, >=0 if OK
+	 *	@param	    ?array<string,mixed>	$unique_keys 	Tableau associatifs Nom de champs qui seront clef unique => valeur
+	 *	@param	    string[]	$fulltext_keys	Tableau des Nom de champs qui seront indexes en fulltext
+	 *	@param	    array<string,mixed>	$keys 			Tableau des champs cles noms => valeur
+	 *	@return	    int						Return integer <0 if KO, >=0 if OK
 	 */
 	public function DDLCreateTable($table, $fields, $primary_key, $type, $unique_keys = null, $fulltext_keys = null, $keys = null)
 	{
 		// phpcs:enable
-		// FIXME: $fulltext_keys parameter is unused
+		// @TODO: $fulltext_keys parameter is unused
 
-		// cles recherchees dans le tableau des descriptions (fields) : type,value,attribute,null,default,extra
-		// ex. : $fields['rowid'] = array('type'=>'int','value'=>'11','null'=>'not null','extra'=> 'auto_increment');
-		$sql = "create table ".$table."(";
+		$sqlk = array();
+		$sqluq = array();
+
+		// Keys found into the array $fields: type,value,attribute,null,default,extra
+		// ex. : $fields['rowid'] = array(
+		//			'type'=>'int' or 'integer',
+		//			'value'=>'11',
+		//			'null'=>'not null',
+		//			'extra'=> 'auto_increment'
+		//		);
+		$sql = "CREATE TABLE ".$this->sanitize($table)."(";
 		$i = 0;
+		$sqlfields = array();
 		foreach ($fields as $field_name => $field_desc) {
-			$sqlfields[$i] = $field_name." ";
-			$sqlfields[$i] .= $field_desc['type'];
-			if (preg_match("/^[^\s]/i", $field_desc['value'])) {
-				$sqlfields[$i]  .= "(".$field_desc['value'].")";
-			} elseif (preg_match("/^[^\s]/i", $field_desc['attribute'])) {
-				$sqlfields[$i]  .= " ".$field_desc['attribute'];
-			} elseif (preg_match("/^[^\s]/i", $field_desc['default'])) {
-				if (preg_match("/null/i", $field_desc['default'])) {
-					$sqlfields[$i] .= " default ".$field_desc['default'];
+			$sqlfields[$i] = $this->sanitize($field_name)." ";
+			$sqlfields[$i] .= $this->sanitize($field_desc['type']);
+			if (!is_null($field_desc['value']) && $field_desc['value'] !== '') {
+				$sqlfields[$i] .= "(".$this->sanitize($field_desc['value']).")";
+			}
+			if (!is_null($field_desc['attribute']) && $field_desc['attribute'] !== '') {
+				$sqlfields[$i] .= " ".$this->sanitize($field_desc['attribute']);
+			}
+			if (!is_null($field_desc['default']) && $field_desc['default'] !== '') {
+				if (in_array($field_desc['type'], array('tinyint', 'smallint', 'int', 'double'))) {
+					$sqlfields[$i] .= " DEFAULT ".((float) $field_desc['default']);
+				} elseif ($field_desc['default'] == 'null' || $field_desc['default'] == 'CURRENT_TIMESTAMP') {
+					$sqlfields[$i] .= " DEFAULT ".$this->sanitize($field_desc['default']);
 				} else {
-					$sqlfields[$i] .= " default '".$this->escape($field_desc['default'])."'";
+					$sqlfields[$i] .= " DEFAULT '".$this->escape($field_desc['default'])."'";
 				}
-			} elseif (preg_match("/^[^\s]/i", $field_desc['null'])) {
-				$sqlfields[$i] .= " ".$field_desc['null'];
-			} elseif (preg_match("/^[^\s]/i", $field_desc['extra'])) {
-				$sqlfields[$i] .= " ".$field_desc['extra'];
+			}
+			if (!is_null($field_desc['null']) && $field_desc['null'] !== '') {
+				$sqlfields[$i] .= " ".$this->sanitize($field_desc['null'], 0, 0, 1);
+			}
+			if (!is_null($field_desc['extra']) && $field_desc['extra'] !== '') {
+				$sqlfields[$i] .= " ".$this->sanitize($field_desc['extra'], 0, 0, 1);
 			}
 			$i++;
 		}
 		if ($primary_key != "") {
-			$pk = "primary key(".$primary_key.")";
+			$sanitizedpk = "PRIMARY KEY(".$this->sanitize($primary_key).")";
+		} else {
+			$sanitizedpk = "";
 		}
+
 
 		if (is_array($unique_keys)) {
 			$i = 0;
 			foreach ($unique_keys as $key => $value) {
-				$sqluq[$i] = "UNIQUE KEY '".$key."' ('".$this->escape($value)."')";
+				$sqluq[$i] = "UNIQUE KEY '".$this->sanitize($key)."' ('".$this->escape($value)."')";
 				$i++;
 			}
 		}
 		if (is_array($keys)) {
 			$i = 0;
 			foreach ($keys as $key => $value) {
-				$sqlk[$i] = "KEY ".$key." (".$value.")";
+				$sqlk[$i] = "KEY ".$this->sanitize($key)." (".$value.")";
 				$i++;
 			}
 		}
 		$sql .= implode(',', $sqlfields);
 		if ($primary_key != "") {
-			$sql .= ",".$pk;
+			$sql .= ",".$sanitizedpk;
 		}
-		if (is_array($unique_keys)) {
+		if ($unique_keys != "") {
 			$sql .= ",".implode(',', $sqluq);
 		}
 		if (is_array($keys)) {
 			$sql .= ",".implode(',', $sqlk);
 		}
-		$sql .= ") type=".$type;
+		$sql .= ")";
+		//$sql .= " engine=".$this->sanitize($type);
 
-		dol_syslog($sql, LOG_DEBUG);
-		if (!$this -> query($sql)) {
+		if (!$this->query($sql)) {
 			return -1;
+		} else {
+			return 1;
 		}
-		return 1;
 	}
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
@@ -1007,14 +1065,14 @@ class DoliDBSqlite3 extends DoliDB
 	 *	Drop a table into database
 	 *
 	 *	@param	    string	$table 			Name of table
-	 *	@return	    int						<0 if KO, >=0 if OK
+	 *	@return	    int						Return integer <0 if KO, >=0 if OK
 	 */
 	public function DDLDropTable($table)
 	{
 		// phpcs:enable
-		$tmptable = preg_replace('/[^a-z0-9\.\-\_]/i', '', $table);
+		$sanitizedtmptable = preg_replace('/[^a-z0-9\.\-\_]/i', '', $table);
 
-		$sql = "DROP TABLE ".$tmptable;
+		$sql = "DROP TABLE ".$sanitizedtmptable;
 
 		if (!$this->query($sql)) {
 			return -1;
@@ -1034,7 +1092,7 @@ class DoliDBSqlite3 extends DoliDB
 	public function DDLDescTable($table, $field = "")
 	{
 		// phpcs:enable
-		$sql = "DESC ".$table." ".$field;
+		$sql = "DESC ".$this->sanitize($table)." ".$this->sanitize($field);
 
 		dol_syslog(get_class($this)."::DDLDescTable ".$sql, LOG_DEBUG);
 		$this->_results = $this->query($sql);
@@ -1045,41 +1103,51 @@ class DoliDBSqlite3 extends DoliDB
 	/**
 	 *	Create a new field into table
 	 *
-	 *	@param	string	$table 				Name of table
-	 *	@param	string	$field_name 		Name of field to add
-	 *	@param	string	$field_desc 		Tableau associatif de description du champ a inserer[nom du parametre][valeur du parametre]
-	 *	@param	string	$field_position 	Optionnel ex.: "after champtruc"
-	 *	@return	int							<0 if KO, >0 if OK
+	 *	@param	string	$table 				Table name
+	 *	@param	string	$field_name 		Field name to add
+	 *	@param	array{type:string,label?:string,enabled?:int<0,2>|string,position?:int,notnull?:int,visible?:int,noteditable?:int,default?:string,extra?:string,null?:string,index?:int,foreignkey?:string,searchall?:int,isameasure?:int,css?:string,csslist?:string,help?:string,showoncombobox?:int,disabled?:int,arrayofkeyval?:array<int,string>,comment?:string} $field_desc 		Associative array of description of the field to insert [parameter name][parameter value]
+	 *	@param	string	$field_position 	Optional e.g.: "after some_field"
+	 *	@return	int							Return integer <0 if KO, >0 if OK
 	 */
 	public function DDLAddField($table, $field_name, $field_desc, $field_position = "")
 	{
 		// phpcs:enable
-		// cles recherchees dans le tableau des descriptions (field_desc) : type,value,attribute,null,default,extra
+		// keys looked up in the descriptions array (field_desc): type,value,attribute,null,default,extra
 		// ex. : $field_desc = array('type'=>'int','value'=>'11','null'=>'not null','extra'=> 'auto_increment');
-		$sql = "ALTER TABLE ".$table." ADD ".$field_name." ";
-		$sql .= $field_desc['type'];
-		if (preg_match("/^[^\s]/i", $field_desc['value'])) {
-			if (!in_array($field_desc['type'], array('date', 'datetime'))) {
-				$sql .= "(".$field_desc['value'].")";
-			}
+		$sql = "ALTER TABLE ".$this->sanitize($table)." ADD ".$this->sanitize($field_name)." ";
+
+		if ($field_desc['type'] !== 'datetimegmt') {
+			$sql .= $this->sanitize($field_desc['type']);
+		} else {
+			$sql .= 'datetime';
 		}
-		if (preg_match("/^[^\s]/i", $field_desc['attribute'])) {
-			$sql .= " ".$field_desc['attribute'];
+
+		if (in_array($field_desc['type'], array('double', 'int', 'varchar')) && array_key_exists('value', $field_desc) && !empty($field_desc['value'])) {
+			$sql .= "(".$this->sanitize($field_desc['value']).")";
 		}
-		if (preg_match("/^[^\s]/i", $field_desc['null'])) {
-			$sql .= " ".$field_desc['null'];
+		if (isset($field_desc['attribute']) && preg_match("/^[^\s]/i", $field_desc['attribute'])) {
+			$sql .= " ".$this->sanitize($field_desc['attribute']);
 		}
-		if (preg_match("/^[^\s]/i", $field_desc['default'])) {
-			if (preg_match("/null/i", $field_desc['default'])) {
-				$sql .= " default ".$field_desc['default'];
+		if (isset($field_desc['null']) && preg_match("/^[^\s]/i", $field_desc['null'])) {
+			if ($field_desc['null'] == 'NOT NULL') {
+				$sql .= " ".$this->sanitize($field_desc['null'], 0, 0, 1);
 			} else {
-				$sql .= " default '".$this->escape($field_desc['default'])."'";
+				$sql .= " ".$this->sanitize($field_desc['null']);
 			}
 		}
-		if (preg_match("/^[^\s]/i", $field_desc['extra'])) {
-			$sql .= " ".$field_desc['extra'];
+		if (isset($field_desc['default']) && preg_match("/^[^\s]/i", $field_desc['default'])) {
+			if (in_array($field_desc['type'], array('tinyint', 'smallint', 'int', 'double'))) {
+				$sql .= " DEFAULT ".((float) $field_desc['default']);
+			} elseif ($field_desc['default'] == 'null' || $field_desc['default'] == 'CURRENT_TIMESTAMP') {
+				$sql .= " DEFAULT ".$this->sanitize($field_desc['default']);
+			} else {
+				$sql .= " DEFAULT '".$this->escape($field_desc['default'])."'";
+			}
 		}
-		$sql .= " ".$field_position;
+		if (isset($field_desc['extra']) && preg_match("/^[^\s]/i", $field_desc['extra'])) {
+			$sql .= " ".$this->sanitize($field_desc['extra'], 0, 0, 1);
+		}
+		$sql .= " ".$this->sanitize($field_position, 0, 0, 1);
 
 		dol_syslog(get_class($this)."::DDLAddField ".$sql, LOG_DEBUG);
 		if (!$this->query($sql)) {
@@ -1094,16 +1162,23 @@ class DoliDBSqlite3 extends DoliDB
 	 *
 	 *	@param	string	$table 				Name of table
 	 *	@param	string	$field_name 		Name of field to modify
-	 *	@param	string	$field_desc 		Array with description of field format
-	 *	@return	int							<0 if KO, >0 if OK
+	 *	@param	array{type:string,label?:string,enabled?:int<0,2>|string,position?:int,notnull?:int,visible?:int,noteditable?:int,default?:string,index?:int,foreignkey?:string,searchall?:int,isameasure?:int,css?:string,csslist?:string,help?:string,showoncombobox?:int,disabled?:int,arrayofkeyval?:array<int,string>,comment?:string,value?:string,null?:string}	$field_desc 	Array with description of field format
+	 *	@return	int							Return integer <0 if KO, >0 if OK
 	 */
 	public function DDLUpdateField($table, $field_name, $field_desc)
 	{
 		// phpcs:enable
-		$sql = "ALTER TABLE ".$table;
-		$sql .= " MODIFY COLUMN ".$field_name." ".$field_desc['type'];
-		if ($field_desc['type'] == 'tinyint' || $field_desc['type'] == 'int' || $field_desc['type'] == 'varchar') {
-			$sql .= "(".$field_desc['value'].")";
+		$sql = "ALTER TABLE ".$this->sanitize($table);
+		$sql .= " MODIFY COLUMN ".$this->sanitize($field_name)." ";
+
+		if ($field_desc['type'] !== 'datetimegmt') {
+			$sql .= $this->sanitize($field_desc['type']);
+		} else {
+			$sql .= 'datetime';
+		}
+
+		if (in_array($field_desc['type'], array('double', 'int', 'varchar')) && array_key_exists('value', $field_desc) && !empty($field_desc['value'])) {
+			$sql .= "(".$this->sanitize($field_desc['value']).")";
 		}
 
 		dol_syslog(get_class($this)."::DDLUpdateField ".$sql, LOG_DEBUG);
@@ -1119,14 +1194,14 @@ class DoliDBSqlite3 extends DoliDB
 	 *
 	 *	@param	string	$table 			Name of table
 	 *	@param	string	$field_name 	Name of field to drop
-	 *	@return	int						<0 if KO, >0 if OK
+	 *	@return	int						Return integer <0 if KO, >0 if OK
 	 */
 	public function DDLDropField($table, $field_name)
 	{
 		// phpcs:enable
 		$tmp_field_name = preg_replace('/[^a-z0-9\.\-\_]/i', '', $field_name);
 
-		$sql = "ALTER TABLE ".$table." DROP COLUMN `".$tmp_field_name."`";
+		$sql = "ALTER TABLE ".$this->sanitize($table)." DROP COLUMN `".$this->sanitize($tmp_field_name)."`";
 		if (!$this->query($sql)) {
 			$this->error = $this->lasterror();
 			return -1;
@@ -1141,16 +1216,16 @@ class DoliDBSqlite3 extends DoliDB
 	 *
 	 *	@param	string	$dolibarr_main_db_host 		Ip serveur
 	 *	@param	string	$dolibarr_main_db_user 		Nom user a creer
-	 *	@param	string	$dolibarr_main_db_pass 		Mot de passe user a creer
+	 *	@param	string	$dolibarr_main_db_pass 		Password user a creer
 	 *	@param	string	$dolibarr_main_db_name		Database name where user must be granted
-	 *	@return	int									<0 if KO, >=0 if OK
+	 *	@return	int									Return integer <0 if KO, >=0 if OK
 	 */
 	public function DDLCreateUser($dolibarr_main_db_host, $dolibarr_main_db_user, $dolibarr_main_db_pass, $dolibarr_main_db_name)
 	{
 		// phpcs:enable
 		$sql = "INSERT INTO user ";
 		$sql .= "(Host,User,password,Select_priv,Insert_priv,Update_priv,Delete_priv,Create_priv,Drop_priv,Index_Priv,Alter_priv,Lock_tables_priv)";
-		$sql .= " VALUES ('".$this->escape($dolibarr_main_db_host)."','".$this->escape($dolibarr_main_db_user)."',password('".addslashes($dolibarr_main_db_pass)."')";
+		$sql .= " VALUES ('".$this->escape($dolibarr_main_db_host)."','".$this->escape($dolibarr_main_db_user)."',password('".$this->escape($dolibarr_main_db_pass)."')";
 		$sql .= ",'Y','Y','Y','Y','Y','Y','Y','Y','Y')";
 
 		dol_syslog(get_class($this)."::DDLCreateUser", LOG_DEBUG); // No sql to avoid password in log
@@ -1161,7 +1236,7 @@ class DoliDBSqlite3 extends DoliDB
 
 		$sql = "INSERT INTO db ";
 		$sql .= "(Host,Db,User,Select_priv,Insert_priv,Update_priv,Delete_priv,Create_priv,Drop_priv,Index_Priv,Alter_priv,Lock_tables_priv)";
-		$sql .= " VALUES ('".$this->escape($dolibarr_main_db_host)."','".$this->escape($dolibarr_main_db_name)."','".addslashes($dolibarr_main_db_user)."'";
+		$sql .= " VALUES ('".$this->escape($dolibarr_main_db_host)."','".$this->escape($dolibarr_main_db_name)."','".$this->escape($dolibarr_main_db_user)."'";
 		$sql .= ",'Y','Y','Y','Y','Y','Y','Y','Y','Y')";
 
 		dol_syslog(get_class($this)."::DDLCreateUser", LOG_DEBUG);
@@ -1193,7 +1268,7 @@ class DoliDBSqlite3 extends DoliDB
 	/**
 	 *	Return list of available charset that can be used to store data in database
 	 *
-	 *	@return		array		List of Charset
+	 *	@return	?array<int,array{charset:string,description:string}>	List of Charset
 	 */
 	public function getListOfCharacterSet()
 	{
@@ -1215,16 +1290,15 @@ class DoliDBSqlite3 extends DoliDB
 	}
 
 	/**
-	 *	Return list of available collation that can be used for database
+	 *	Return list of available collations that can be used for database
 	 *
-	 *	@return		array		List of Collation
+	 *	@return		?array<int,array{collation:string}>		List of Collation
 	 */
 	public function getListOfCollation()
 	{
 		$liste = array();
 		$i = 0;
-		$liste[$i]['charset'] = 'UTF-8';
-		$liste[$i]['description'] = 'UTF-8';
+		$liste[$i]['collation'] = 'UTF-8';
 		return $liste;
 	}
 
@@ -1238,7 +1312,7 @@ class DoliDBSqlite3 extends DoliDB
 		// FIXME: not for SQLite
 		$fullpathofdump = '/pathtomysqldump/mysqldump';
 
-		$resql = $this->query('SHOW VARIABLES LIKE \'basedir\'');
+		$resql = $this->query("SHOW VARIABLES LIKE 'basedir'");
 		if ($resql) {
 			$liste = $this->fetch_array($resql);
 			$basedir = $liste['Value'];
@@ -1257,7 +1331,7 @@ class DoliDBSqlite3 extends DoliDB
 		// FIXME: not for SQLite
 		$fullpathofimport = '/pathtomysql/mysql';
 
-		$resql = $this->query('SHOW VARIABLES LIKE \'basedir\'');
+		$resql = $this->query("SHOW VARIABLES LIKE 'basedir'");
 		if ($resql) {
 			$liste = $this->fetch_array($resql);
 			$basedir = $liste['Value'];
@@ -1269,16 +1343,16 @@ class DoliDBSqlite3 extends DoliDB
 	/**
 	 * Return value of server parameters
 	 *
-	 * @param	string	$filter		Filter list on a particular value
-	 * @return	array				Array of key-values (key=>value)
+	 * @param	string	$filter			Filter list on a particular value
+	 * @return	array<string,string>	Array of key-values (key=>value)
 	 */
 	public function getServerParametersValues($filter = '')
 	{
 		$result = array();
 		static $pragmas;
 		if (!isset($pragmas)) {
-			// Définition de la liste des pragmas utilisés qui ne retournent qu'une seule valeur
-			// indépendante de la base de données.
+			// Define the list of pragmas used that return only a single value
+			// independent of the database.
 			// cf. http://www.sqlite.org/pragma.html
 			$pragmas = array(
 				'application_id', 'auto_vacuum', 'automatic_index', 'busy_timeout', 'cache_size',
@@ -1299,14 +1373,14 @@ class DoliDBSqlite3 extends DoliDB
 
 		// TODO prendre en compte le filtre
 		foreach ($pragmas as $var) {
-			$sql = "PRAGMA $var";
+			$sql = "PRAGMA $var";  // @phan-suppress-current-line SqlInjection
 			$resql = $this->query($sql);
 			if ($resql) {
 				$obj = $this->fetch_row($resql);
 				//dol_syslog(get_class($this)."::select_db getServerParametersValues $var=". print_r($obj, true), LOG_DEBUG);
 				$result[$var] = $obj[0];
 			} else {
-				// TODO Récupérer le message
+				// TODO Retrieve the message
 				$result[$var] = 'FAIL';
 			}
 		}
@@ -1317,14 +1391,16 @@ class DoliDBSqlite3 extends DoliDB
 	 * Return value of server status
 	 *
 	 * @param	string	$filter		Filter list on a particular value
-	 * @return  array				Array of key-values (key=>value)
+	 * @return	array<string,string>	Array of key-values (key=>value)
 	 */
 	public function getServerStatusValues($filter = '')
 	{
 		$result = array();
 		/*
 		$sql='SHOW STATUS';
-		if ($filter) $sql.=" LIKE '".$this->escape($filter)."'";
+		if ($filter) {
+			$sql.=" LIKE '".$this->escape($filter)."'";
+		}
 		$resql=$this->query($sql);
 		if ($resql)
 		{
@@ -1336,12 +1412,14 @@ class DoliDBSqlite3 extends DoliDB
 	}
 
 	/**
-	 * Permet le chargement d'une fonction personnalisee dans le moteur de base de donnees.
-	 * Note: le nom de la fonction personnalisee est prefixee par 'db'. La fonction doit être
-	 * statique et publique. Le nombre de parametres est determine automatiquement.
+	 * Add a custom function in the database engine (STORED PROCEDURE)
+	 * Notes:
+	 *   - The custom function is prefixed with 'db'
+	 *   - The function must be static and public.
+	 *   - The number of arguments is automatically determined when arg_count is < 0
 	 *
-	 * @param 	string 	$name 			Le nom de la fonction a definir dans Sqlite
-	 * @param	int		$arg_count		Arg count
+	 * @param 	string 	$name 			Function name to define in Sqlite
+	 * @param	int		$arg_count		Arguments count
 	 * @return	void
 	 */
 	private function addCustomFunction($name, $arg_count = -1)
@@ -1360,15 +1438,97 @@ class DoliDBSqlite3 extends DoliDB
 		}
 	}
 
-	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
 	/**
+	 * Prepare a SQL statement for execution. Use '?' as the placeholder for every bound value.
+	 *
+	 * @param string $sql SQL query with '?' placeholders
+	 * @return SQLite3Stmt|false
+	 * @see execute()
+	 */
+	public function prepare($sql)
+	{
+		$sql = $this->convertSQLFromMysql($sql);
+
+		dol_syslog(get_class($this)."::prepare sql=".$sql, LOG_DEBUG);
+
+		try {
+			$stmt = $this->db->prepare($sql);
+		} catch (Throwable $e) {
+			$stmt = false;
+			$this->error = $e->getMessage();
+		}
+		if (!($stmt instanceof SQLite3Stmt)) {
+			$this->lasterror = $this->error ? $this->error : $this->db->lastErrorMsg();
+			$this->lastqueryerror = $sql;
+			return false;
+		}
+		// Keep the query text so num_rows()/affected_rows() can tell a SELECT from the rest
+		$this->queryString = $sql;
+
+		return $stmt;
+	}
+
+	/**
+	 * Execute a statement previously created with prepare().
+	 *
+	 * @param SQLite3Stmt      $stmt   Statement returned by prepare()
+	 * @param array<int,mixed> $params Ordered list of values for the '?' placeholders
+	 * @return SQLite3Result|bool      A SQLite3Result (usable with fetch_object()/num_rows()/free())
+	 *                                 for a SELECT, true for another successful statement, false on error
+	 * @see prepare()
+	 */
+	public function execute($stmt, $params = array())
+	{
+		if (!($stmt instanceof SQLite3Stmt)) {
+			$this->lasterror = 'execute() called with an invalid statement';
+			return false;
+		}
+
+		$this->lasterror = '';
+		$this->error = '';
+
+		$i = 1;
+		foreach (array_values($params) as $v) {
+			if (is_int($v) || is_bool($v)) {
+				$stmt->bindValue($i, (int) $v, SQLITE3_INTEGER);
+			} elseif (is_float($v)) {
+				$stmt->bindValue($i, $v, SQLITE3_FLOAT);
+			} elseif (is_null($v)) {
+				$stmt->bindValue($i, null, SQLITE3_NULL);
+			} else {
+				$stmt->bindValue($i, (string) $v, SQLITE3_TEXT);
+			}
+			$i++;
+		}
+
+		dol_syslog(get_class($this)."::execute (".($i - 1)." bound param(s))", LOG_DEBUG);
+
+		try {
+			$res = $stmt->execute();
+		} catch (Throwable $e) {
+			$res = false;
+			$this->error = $e->getMessage();
+		}
+		if (!($res instanceof SQLite3Result)) {
+			$this->lasterror = $this->error ? $this->error : $this->db->lastErrorMsg();
+			return false;
+		}
+
+		$this->_results = $res;
+
+		return ($res->numColumns() > 0) ? $res : true;
+	}
+
+	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
+	/* Unused/commented
 	 * calc_daynr
 	 *
-	 * @param 	int 	$year		Year
-	 * @param 	int 	$month		Month
-	 * @param	int     $day 		Day
-	 * @return int Formatted date
+	 * param 	int 	$year		Year
+	 * param 	int 	$month		Month
+	 * param	int     $day 		Day
+	 * return int Formatted date
 	 */
+	/*
 	private static function calc_daynr($year, $month, $day)
 	{
 		// phpcs:enable
@@ -1382,49 +1542,55 @@ class DoliDBSqlite3 extends DoliDB
 		} else {
 			$num -= floor(($month * 4 + 23) / 10);
 		}
-			$temp = floor(($y / 100 + 1) * 3 / 4);
-			return $num + floor($y / 4) - $temp;
+		$temp = floor(($y / 100 + 1) * 3 / 4);
+		return (int) ($num + floor($y / 4) - $temp);
 	}
+	*/
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
-	/**
+	/* Unused/commented
 	 * calc_weekday
 	 *
-	 * @param int	$daynr							???
-	 * @param bool	$sunday_first_day_of_week		???
-	 * @return int
+	 * param int	$daynr							???
+	 * param bool	$sunday_first_day_of_week		???
+	 * return int
 	 */
+	/*
 	private static function calc_weekday($daynr, $sunday_first_day_of_week)
 	{
 		// phpcs:enable
-		$ret = floor(($daynr + 5 + ($sunday_first_day_of_week ? 1 : 0)) % 7);
+		$ret = (int) floor(($daynr + 5 + ($sunday_first_day_of_week ? 1 : 0)) % 7);
 		return $ret;
 	}
+	*/
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
-	/**
+	/* Unused/commented
 	 * calc_days_in_year
 	 *
-	 * @param 	string	$year		Year
-	 * @return	int					Nb of days in year
+	 * param 	int		$year		Year
+	 * return	int					Nb of days in year
 	 */
+	/*
 	private static function calc_days_in_year($year)
 	{
 		// phpcs:enable
 		return (($year & 3) == 0 && ($year % 100 || ($year % 400 == 0 && $year)) ? 366 : 365);
 	}
+	*/
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
-	/**
+	/* Unused/commented
 	 * calc_week
 	 *
-	 * @param 	string	$year				Year
-	 * @param 	string	$month				Month
-	 * @param 	string	$day				Day
-	 * @param 	string	$week_behaviour		Week behaviour
-	 * @param 	string	$calc_year			???
-	 * @return	string						???
+	 * param 	int		$year				Year
+	 * param 	int		$month				Month
+	 * param 	int		$day				Day
+	 * param 	int		$week_behaviour		Week behaviour, bit masks: WEEK_MONDAY_FIRST, WEEK_YEAR, WEEK_FIRST_WEEKDAY
+	 * param 	int		$calc_year			??? Year where the week started
+	 * return	int							??? Week number in year
 	 */
+	/*
 	private static function calc_week($year, $month, $day, $week_behaviour, &$calc_year)
 	{
 		// phpcs:enable
@@ -1460,6 +1626,7 @@ class DoliDBSqlite3 extends DoliDB
 				return 1;
 			}
 		}
-		return floor($days / 7 + 1);
+		return (int) floor($days / 7 + 1);
 	}
+	*/
 }
